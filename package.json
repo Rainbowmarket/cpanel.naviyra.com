@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "concurrently -n panel,agent -c green,cyan \"next dev\" \"npm run agent:dev\"",
+    "dev:panel": "next dev",
     "build": "prisma generate && next build",
     "start": "next start",
     "lint": "eslint",

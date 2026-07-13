@@ -414,7 +414,7 @@ async function startApp() {
   }
 
   const useProduction = fs.existsSync(path.join(ROOT, ".next", "BUILD_ID"));
-  const panelArgs = useProduction ? ["run", "start"] : ["run", "dev"];
+  const panelArgs = useProduction ? ["run", "start"] : ["run", "dev:panel"];
 
   if (!useProduction) {
     log("Running in development mode (run 'npm run build' for production)");

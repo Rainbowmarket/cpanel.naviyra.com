@@ -260,6 +260,96 @@ async function handleAction(payload: Action) {
       return { success: true };
     }
 
+    case "delete_directory": {
+      await fs.rm(String(payload.path), { recursive: true, force: true });
+      return { success: true };
+    }
+
+    case "rename_path": {
+      const source = String(payload.source);
+      const dest = String(payload.dest);
+      await fs.rename(source, dest);
+      return { success: true };
+    }
+
+    case "move_path": {
+      const source = String(payload.source);
+      const destDir = String(payload.dest);
+      const target = path.join(destDir, path.basename(source));
+      await fs.rename(source, target);
+      return { success: true };
+    }
+
+    case "copy_path": {
+      const source = String(payload.source);
+      const destDir = String(payload.dest);
+      const target = path.join(destDir, path.basename(source));
+      await fs.cp(source, target, { recursive: true });
+      return { success: true };
+    }
+
+    case "upload_file": {
+      const filePath = String(payload.path);
+      await fs.mkdir(path.dirname(filePath), { recursive: true });
+      await fs.writeFile(filePath, Buffer.from(String(payload.contentBase64), "base64"));
+      return { success: true, data: { path: filePath } };
+    }
+
+    case "read_file_binary": {
+      const filePath = String(payload.path);
+      const buf = await fs.readFile(filePath);
+      return {
+        success: true,
+        data: {
+          contentBase64: buf.toString("base64"),
+          size: buf.length,
+        },
+      };
+    }
+
+    case "block_ip": {
+      const ip = String(payload.ip);
+      const reason = String(payload.reason ?? "Naviyra security block");
+      if (!DRY_RUN && !isWindows) {
+        await runCmd("ufw", ["deny", "from", ip]);
+      } else {
+        console.log(`[DRY RUN] block_ip ${ip}: ${reason}`);
+      }
+      await ensureConfigDir();
+      const denyFile = path.join(CONFIG_ROOT, "blocked-ips.conf");
+      let lines = "";
+      try {
+        lines = await fs.readFile(denyFile, "utf8");
+      } catch {
+        /* new file */
+      }
+      if (!lines.includes(ip)) {
+        await fs.appendFile(denyFile, `deny ${ip}; # ${reason}\n`, "utf8");
+      }
+      return { success: true, data: { ip, dryRun: DRY_RUN } };
+    }
+
+    case "unblock_ip": {
+      const ip = String(payload.ip);
+      if (!DRY_RUN && !isWindows) {
+        await runCmd("ufw", ["delete", "deny", "from", ip]).catch(() => undefined);
+      } else {
+        console.log(`[DRY RUN] unblock_ip ${ip}`);
+      }
+      const denyFile = path.join(CONFIG_ROOT, "blocked-ips.conf");
+      try {
+        const content = await fs.readFile(denyFile, "utf8");
+        const next = content
+          .split("\n")
+          .filter((line) => !line.includes(ip))
+          .join("\n");
+        await fs.writeFile(denyFile, next, "utf8");
+      } catch {
+        /* no file */
+      }
+      return { success: true, data: { ip, dryRun: DRY_RUN } };
+    }
+
     default:
       return { success: false, error: `Unknown action: ${payload.action}` };
   }

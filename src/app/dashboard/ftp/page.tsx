@@ -1,53 +1,51 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import { Upload } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { Modal, modalInputClass, modalLabelClass } from "@/components/ui/modal";
 import { ModalActions, PageHeader } from "@/components/ui/page-header";
 import { matchesSearch } from "@/lib/utils";
 
-type Domain = { id: string; name: string };
+type HostingTarget = { id: string; label: string; documentRoot: string };
 type FtpAccount = { id: string; username: string; homeDir: string };
 
 export default function FtpPage() {
-  const [domains, setDomains] = useState<Domain[]>([]);
-  const [domainId, setDomainId] = useState("");
+  const [targets, setTargets] = useState<HostingTarget[]>([]);
+  const [target, setTarget] = useState("");
   const [accounts, setAccounts] = useState<FtpAccount[]>([]);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [search, setSearch] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
 
-  useEffect(() => {
-    fetch("/api/domains")
-      .then((r) => r.json())
-      .then((d) => {
-        setDomains(d.domains ?? []);
-        if (d.domains?.[0]) setDomainId(d.domains[0].id);
-      });
+  const loadAccounts = useCallback(async () => {
+    const res = await fetch("/api/ftp");
+    const data = await res.json();
+    setAccounts(data.accounts ?? []);
   }, []);
 
   useEffect(() => {
-    if (!domainId) return;
-    fetch(`/api/ftp?domainId=${domainId}`)
+    fetch("/api/ftp/targets")
       .then((r) => r.json())
-      .then((d) => setAccounts(d.accounts ?? []));
-  }, [domainId]);
+      .then((d) => {
+        setTargets(d.targets ?? []);
+        if (d.targets?.[0]) setTarget(d.targets[0].id);
+      });
+    loadAccounts();
+  }, [loadAccounts]);
 
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
     await fetch("/api/ftp", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ domainId, username, password }),
+      body: JSON.stringify({ target, username, password }),
     });
     setUsername("");
     setPassword("");
     setCreateOpen(false);
-    const res = await fetch(`/api/ftp?domainId=${domainId}`);
-    const data = await res.json();
-    setAccounts(data.accounts ?? []);
+    await loadAccounts();
   }
 
   const filteredAccounts = accounts.filter((a) =>
@@ -71,16 +69,16 @@ export default function FtpPage() {
         open={createOpen}
         onClose={() => setCreateOpen(false)}
         title="Create FTP Account"
-        description="Add an FTP user scoped to a domain directory."
+        description="Add an FTP user scoped to a domain or subdomain directory."
       >
         <form onSubmit={handleCreate} className="space-y-4">
           <div>
-            <label className={modalLabelClass}>Domain</label>
+            <label className={modalLabelClass}>Domain / Subdomain</label>
             <Select
-              value={domainId}
-              onChange={setDomainId}
-              options={domains.map((d) => ({ value: d.id, label: d.name }))}
-              placeholder="Choose domain..."
+              value={target}
+              onChange={setTarget}
+              options={targets.map((t) => ({ value: t.id, label: t.label }))}
+              placeholder="Choose domain or subdomain..."
             />
           </div>
           <div>

@@ -47,6 +47,31 @@ enum JobType {
   CREATE_FTP_ACCOUNT
   DELETE_FTP_ACCOUNT
   SYNC_DNS
+  BLOCK_IP
+  UNBLOCK_IP
+}
+
+enum ThreatType {
+  SQL_INJECTION
+  XSS
+  BRUTE_FORCE
+  SCANNER
+  BOT
+  PATH_TRAVERSAL
+  OTHER
+}
+
+enum ThreatSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum SecurityAction {
+  LOGGED
+  BLOCKED
+  BLOCKED_AUTO
 }
 
 model User {
@@ -96,6 +121,9 @@ model Domain {
   ftpAccounts  FtpAccount[]
   sslCerts     SslCertificate[]
   dnsZone      DnsZone?
+  visitorLogs  VisitorLog[]
+  liveVisitors LiveVisitor[]
+  securityEvents SecurityEvent[]
 }
 
 model Subdomain {
@@ -229,4 +257,84 @@ model Job {
   server   Server? @relation(fields: [serverId], references: [id], onDelete: SetNull)
 
   @@index([status, createdAt])
+}
+
+model VisitorLog {
+  id          String   @id @default(cuid())
+  ipAddress   String
+  url         String
+  method      String   @default("GET")
+  userAgent   String?
+  browser     String?
+  os          String?
+  countryCode String?
+  countryName String?
+  referrer    String?
+  statusCode  Int?
+  isBot       Boolean  @default(false)
+  visitedAt   DateTime @default(now())
+
+  domainId String
+  domain   Domain @relation(fields: [domainId], references: [id], onDelete: Cascade)
+
+  @@index([domainId, visitedAt])
+  @@index([ipAddress])
+  @@index([visitedAt])
+}
+
+model LiveVisitor {
+  id          String   @id @default(cuid())
+  ipAddress   String
+  url         String?
+  browser     String?
+  countryCode String?
+  lastSeen    DateTime @default(now()) @updatedAt
+
+  domainId String
+  domain   Domain @relation(fields: [domainId], references: [id], onDelete: Cascade)
+
+  @@unique([domainId, ipAddress])
+  @@index([lastSeen])
+}
+
+model SecurityEvent {
+  id          String          @id @default(cuid())
+  ipAddress   String
+  threatType  ThreatType
+  severity    ThreatSeverity  @default(MEDIUM)
+  url         String?
+  payload     String?
+  userAgent   String?
+  actionTaken SecurityAction  @default(LOGGED)
+  detectedAt  DateTime        @default(now())
+
+  domainId String?
+  domain   Domain? @relation(fields: [domainId], references: [id], onDelete: SetNull)
+
+  blockedIp BlockedIp?
+
+  @@index([ipAddress, detectedAt])
+  @@index([detectedAt])
+}
+
+model BlockedIp {
+  id          String   @id @default(cuid())
+  ipAddress   String   @unique
+  reason      String
+  source      String   @default("manual")
+  blockedVia  String   @default("ufw")
+  isActive    Boolean  @default(true)
+  blockedAt   DateTime @default(now())
+
+  securityEventId String?        @unique
+  securityEvent   SecurityEvent? @relation(fields: [securityEventId], references: [id], onDelete: SetNull)
+
+  @@index([isActive])
+}
+
+model WhitelistedIp {
+  id        String   @id @default(cuid())
+  ipAddress String   @unique
+  label     String?
+  createdAt DateTime @default(now())
 }

@@ -13,9 +13,9 @@ import {
   ChevronRight,
   Users,
   Network,
+  Shield,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { openFileManager } from "@/lib/file-manager";
 
 const navGroups = [
   {
@@ -41,12 +41,8 @@ const navGroups = [
   {
     label: "Tools",
     items: [
-      {
-        href: "/dashboard/files",
-        label: "File Manager",
-        icon: FolderOpen,
-        openInNewTab: true,
-      },
+      { href: "/file-manager", label: "File Manager", icon: FolderOpen },
+      { href: "/dashboard/security", label: "Security Manager", icon: Shield },
     ],
   },
 ];
@@ -86,30 +82,29 @@ export function Sidebar({ role }: { role?: string }) {
               {group.items.map((item) => {
                 const Icon = item.icon;
                 const active =
-                  pathname === item.href ||
-                  (item.href !== "/dashboard" && pathname.startsWith(item.href));
+                  !("external" in item && item.external) &&
+                  (pathname === item.href ||
+                    (item.href !== "/dashboard" && pathname.startsWith(item.href)));
 
-                if ("openInNewTab" in item && item.openInNewTab) {
+                const className = cn(
+                  "group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all",
+                  active
+                    ? "bg-emerald-500/15 text-emerald-300 shadow-sm ring-1 ring-emerald-500/20"
+                    : "text-slate-400 hover:bg-slate-800/60 hover:text-white"
+                );
+
+                if ("external" in item && item.external) {
                   return (
-                    <button
+                    <a
                       key={item.href}
-                      type="button"
-                      onClick={() => openFileManager()}
-                      className={cn(
-                        "group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-all",
-                        active
-                          ? "bg-emerald-500/15 text-emerald-300 shadow-sm ring-1 ring-emerald-500/20"
-                          : "text-slate-400 hover:bg-slate-800/60 hover:text-white"
-                      )}
+                      href={item.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={className}
                     >
-                      <Icon
-                        className={cn(
-                          "h-4 w-4 shrink-0",
-                          active ? "text-emerald-400" : "text-slate-500 group-hover:text-slate-300"
-                        )}
-                      />
+                      <Icon className="h-4 w-4 shrink-0 text-slate-500 group-hover:text-slate-300" />
                       <span className="flex-1">{item.label}</span>
-                    </button>
+                    </a>
                   );
                 }
 
@@ -117,12 +112,7 @@ export function Sidebar({ role }: { role?: string }) {
                   <Link
                     key={item.href}
                     href={item.href}
-                    className={cn(
-                      "group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all",
-                      active
-                        ? "bg-emerald-500/15 text-emerald-300 shadow-sm ring-1 ring-emerald-500/20"
-                        : "text-slate-400 hover:bg-slate-800/60 hover:text-white"
-                    )}
+                    className={className}
                   >
                     <Icon
                       className={cn(

@@ -10,7 +10,11 @@ export async function listDomains(userId: string) {
     include: {
       server: { select: { name: true, hostname: true } },
       subdomains: true,
-      sslCerts: { orderBy: { createdAt: "desc" }, take: 1 },
+      sslCerts: {
+        where: { subdomainId: null },
+        orderBy: { createdAt: "desc" },
+        take: 1,
+      },
       _count: { select: { ftpAccounts: true } },
     },
     orderBy: { createdAt: "desc" },

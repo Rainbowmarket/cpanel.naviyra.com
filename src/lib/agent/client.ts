@@ -20,6 +20,12 @@ export type AgentAction =
   | { action: "write_file"; path: string; content: string }
   | { action: "delete_file"; path: string }
   | { action: "create_directory"; path: string }
+  | { action: "delete_directory"; path: string }
+  | { action: "rename_path"; source: string; dest: string }
+  | { action: "move_path"; source: string; dest: string }
+  | { action: "copy_path"; source: string; dest: string }
+  | { action: "upload_file"; path: string; contentBase64: string }
+  | { action: "read_file_binary"; path: string }
   | {
       action: "sync_dns_zone";
       domain: string;
@@ -36,7 +42,9 @@ export type AgentAction =
       }>;
       zoneContent: string;
     }
-  | { action: "delete_dns_zone"; domain: string };
+  | { action: "delete_dns_zone"; domain: string }
+  | { action: "block_ip"; ip: string; reason?: string }
+  | { action: "unblock_ip"; ip: string };
 
 export type AgentResponse<T = unknown> = {
   success: boolean;

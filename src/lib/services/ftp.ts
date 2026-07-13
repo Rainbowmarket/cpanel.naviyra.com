@@ -1,27 +1,31 @@
 import { prisma } from "@/lib/prisma";
 import { callAgent } from "@/lib/agent/client";
 import { hashPassword } from "@/lib/auth";
+import { resolveHostingTarget } from "@/lib/hosting-targets";
 
-export async function listFtpAccounts(domainId: string, userId: string) {
+export async function listFtpAccounts(userId: string) {
   return prisma.ftpAccount.findMany({
-    where: { domainId, domain: { userId } },
+    where: { domain: { userId } },
     orderBy: { createdAt: "desc" },
   });
 }
 
 export async function createFtpAccount(input: {
-  domainId: string;
+  target: string;
   userId: string;
   username: string;
   password: string;
-  homeDir?: string;
 }) {
+  const hostingTarget = await resolveHostingTarget(input.target, input.userId, {
+    excludeMailSubdomains: true,
+  });
+
   const domain = await prisma.domain.findFirstOrThrow({
-    where: { id: input.domainId, userId: input.userId },
+    where: { id: hostingTarget.domainId, userId: input.userId },
     include: { server: true },
   });
 
-  const homeDir = input.homeDir ?? domain.documentRoot;
+  const homeDir = hostingTarget.documentRoot;
   const passwordHash = await hashPassword(input.password);
 
   const account = await prisma.ftpAccount.create({

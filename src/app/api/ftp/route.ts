@@ -7,14 +7,10 @@ import {
   listFtpAccounts,
 } from "@/lib/services/ftp";
 
-export async function GET(request: Request) {
+export async function GET() {
   try {
     const user = await requireSessionUser();
-    const domainId = new URL(request.url).searchParams.get("domainId");
-    if (!domainId) {
-      return NextResponse.json({ error: "domainId required" }, { status: 400 });
-    }
-    const accounts = await listFtpAccounts(domainId, user.id);
+    const accounts = await listFtpAccounts(user.id);
     return NextResponse.json({ accounts });
   } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -22,10 +18,9 @@ export async function GET(request: Request) {
 }
 
 const createSchema = z.object({
-  domainId: z.string(),
+  target: z.string().min(1),
   username: z.string().min(3),
   password: z.string().min(8),
-  homeDir: z.string().optional(),
 });
 
 export async function POST(request: Request) {

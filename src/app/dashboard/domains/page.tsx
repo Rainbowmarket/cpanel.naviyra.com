@@ -1,8 +1,9 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertCircle, Globe, RefreshCw } from "lucide-react";
+import { AlertCircle, FolderOpen, Globe, Lock, RefreshCw } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { Modal, modalInputClass, modalLabelClass } from "@/components/ui/modal";
 import { ModalActions, PageHeader } from "@/components/ui/page-header";
@@ -14,6 +15,12 @@ type Domain = {
   documentRoot: string;
   lastError?: string | null;
   server: { name: string; hostname: string };
+  sslCerts: Array<{
+    id: string;
+    status: string;
+    expiresAt: string | null;
+    lastError?: string | null;
+  }>;
 };
 
 type ServerOption = { id: string; name: string; hostname: string };
@@ -52,6 +59,8 @@ export default function DomainsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [retrying, setRetrying] = useState<string | null>(null);
+  const [sslLoading, setSslLoading] = useState<string | null>(null);
+  const [sslError, setSslError] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
 
   async function load() {
@@ -113,6 +122,32 @@ export default function DomainsPage() {
     router.refresh();
   }
 
+  async function handleIssueSsl(domainId: string) {
+    setSslError("");
+    setSslLoading(domainId);
+    const res = await fetch("/api/ssl", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ domainId, includeWww: true, autoRenew: true }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setSslError(data.error ?? "Failed to issue SSL");
+    } else if (data.certificate?.status === "FAILED") {
+      setSslError(data.certificate.lastError ?? "SSL issuance failed");
+    }
+    setSslLoading(null);
+    await load();
+  }
+
+  async function handleRenewSsl(certId: string, domainId: string) {
+    setSslError("");
+    setSslLoading(domainId);
+    await fetch(`/api/ssl?id=${certId}`, { method: "PATCH" });
+    setSslLoading(null);
+    await load();
+  }
+
   if (loading) return <p className="text-slate-400">Loading...</p>;
 
   return (
@@ -171,6 +206,13 @@ export default function DomainsPage() {
         </form>
       </Modal>
 
+      {sslError && (
+        <p className="flex items-center gap-2 text-sm text-red-400">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          {sslError}
+        </p>
+      )}
+
       <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/50">
         <table className="w-full text-left text-sm">
           <thead className="bg-slate-900/80 text-slate-400">
@@ -183,7 +225,9 @@ export default function DomainsPage() {
             </tr>
           </thead>
           <tbody>
-            {domains.map((d) => (
+            {domains.map((d) => {
+              const ssl = d.sslCerts[0];
+              return (
               <tr key={d.id} className="border-t border-slate-800/80 hover:bg-slate-900/30">
                 <td className="px-5 py-4 font-medium text-white">{d.name}</td>
                 <td className="px-5 py-4 text-slate-300">{d.server.hostname}</td>
@@ -194,27 +238,67 @@ export default function DomainsPage() {
                   {d.documentRoot}
                 </td>
                 <td className="px-5 py-4 text-right">
-                  <div className="flex items-center justify-end gap-3">
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    {ssl?.status === "ACTIVE" ? (
+                      <button
+                        type="button"
+                        onClick={() => handleRenewSsl(ssl.id, d.id)}
+                        disabled={sslLoading === d.id}
+                        className="flex items-center gap-1.5 rounded-lg border border-emerald-500/30 px-3 py-1.5 text-xs text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-50"
+                      >
+                        <RefreshCw
+                          className={`h-3.5 w-3.5 ${sslLoading === d.id ? "animate-spin" : ""}`}
+                        />
+                        Renew SSL
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleIssueSsl(d.id)}
+                        disabled={sslLoading === d.id || d.status !== "ACTIVE"}
+                        className="flex items-center gap-1.5 rounded-lg border border-emerald-500/30 px-3 py-1.5 text-xs text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-50"
+                        title={
+                          d.status !== "ACTIVE"
+                            ? "Domain must be active before issuing SSL"
+                            : undefined
+                        }
+                      >
+                        <Lock className="h-3.5 w-3.5" />
+                        {ssl ? "Re-issue SSL" : "Issue SSL"}
+                      </button>
+                    )}
+                    <Link
+                      href={`/file-manager?target=d:${d.id}`}
+                      className="flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-emerald-400 hover:bg-slate-800"
+                    >
+                      <FolderOpen className="h-3.5 w-3.5" />
+                      Open files
+                    </Link>
                     {d.status === "ERROR" && (
                       <button
+                        type="button"
                         onClick={() => handleRetry(d.id)}
                         disabled={retrying === d.id}
-                        className="flex items-center gap-1 text-sm text-amber-400 hover:text-amber-300 disabled:opacity-50"
+                        className="flex items-center gap-1.5 rounded-lg border border-amber-500/30 px-3 py-1.5 text-xs text-amber-400 hover:bg-amber-500/10 disabled:opacity-50"
                       >
-                        <RefreshCw className={`h-3.5 w-3.5 ${retrying === d.id ? "animate-spin" : ""}`} />
+                        <RefreshCw
+                          className={`h-3.5 w-3.5 ${retrying === d.id ? "animate-spin" : ""}`}
+                        />
                         Retry
                       </button>
                     )}
                     <button
+                      type="button"
                       onClick={() => handleDelete(d.id)}
-                      className="text-sm text-red-400 hover:text-red-300"
+                      className="flex items-center gap-1.5 rounded-lg border border-red-500/30 px-3 py-1.5 text-xs text-red-400 hover:bg-red-500/10"
                     >
                       Delete
                     </button>
                   </div>
                 </td>
               </tr>
-            ))}
+            );
+            })}
             {domains.length === 0 && (
               <tr>
                 <td colSpan={5} className="px-5 py-12 text-center text-slate-500">

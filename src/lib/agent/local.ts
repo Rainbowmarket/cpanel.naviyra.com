@@ -183,6 +183,52 @@ export async function executeLocalAgent<T = unknown>(
         return { success: true };
       }
 
+      case "delete_directory": {
+        await fs.rm(payload.path, { recursive: true, force: true });
+        return { success: true };
+      }
+
+      case "rename_path": {
+        await fs.rename(payload.source, payload.dest);
+        return { success: true };
+      }
+
+      case "move_path": {
+        const target = path.join(payload.dest, path.basename(payload.source));
+        await fs.rename(payload.source, target);
+        return { success: true };
+      }
+
+      case "copy_path": {
+        const target = path.join(payload.dest, path.basename(payload.source));
+        await fs.cp(payload.source, target, { recursive: true });
+        return { success: true };
+      }
+
+      case "upload_file": {
+        await fs.mkdir(path.dirname(payload.path), { recursive: true });
+        await fs.writeFile(
+          payload.path,
+          Buffer.from(payload.contentBase64, "base64")
+        );
+        return { success: true, data: { path: payload.path } as T };
+      }
+
+      case "read_file_binary": {
+        const buf = await fs.readFile(payload.path);
+        return {
+          success: true,
+          data: {
+            contentBase64: buf.toString("base64"),
+            size: buf.length,
+          } as T,
+        };
+      }
+
+      case "block_ip":
+      case "unblock_ip":
+        return { success: true, data: { ip: payload.ip, mode: "local-dry-run" } as T };
+
       default:
         return { success: false, error: `Unknown action: ${payload.action}` };
     }

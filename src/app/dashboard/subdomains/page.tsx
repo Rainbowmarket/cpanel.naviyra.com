@@ -15,7 +15,6 @@ import { Select } from "@/components/ui/select";
 import { Modal, modalInputClass, modalLabelClass } from "@/components/ui/modal";
 import { ModalActions, PageHeader } from "@/components/ui/page-header";
 import { matchesSearch } from "@/lib/utils";
-import { openFileManager } from "@/lib/file-manager";
 
 type Domain = { id: string; name: string };
 type Subdomain = {
@@ -406,14 +405,13 @@ export default function SubdomainsPage() {
                     Edit path
                   </button>
                 )}
-                <button
-                  type="button"
-                  onClick={() => openFileManager({ path: s.documentRoot })}
+                <Link
+                  href={`/file-manager?target=s:${s.id}`}
                   className="flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-emerald-400 hover:bg-slate-800"
                 >
                   <FolderOpen className="h-3.5 w-3.5" />
                   Open files
-                </button>
+                </Link>
                 {s.status === "ERROR" && (
                   <button
                     type="button"
