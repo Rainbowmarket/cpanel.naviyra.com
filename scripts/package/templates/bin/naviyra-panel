@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Naviyra Panel launcher (Linux / macOS)
+set -euo pipefail
+BASE="$(cd "$(dirname "$0")/.." && pwd)"
+APP="$BASE/app"
+NODE_BIN="$BASE/node/bin/node"
+
+export NAVIYRA_ROOT="$APP"
+
+if [[ -x "$NODE_BIN" ]]; then
+  export PATH="$BASE/node/bin:$PATH"
+fi
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "Node.js not found. Install Node 20+ or use a package with embedded Node."
+  exit 1
+fi
+
+cd "$APP"
+exec node "$APP/launcher/index.mjs" "$@"

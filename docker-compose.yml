@@ -1,0 +1,34 @@
+# OPTIONAL — only if you prefer Docker for local PostgreSQL.
+# You do NOT need this file. Use native PostgreSQL + scripts/setup.ps1 instead.
+#
+# Without Docker:
+#   1. Install PostgreSQL on your machine
+#   2. Set DATABASE_URL in .env
+#   3. Run: .\scripts\setup.ps1  then  .\scripts\start.ps1
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: naviyra
+      POSTGRES_PASSWORD: naviyra_secret
+      POSTGRES_DB: naviyra_panel
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # Optional: run the panel in Docker (dev on Linux/macOS)
+  # web:
+  #   build: .
+  #   ports:
+  #     - "3000:3000"
+  #   environment:
+  #     DATABASE_URL: postgresql://naviyra:naviyra_secret@postgres:5432/naviyra_panel
+  #     AGENT_URL: http://host.docker.internal:4000
+  #   depends_on:
+  #     - postgres
+
+volumes:
+  postgres_data:

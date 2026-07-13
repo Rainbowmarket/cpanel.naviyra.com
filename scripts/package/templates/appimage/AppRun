@@ -1,0 +1,8 @@
+#!/bin/bash
+# AppRun — Naviyra Panel AppImage entry
+HERE="$(dirname "$(readlink -f "$0")")"
+export NAVIYRA_ROOT="$HERE/opt/naviyra/app"
+export PATH="$HERE/opt/node/bin:$PATH"
+export NAVIYRA_NO_BROWSER="${NAVIYRA_NO_BROWSER:-true}"
+cd "$NAVIYRA_ROOT"
+exec "$HERE/opt/node/bin/node" "$NAVIYRA_ROOT/launcher/index.mjs" start --no-browser "$@"

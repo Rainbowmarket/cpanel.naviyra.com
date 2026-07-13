@@ -1,0 +1,18 @@
+[Unit]
+Description=Naviyra Hosting Control Panel
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/naviyra-panel
+Environment=NODE_ENV=production
+Environment=AGENT_DRY_RUN=false
+Environment=NAVIYRA_NO_BROWSER=true
+ExecStart=/usr/bin/node launcher/index.mjs start --no-browser
+ExecStop=/usr/bin/node launcher/stop.mjs
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

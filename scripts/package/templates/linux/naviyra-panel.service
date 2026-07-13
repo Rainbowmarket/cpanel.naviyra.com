@@ -1,0 +1,18 @@
+[Unit]
+Description=Naviyra Hosting Panel
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/naviyra-panel/app
+Environment=NAVIYRA_ROOT=/opt/naviyra-panel/app
+Environment=PATH=/opt/naviyra-panel/node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=NAVIYRA_NO_BROWSER=true
+ExecStart=/opt/naviyra-panel/node/bin/node /opt/naviyra-panel/app/launcher/index.mjs start --no-browser
+ExecStop=/opt/naviyra-panel/node/bin/node /opt/naviyra-panel/app/launcher/stop.mjs
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

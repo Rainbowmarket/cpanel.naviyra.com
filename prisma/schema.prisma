@@ -1,0 +1,232 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum UserRole {
+  ADMIN
+  RESELLER
+  USER
+}
+
+enum DomainStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  ERROR
+}
+
+enum SslStatus {
+  NONE
+  PENDING
+  ACTIVE
+  EXPIRED
+  FAILED
+}
+
+enum JobStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum JobType {
+  CREATE_DOMAIN
+  DELETE_DOMAIN
+  CREATE_SUBDOMAIN
+  DELETE_SUBDOMAIN
+  ISSUE_SSL
+  RENEW_SSL
+  CREATE_MAIL_ACCOUNT
+  DELETE_MAIL_ACCOUNT
+  CREATE_FTP_ACCOUNT
+  DELETE_FTP_ACCOUNT
+  SYNC_DNS
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         UserRole @default(USER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  domains      Domain[]
+  jobs         Job[]
+}
+
+model Server {
+  id        String   @id @default(cuid())
+  name      String
+  hostname  String   @unique
+  ipAddress String
+  agentKey  String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  domains Domain[]
+  jobs    Job[]
+}
+
+model Domain {
+  id           String       @id @default(cuid())
+  name         String       @unique
+  documentRoot String
+  status       DomainStatus @default(PENDING)
+  phpEnabled   Boolean      @default(true)
+  lastError    String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  serverId String
+  server   Server @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  subdomains   Subdomain[]
+  mailDomain   MailDomain?
+  ftpAccounts  FtpAccount[]
+  sslCerts     SslCertificate[]
+  dnsZone      DnsZone?
+}
+
+model Subdomain {
+  id           String       @id @default(cuid())
+  name         String
+  documentRoot String
+  status       DomainStatus @default(PENDING)
+  lastError    String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  domainId String
+  domain   Domain @relation(fields: [domainId], references: [id], onDelete: Cascade)
+
+  sslCerts SslCertificate[]
+
+  @@unique([domainId, name])
+}
+
+model MailDomain {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  domainId String @unique
+  domain   Domain @relation(fields: [domainId], references: [id], onDelete: Cascade)
+
+  accounts MailAccount[]
+  aliases  MailAlias[]
+}
+
+model MailAccount {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  quotaMb      Int      @default(1024)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  mailDomainId String
+  mailDomain   MailDomain @relation(fields: [mailDomainId], references: [id], onDelete: Cascade)
+}
+
+model MailAlias {
+  id        String   @id @default(cuid())
+  alias     String   @unique
+  forwardTo String
+  createdAt DateTime @default(now())
+
+  mailDomainId String
+  mailDomain   MailDomain @relation(fields: [mailDomainId], references: [id], onDelete: Cascade)
+}
+
+model FtpAccount {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  passwordHash String
+  homeDir      String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  domainId String
+  domain   Domain @relation(fields: [domainId], references: [id], onDelete: Cascade)
+}
+
+model SslCertificate {
+  id        String    @id @default(cuid())
+  provider  String    @default("letsencrypt")
+  status    SslStatus @default(PENDING)
+  issuedAt  DateTime?
+  expiresAt DateTime?
+  autoRenew Boolean   @default(true)
+  lastError String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  domainId String
+  domain   Domain @relation(fields: [domainId], references: [id], onDelete: Cascade)
+
+  subdomainId String?
+  subdomain   Subdomain? @relation(fields: [subdomainId], references: [id], onDelete: Cascade)
+
+  @@index([domainId, status])
+  @@index([subdomainId, status])
+}
+
+model DnsZone {
+  id        String    @id @default(cuid())
+  serial    Int       @default(1)
+  syncedAt  DateTime?
+  lastError String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  domainId String @unique
+  domain   Domain @relation(fields: [domainId], references: [id], onDelete: Cascade)
+
+  records DnsRecord[]
+}
+
+model DnsRecord {
+  id       String @id @default(cuid())
+  name     String
+  type     String @default("A")
+  value    String
+  ttl      Int    @default(86400)
+  priority Int?
+
+  zoneId String
+  zone   DnsZone @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+
+  @@unique([zoneId, name, type, value])
+  @@index([zoneId])
+}
+
+model Job {
+  id        String    @id @default(cuid())
+  type      JobType
+  status    JobStatus @default(QUEUED)
+  payload   Json
+  result    Json?
+  error     String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  userId   String?
+  user     User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  serverId String?
+  server   Server? @relation(fields: [serverId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+}

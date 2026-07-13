@@ -3,24 +3,58 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "dev": "concurrently -n panel,agent -c green,cyan \"next dev\" \"npm run agent:dev\"",
+    "build": "prisma generate && next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "db:migrate": "prisma migrate dev",
+    "db:seed": "tsx prisma/seed.ts",
+    "db:studio": "prisma studio",
+    "agent:dev": "cd agent && npm run dev",
+    "setup": "npm install && npm install --prefix agent && npx prisma generate && npx prisma db push && npm run db:seed",
+    "app": "node launcher/index.mjs start",
+    "start:all": "node launcher/index.mjs start",
+    "stop": "node launcher/stop.mjs",
+    "stop:all": "node launcher/stop.mjs",
+    "package:prepare": "node scripts/package/prepare-release.mjs --embed-node && node scripts/package/finalize-bundle.mjs",
+    "package:win": "node scripts/package/build.mjs --target win",
+    "package:deb": "node scripts/package/build.mjs --target deb",
+    "package:appimage": "node scripts/package/build.mjs --target appimage",
+    "package": "node scripts/package/build.mjs --target all"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@prisma/adapter-better-sqlite3": "^7.8.0",
+    "@prisma/adapter-pg": "^7.8.0",
+    "@prisma/client": "^7.8.0",
+    "ace-builds": "^1.44.0",
+    "bcryptjs": "^3.0.3",
+    "better-sqlite3": "^12.11.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.24.0",
     "next": "16.2.10",
+    "pg": "^8.22.0",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-ace": "^14.0.1",
+    "react-dom": "19.2.4",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20",
+    "@types/pg": "^8.20.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "concurrently": "^10.0.3",
+    "dotenv": "^17.4.2",
     "eslint": "^9",
     "eslint-config-next": "16.2.10",
+    "prisma": "^7.8.0",
     "tailwindcss": "^4",
+    "tsx": "^4.23.1",
     "typescript": "^5"
   }
 }

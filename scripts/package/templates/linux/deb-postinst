@@ -1,0 +1,10 @@
+#!/bin/bash
+set -e
+if [ "$1" = "configure" ] || [ "$1" = "abort-upgrade" ] || [ "$1" = "abort-remove" ] || [ "$1" = "abort-deconfigure" ]; then
+  systemctl daemon-reload || true
+  if [ ! -f /opt/naviyra-panel/app/.env ] && [ -f /opt/naviyra-panel/app/.env.example ]; then
+    cp /opt/naviyra-panel/app/.env.example /opt/naviyra-panel/app/.env
+  fi
+  mkdir -p /opt/naviyra-panel/app/data
+fi
+exit 0

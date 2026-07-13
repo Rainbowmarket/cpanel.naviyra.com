@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Naviyra Panel
+Comment=Self-hosted hosting control panel
+Exec=naviyra-panel start --no-browser
+Icon=naviyra-panel
+Terminal=true
+Categories=Network;System;
