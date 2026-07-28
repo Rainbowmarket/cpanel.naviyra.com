@@ -23,11 +23,16 @@ export type SessionUser = {
   role: "ADMIN" | "RESELLER" | "USER";
 };
 
+/** Secure cookies only when COOKIE_SECURE=true (HTTPS). Default false so HTTP IP access works. */
+function sessionCookieSecure(): boolean {
+  return process.env.COOKIE_SECURE === "true";
+}
+
 export async function createSession(userId: string): Promise<void> {
   const cookieStore = await cookies();
   cookieStore.set(SESSION_COOKIE, userId, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: sessionCookieSecure(),
     sameSite: "lax",
     maxAge: SESSION_MAX_AGE,
     path: "/",

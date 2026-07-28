@@ -105,12 +105,29 @@ async function runReload(bindReloadCmd: string | undefined, dryRun: boolean) {
   await exec(cmd, args);
 }
 
+async function refreshBindIncludeFile(
+  namedDir: string,
+  includeFile: string | undefined,
+  dryRun: boolean
+) {
+  if (!includeFile || dryRun) return;
+  const files = (await fs.readdir(namedDir))
+    .filter((name) => name.endsWith(".conf"))
+    .sort();
+  const lines = files.map(
+    (name) => `include "${path.join(namedDir, name).replace(/\\/g, "/")}";`
+  );
+  await fs.writeFile(includeFile, `${lines.join("\n")}\n`, "utf8");
+}
+
 export async function applyDnsZone(
   dnsRoot: string,
   payload: SyncDnsZonePayload,
   options: {
     dryRun: boolean;
     bindZonesDir?: string;
+    bindNamedDir?: string;
+    bindIncludeFile?: string;
     bindReloadCmd?: string;
   }
 ) {
@@ -148,6 +165,27 @@ export async function applyDnsZone(
     if (!options.dryRun) {
       await fs.copyFile(zonePath, bindPath);
     }
+
+    if (options.bindNamedDir) {
+      await fs.mkdir(options.bindNamedDir, { recursive: true });
+      const bindNamedPath = path.join(
+        options.bindNamedDir,
+        `${payload.domain}.conf`
+      );
+      if (!options.dryRun) {
+        await fs.writeFile(
+          bindNamedPath,
+          buildNamedZoneBlock(payload.domain, bindPath),
+          "utf8"
+        );
+        await refreshBindIncludeFile(
+          options.bindNamedDir,
+          options.bindIncludeFile,
+          options.dryRun
+        );
+      }
+    }
+
     await runReload(options.bindReloadCmd, options.dryRun);
   }
 
@@ -165,6 +203,8 @@ export async function removeDnsZone(
   options: {
     dryRun: boolean;
     bindZonesDir?: string;
+    bindNamedDir?: string;
+    bindIncludeFile?: string;
     bindReloadCmd?: string;
   }
 ) {
@@ -184,6 +224,17 @@ export async function removeDnsZone(
 
   if (options.bindZonesDir) {
     await fs.rm(path.join(options.bindZonesDir, zoneFileName), { force: true });
+    if (options.bindNamedDir) {
+      await fs.rm(
+        path.join(options.bindNamedDir, `${domain}.conf`),
+        { force: true }
+      );
+      await refreshBindIncludeFile(
+        options.bindNamedDir,
+        options.bindIncludeFile,
+        options.dryRun
+      );
+    }
     await runReload(options.bindReloadCmd, options.dryRun);
   }
 

@@ -476,11 +476,21 @@ export function WorkspacePage({
   }
 
   function openFile(dir: string, name: string) {
-    setSearchParams({ p: dir, file: name });
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set("p", dir);
+      next.set("file", name);
+      return next;
+    });
   }
 
   function goHome() {
-    setSearchParams({ p: home });
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set("p", home);
+      next.delete("file");
+      return next;
+    });
   }
 
   const onSave = useCallback(async () => {
@@ -664,7 +674,12 @@ export function WorkspacePage({
           setDialog(null);
           setSelectedEntries([]);
           if (isActionOnFile) {
-            setSearchParams({ p: listPath || dirPath || '', file: v });
+            setSearchParams((prev) => {
+              const next = new URLSearchParams(prev);
+              next.set("p", listPath || dirPath || "");
+              next.set("file", v);
+              return next;
+            });
           } else {
             const newDirPath = joinPath(dirnameFs(pathForAction), v);
             const renamedOldPath = pathForAction.replace(/[/\\]+$/, '');
@@ -697,7 +712,12 @@ export function WorkspacePage({
           showToast(sources.length > 1 ? `Moved ${sources.length} items` : 'Moved');
           setDialog(null);
           setSelectedEntries([]);
-          setSearchParams({ p: v });
+          setSearchParams((prev) => {
+            const next = new URLSearchParams(prev);
+            next.set("p", v);
+            next.delete("file");
+            return next;
+          });
           bumpList();
         } else {
           showToast(lastErr, 'error');
@@ -750,9 +770,18 @@ export function WorkspacePage({
           setSelectedEntries([]);
           const openFilePath = fileName ? joinPath(listPath || dirPath || home, fileName) : '';
           if (openFilePath && pairs.some((p) => p.path === openFilePath)) {
-            setSearchParams({ p: dirPath || listPath || '' });
+            setSearchParams((prev) => {
+              const next = new URLSearchParams(prev);
+              next.set("p", dirPath || listPath || "");
+              next.delete("file");
+              return next;
+            });
           } else if (pairs.length === 1 && !pairs[0]!.isFile) {
-            setSearchParams({ p: dirnameFs(pairs[0]!.path) });
+            setSearchParams((prev) => {
+              const next = new URLSearchParams(prev);
+              next.set("p", dirnameFs(pairs[0]!.path));
+              return next;
+            });
           }
           bumpList();
         } else {
@@ -1178,7 +1207,17 @@ export function WorkspacePage({
                 ) : (
                   <span style={{ color: 'var(--muted)', fontSize: 14 }}>Read only</span>
                 )}
-                <button type="button" onClick={() => setSearchParams({ p: dirPath })}>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSearchParams((prev) => {
+                      const next = new URLSearchParams(prev);
+                      next.set("p", dirPath);
+                      next.delete("file");
+                      return next;
+                    })
+                  }
+                >
                   Close file
                 </button>
               </div>

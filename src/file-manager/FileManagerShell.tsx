@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { setFileManagerTarget } from "@/file-manager/domain-id";
@@ -32,7 +32,10 @@ function resolveInitialTarget(
 
   const domainId = searchParams.get("domainId");
   if (domainId) {
-    const id = domainId.startsWith("d:") || domainId.startsWith("s:") ? domainId : `d:${domainId}`;
+    const id =
+      domainId.startsWith("d:") || domainId.startsWith("s:")
+        ? domainId
+        : `d:${domainId}`;
     if (targets.some((t) => t.id === id)) return id;
   }
 
@@ -45,25 +48,45 @@ export default function FileManagerShell() {
   const searchParams = useSearchParams();
   const [targets, setTargets] = useState<FileTarget[]>([]);
   const [targetId, setTargetId] = useState("");
+  const targetsLoadedRef = useRef(false);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-file-manager", "");
     return () => document.documentElement.removeAttribute("data-file-manager");
   }, []);
 
+  // Load targets once — do not re-fetch on every file=/p= URL change (causes flicker).
   useEffect(() => {
+    let cancelled = false;
     fetch("/api/file-manager/targets")
       .then((r) => r.json())
       .then((d) => {
-        const list = d.targets ?? [];
+        if (cancelled) return;
+        const list: FileTarget[] = d.targets ?? [];
         setTargets(list);
+        targetsLoadedRef.current = true;
         const initial = resolveInitialTarget(searchParams, list);
         if (initial) {
           setFileManagerTarget(initial);
           setTargetId(initial);
         }
       });
-  }, [searchParams]);
+    return () => {
+      cancelled = true;
+    };
+    // intentionally only on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // If URL explicitly changes target (dropdown / deep link), follow it.
+  useEffect(() => {
+    if (!targetsLoadedRef.current || targets.length === 0) return;
+    const urlTarget = searchParams.get("target");
+    if (urlTarget && urlTarget !== targetId && targets.some((t) => t.id === urlTarget)) {
+      setFileManagerTarget(urlTarget);
+      setTargetId(urlTarget);
+    }
+  }, [searchParams, targets, targetId]);
 
   const selectedTarget = targets.find((t) => t.id === targetId);
 
@@ -120,7 +143,7 @@ export default function FileManagerShell() {
   return (
     <div className="file-manager-shell">
       <WorkspacePage
-        key={`${targetId}:${urlPath}`}
+        key={targetId}
         domainOptions={targets.map((t) => ({ value: t.id, label: t.label }))}
         domainId={targetId}
         onDomainChange={handleTargetChange}

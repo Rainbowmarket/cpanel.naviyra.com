@@ -34,15 +34,31 @@ export function getDnsRoot(): string {
 }
 
 export function getDnsNs1(): string {
-  return process.env.DNS_NS1 ?? "ns1.naviyra.com";
+  return process.env.DNS_NS1 ?? "ns1.naviyra.uk";
 }
 
 export function getDnsNs2(): string {
-  return process.env.DNS_NS2 ?? "ns2.naviyra.com";
+  return process.env.DNS_NS2 ?? "ns2.naviyra.uk";
 }
 
 export function getBindZonesDir(): string | undefined {
   return process.env.BIND_ZONES_DIR || undefined;
+}
+
+/** Directory of per-domain named.conf snippets included by BIND. */
+export function getBindNamedDir(): string | undefined {
+  if (process.env.BIND_NAMED_DIR) return process.env.BIND_NAMED_DIR;
+  const zonesDir = getBindZonesDir();
+  if (!zonesDir) return undefined;
+  return path.join(path.dirname(zonesDir), "naviyra-zones.d");
+}
+
+/** Master include file that lists every zone snippet (BIND has no glob include). */
+export function getBindIncludeFile(): string | undefined {
+  if (process.env.BIND_INCLUDE_FILE) return process.env.BIND_INCLUDE_FILE;
+  const zonesDir = getBindZonesDir();
+  if (!zonesDir) return undefined;
+  return path.join(path.dirname(zonesDir), "naviyra-zones.conf");
 }
 
 export function getBindReloadCmd(): string {

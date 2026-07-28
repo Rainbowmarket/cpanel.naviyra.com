@@ -11,13 +11,31 @@ import {
   API_KEY,
   CONFIG_ROOT,
   DNS_ROOT,
+  getBindIncludeFile,
+  getBindNamedDir,
   getBindReloadCmd,
   getBindZonesDir,
   resolveDocumentRoot,
+  resolveSslDocumentRoot,
   resolveSubdomainRoot,
   SITES_ROOT,
 } from "./paths";
 import { applyDnsZone, removeDnsZone, type SyncDnsZonePayload } from "./dns";
+import {
+  createMailAccount as createVirtualMailbox,
+  deleteMailAccount as deleteVirtualMailbox,
+  resetMailPassword as resetVirtualMailboxPassword,
+  setMailAccountActive as setVirtualMailboxActive,
+  provisionMailboxShell,
+} from "./mail";
+import {
+  buildHttpVhost,
+  ensureDefaultIndex,
+  expandSslHosts,
+  issueLetsEncrypt,
+  removeNginxSite,
+  writeAndEnableNginxSite,
+} from "./nginx";
 
 const exec = promisify(execFile);
 const PORT = Number(process.env.AGENT_PORT ?? 4000);
@@ -60,8 +78,13 @@ async function writeVhostConfig(domain: string, documentRoot: string) {
   const content = `# Naviyra vhost\n# domain: ${domain}\n# root: ${documentRoot}\n`;
   await fs.writeFile(configPath, content, "utf8");
 
-  if (!isWindows && !DRY_RUN) {
-    await runCmd("bash", ["-c", `echo 'vhost ${domain}' >> /tmp/naviyra-vhosts.log`]);
+  if (!isWindows) {
+    await ensureDefaultIndex(documentRoot, domain);
+    await writeAndEnableNginxSite(
+      domain,
+      buildHttpVhost(expandSslHosts(domain, ["www"]), documentRoot),
+      DRY_RUN
+    );
   }
 }
 
@@ -94,6 +117,9 @@ async function handleAction(payload: Action) {
       const domain = String(payload.domain);
       const configPath = path.join(CONFIG_ROOT, `${domain}.conf`);
       await fs.rm(configPath, { force: true });
+      if (!isWindows) {
+        await removeNginxSite(domain, DRY_RUN);
+      }
       return { success: true };
     }
 
@@ -106,12 +132,27 @@ async function handleAction(payload: Action) {
         subdomain
       );
       await fs.mkdir(documentRoot, { recursive: true });
-      return { success: true, data: { documentRoot } };
+      const hostname = `${subdomain}.${domain}`;
+      if (!isWindows) {
+        await ensureDefaultIndex(documentRoot, hostname);
+        await writeAndEnableNginxSite(
+          hostname,
+          buildHttpVhost([hostname], documentRoot),
+          DRY_RUN
+        );
+      }
+      return { success: true, data: { documentRoot, hostname } };
     }
 
     case "delete_subdomain": {
+      const domain = String(payload.domain);
+      const subdomain = String(payload.subdomain);
+      const hostname = `${subdomain}.${domain}`;
       if (payload.deleteFiles && payload.documentRoot) {
         await fs.rm(String(payload.documentRoot), { recursive: true, force: true });
+      }
+      if (!isWindows) {
+        await removeNginxSite(hostname, DRY_RUN);
       }
       return { success: true };
     }
@@ -119,24 +160,67 @@ async function handleAction(payload: Action) {
     case "issue_ssl":
     case "renew_ssl": {
       const domain = String(payload.domain);
-      const now = new Date();
-      const expires = new Date(now);
-      expires.setDate(expires.getDate() + 90);
+      const subdomains = Array.isArray(payload.subdomains)
+        ? payload.subdomains.map(String)
+        : [];
       await ensureConfigDir();
+
+      if (isWindows || DRY_RUN) {
+        const now = new Date();
+        const expires = new Date(now);
+        expires.setDate(expires.getDate() + 90);
+        await fs.writeFile(
+          path.join(CONFIG_ROOT, `ssl-${domain}.txt`),
+          `issued ${now.toISOString()}`,
+          "utf8"
+        );
+        return {
+          success: true,
+          data: {
+            issuedAt: now.toISOString(),
+            expiresAt: expires.toISOString(),
+          },
+        };
+      }
+
+      const documentRoot = resolveSslDocumentRoot(
+        domain,
+        typeof payload.documentRoot === "string"
+          ? payload.documentRoot
+          : undefined
+      );
+
+      const result = await issueLetsEncrypt(
+        domain,
+        documentRoot,
+        DRY_RUN,
+        subdomains
+      );
       await fs.writeFile(
         path.join(CONFIG_ROOT, `ssl-${domain}.txt`),
-        `issued ${now.toISOString()}`,
+        `issued ${result.issuedAt}\nexpires ${result.expiresAt}\ncert ${result.certDir}\n`,
         "utf8"
       );
       return {
         success: true,
-        data: { issuedAt: now.toISOString(), expiresAt: expires.toISOString() },
+        data: {
+          issuedAt: result.issuedAt,
+          expiresAt: result.expiresAt,
+        },
       };
     }
 
     case "create_mail_account": {
       const email = String(payload.email);
+      const password = String(payload.password ?? "");
       await ensureConfigDir();
+      if (!isWindows) {
+        if (!password) {
+          await provisionMailboxShell(email, DRY_RUN);
+        } else {
+          await createVirtualMailbox(email, password, DRY_RUN);
+        }
+      }
       await fs.appendFile(
         path.join(CONFIG_ROOT, "mail.map"),
         `mailbox ${email}\n`,
@@ -145,12 +229,24 @@ async function handleAction(payload: Action) {
       return { success: true, data: { email } };
     }
 
-    case "delete_mail_account":
+    case "delete_mail_account": {
+      const email = String(payload.email);
+      if (!isWindows) {
+        await deleteVirtualMailbox(email, DRY_RUN, true);
+      }
       return { success: true };
+    }
 
     case "reset_mail_password": {
       const email = String(payload.email);
+      const password = String(payload.password ?? "");
+      if (!password) {
+        return { success: false, error: "Password required" };
+      }
       await ensureConfigDir();
+      if (!isWindows) {
+        await resetVirtualMailboxPassword(email, password, DRY_RUN);
+      }
       await fs.appendFile(
         path.join(CONFIG_ROOT, "mail.map"),
         `reset-password ${email}\n`,
@@ -163,6 +259,9 @@ async function handleAction(payload: Action) {
       const email = String(payload.email);
       const isActive = Boolean(payload.isActive);
       await ensureConfigDir();
+      if (!isWindows) {
+        await setVirtualMailboxActive(email, isActive, DRY_RUN);
+      }
       await fs.appendFile(
         path.join(CONFIG_ROOT, "mail.map"),
         `${isActive ? "enable" : "disable"} ${email}\n`,
@@ -202,6 +301,8 @@ async function handleAction(payload: Action) {
         {
           dryRun: DRY_RUN,
           bindZonesDir: getBindZonesDir(),
+          bindNamedDir: getBindNamedDir(),
+          bindIncludeFile: getBindIncludeFile(),
           bindReloadCmd: getBindReloadCmd(),
         }
       );
@@ -213,6 +314,8 @@ async function handleAction(payload: Action) {
       await removeDnsZone(DNS_ROOT, domain, {
         dryRun: DRY_RUN,
         bindZonesDir: getBindZonesDir(),
+        bindNamedDir: getBindNamedDir(),
+        bindIncludeFile: getBindIncludeFile(),
         bindReloadCmd: getBindReloadCmd(),
       });
       return { success: true };

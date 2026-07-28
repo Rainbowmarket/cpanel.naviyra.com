@@ -1,7 +1,13 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { buildNamedZoneBlock } from "./zone";
-import { getBindReloadCmd, getBindZonesDir, getDnsRoot } from "@/lib/paths";
+import {
+  getBindIncludeFile,
+  getBindNamedDir,
+  getBindReloadCmd,
+  getBindZonesDir,
+  getDnsRoot,
+} from "@/lib/paths";
 
 export type SyncDnsZonePayload = {
   domain: string;
@@ -37,6 +43,21 @@ async function runReload(bindReloadCmd: string | undefined, dryRun: boolean) {
   await exec(cmd, args);
 }
 
+async function refreshBindIncludeFile(
+  namedDir: string,
+  includeFile: string | undefined,
+  dryRun: boolean
+) {
+  if (!includeFile || dryRun) return;
+  const files = (await fs.readdir(namedDir))
+    .filter((name) => name.endsWith(".conf"))
+    .sort();
+  const lines = files.map(
+    (name) => `include "${path.join(namedDir, name).replace(/\\/g, "/")}";`
+  );
+  await fs.writeFile(includeFile, `${lines.join("\n")}\n`, "utf8");
+}
+
 export async function applyDnsZoneLocal(
   payload: SyncDnsZonePayload,
   dryRun = false
@@ -67,6 +88,7 @@ export async function applyDnsZoneLocal(
   await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
 
   const bindZonesDir = getBindZonesDir();
+  const bindNamedDir = getBindNamedDir();
   let bindPath: string | undefined;
   if (bindZonesDir) {
     await fs.mkdir(bindZonesDir, { recursive: true });
@@ -74,6 +96,24 @@ export async function applyDnsZoneLocal(
     if (!dryRun) {
       await fs.copyFile(zonePath, bindPath);
     }
+
+    if (bindNamedDir) {
+      await fs.mkdir(bindNamedDir, { recursive: true });
+      const bindNamedPath = path.join(bindNamedDir, `${payload.domain}.conf`);
+      if (!dryRun) {
+        await fs.writeFile(
+          bindNamedPath,
+          buildNamedZoneBlock(payload.domain, bindPath),
+          "utf8"
+        );
+        await refreshBindIncludeFile(
+          bindNamedDir,
+          getBindIncludeFile(),
+          dryRun
+        );
+      }
+    }
+
     await runReload(getBindReloadCmd(), dryRun);
   }
 
@@ -102,8 +142,13 @@ export async function removeDnsZoneLocal(domain: string, dryRun = false) {
   }
 
   const bindZonesDir = getBindZonesDir();
+  const bindNamedDir = getBindNamedDir();
   if (bindZonesDir) {
     await fs.rm(path.join(bindZonesDir, zoneFileName), { force: true });
+    if (bindNamedDir) {
+      await fs.rm(path.join(bindNamedDir, `${domain}.conf`), { force: true });
+      await refreshBindIncludeFile(bindNamedDir, getBindIncludeFile(), dryRun);
+    }
     await runReload(getBindReloadCmd(), dryRun);
   }
 

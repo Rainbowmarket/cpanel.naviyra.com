@@ -125,6 +125,7 @@ export async function issueSslCertificate(input: {
       action: "issue_ssl",
       domain: domain.name,
       subdomains,
+      documentRoot: domain.documentRoot,
     },
     agentKey
   );
@@ -175,6 +176,7 @@ export async function issueSubdomainSslCertificate(input: {
       action: "issue_ssl",
       domain: hostname,
       subdomains: [],
+      documentRoot: subdomain.documentRoot,
     },
     agentKey
   );

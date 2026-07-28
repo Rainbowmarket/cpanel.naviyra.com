@@ -11,11 +11,14 @@ async function main() {
   const agentKey = process.env.AGENT_API_KEY ?? "naviyra-local-agent-key";
   const ipAddress = process.env.SERVER_PUBLIC_IP?.trim() || "127.0.0.1";
 
+  const hostname =
+    process.env.DEFAULT_SERVER_HOSTNAME?.trim() || "server1.naviyra.uk";
+
   const server = await prisma.server.upsert({
-    where: { hostname: "server1.naviyra.com" },
+    where: { hostname },
     create: {
       name: "Primary Server",
-      hostname: "server1.naviyra.com",
+      hostname,
       ipAddress,
       agentKey,
     },

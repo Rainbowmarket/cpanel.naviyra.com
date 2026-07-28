@@ -138,6 +138,47 @@ sudo systemctl restart naviyra-panel
 sudo systemctl stop naviyra-panel
 ```
 
+### Mail server (Postfix + Dovecot)
+
+Install on the hosting server:
+
+```bash
+sudo chmod +x scripts/install-mail.sh
+sudo ./scripts/install-mail.sh mail.example.com YOUR_PUBLIC_IP
+```
+
+The agent then creates real virtual mailboxes under `/var/mail/vhosts` when you add accounts in the panel.
+
+Ports opened: **25, 465, 587, 143, 993** (and POP3 110/995).
+
+### Authoritative DNS (BIND nameservers)
+
+Customer domains should use:
+
+- `ns1.naviyra.uk`
+- `ns2.naviyra.uk`
+
+Install BIND on the hosting server:
+
+```bash
+sudo chmod +x scripts/install-bind.sh
+sudo ./scripts/install-bind.sh 136.243.196.166 naviyra.uk
+```
+
+Then set in `.env`:
+
+```env
+DNS_NS1=ns1.naviyra.uk
+DNS_NS2=ns2.naviyra.uk
+SERVER_PUBLIC_IP=136.243.196.166
+BIND_ZONES_DIR=/etc/bind/zones
+BIND_NAMED_DIR=/etc/bind/naviyra-zones.d
+BIND_INCLUDE_FILE=/etc/bind/naviyra-zones.conf
+BIND_RELOAD_CMD=rndc reload
+```
+
+At your **domain registrar** (not Cloudflare DNS UI alone), set glue/host records for `ns1`/`ns2` to the server IP, then change `naviyra.uk` nameservers from Cloudflare (`donald`/`ashley`) to `ns1.naviyra.uk` and `ns2.naviyra.uk`. Until that change propagates, Cloudflare still answers for `naviyra.uk` itself; hosted customer domains that point NS at ns1/ns2 already query this server on port 53.
+
 ---
 
 ## macOS
@@ -271,9 +312,11 @@ Use this when you want two independent control panels (e.g. one for you, one for
 | `AGENT_PORT` | Agent port (default 4000) |
 | `AGENT_DRY_RUN` | `true` = simulate, `false` = real commands |
 | `SERVER_PUBLIC_IP` | Your server's public IPv4 for DNS A records (default `127.0.0.1`) |
-| `DNS_NS1` | Primary nameserver hostname (default `ns1.naviyra.com`) |
-| `DNS_NS2` | Secondary nameserver hostname (default `ns2.naviyra.com`) |
-| `BIND_ZONES_DIR` | Optional — copy zone files here on Linux (e.g. `/etc/bind/zones`) |
+| `DNS_NS1` | Primary nameserver hostname (default `ns1.naviyra.uk`) |
+| `DNS_NS2` | Secondary nameserver hostname (default `ns2.naviyra.uk`) |
+| `BIND_ZONES_DIR` | BIND zone files dir (e.g. `/etc/bind/zones`) |
+| `BIND_NAMED_DIR` | Per-domain named snippets (e.g. `/etc/bind/naviyra-zones.d`) |
+| `BIND_INCLUDE_FILE` | Master include listing those snippets (e.g. `/etc/bind/naviyra-zones.conf`) |
 | `BIND_RELOAD_CMD` | BIND reload command (default `rndc reload`) |
 | `MAIL_HOSTNAME` | Mail server hostname template (default `mail.{domain}`) |
 | `NAVIYRA_NO_BROWSER` | `true` = don't auto-open browser |

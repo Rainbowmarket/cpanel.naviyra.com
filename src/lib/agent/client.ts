@@ -6,8 +6,8 @@ export type AgentAction =
   | { action: "delete_domain"; domain: string }
   | { action: "create_subdomain"; domain: string; subdomain: string; documentRoot: string }
   | { action: "delete_subdomain"; domain: string; subdomain: string; documentRoot?: string; deleteFiles?: boolean }
-  | { action: "issue_ssl"; domain: string; subdomains?: string[] }
-  | { action: "renew_ssl"; domain: string }
+  | { action: "issue_ssl"; domain: string; subdomains?: string[]; documentRoot?: string }
+  | { action: "renew_ssl"; domain: string; documentRoot?: string }
   | { action: "create_mail_account"; email: string; password: string; quotaMb?: number }
   | { action: "delete_mail_account"; email: string }
   | { action: "reset_mail_password"; email: string; password: string }
