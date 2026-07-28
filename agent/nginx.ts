@@ -5,7 +5,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { buildPhpLocationBlock, resolvePhpFpmPass } from "./php-fpm";
+import { buildPhpDenyBlock, buildPhpLocationBlock, resolvePhpFpmPass } from "./php-fpm";
 
 const exec = promisify(execFile);
 
@@ -143,6 +143,20 @@ function rootLocationBlock(phpEnabled: boolean): string {
 `;
 }
 
+function phpBlockForOptions(options: VhostOptions): string {
+  if (options.phpEnabled && options.phpFpmPass) {
+    return buildPhpLocationBlock(options.phpFpmPass);
+  }
+  // Never serve raw .php as a downloadable static file.
+  return buildPhpDenyBlock();
+}
+
+function indexDirective(phpEnabled: boolean): string {
+  return phpEnabled
+    ? "index index.html index.htm index.php;"
+    : "index index.html index.htm;";
+}
+
 export function buildHttpVhost(
   hosts: string[],
   documentRoot: string,
@@ -150,17 +164,14 @@ export function buildHttpVhost(
 ): string {
   const phpEnabled = Boolean(options.phpEnabled && options.phpFpmPass);
   const serverName = hosts.join(" ");
-  const phpBlock =
-    phpEnabled && options.phpFpmPass
-      ? buildPhpLocationBlock(options.phpFpmPass)
-      : "";
+  const phpBlock = phpBlockForOptions(options);
   return `server {
     listen 80;
     listen [::]:80;
     server_name ${serverName};
 
     root ${documentRoot};
-    index index.html index.htm index.php;
+    ${indexDirective(phpEnabled)}
     client_max_body_size 64M;
 
     location ^~ /.well-known/acme-challenge/ {
@@ -180,10 +191,7 @@ export function buildHttpsVhost(
 ): string {
   const phpEnabled = Boolean(options.phpEnabled && options.phpFpmPass);
   const serverName = hosts.join(" ");
-  const phpBlock =
-    phpEnabled && options.phpFpmPass
-      ? buildPhpLocationBlock(options.phpFpmPass)
-      : "";
+  const phpBlock = phpBlockForOptions(options);
   return `server {
     listen 80;
     listen [::]:80;
@@ -210,7 +218,7 @@ server {
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 
     root ${documentRoot};
-    index index.html index.htm index.php;
+    ${indexDirective(phpEnabled)}
     client_max_body_size 64M;
 
 ${rootLocationBlock(phpEnabled)}${phpBlock}}

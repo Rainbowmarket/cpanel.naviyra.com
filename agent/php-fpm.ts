@@ -37,16 +37,18 @@ export async function resolvePhpFpmPass(): Promise<string | null> {
 export function buildPhpLocationBlock(fastcgiPass: string): string {
   return `
     location ~ \\.php$ {
-        try_files $uri =404;
-        fastcgi_split_path_info ^(.+\\.php)(/.+)$;
+        include snippets/fastcgi-php.conf;
         fastcgi_pass ${fastcgiPass};
-        fastcgi_index index.php;
-        include fastcgi_params;
-        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
-        fastcgi_param PATH_INFO $fastcgi_path_info;
         fastcgi_read_timeout 300;
-        fastcgi_buffers 16 16k;
-        fastcgi_buffer_size 32k;
+    }
+`;
+}
+
+/** Prevent browsers from downloading raw .php when FPM is not available. */
+export function buildPhpDenyBlock(): string {
+  return `
+    location ~ \\.php$ {
+        return 404;
     }
 `;
 }

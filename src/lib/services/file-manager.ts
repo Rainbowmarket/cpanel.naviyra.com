@@ -158,6 +158,22 @@ export async function fileManagerList(
   return { success: true, path: resolved, items };
 }
 
+function resolveUnderRoot(inputPath: string, documentRoot: string): string {
+  const root = path.resolve(documentRoot);
+  const raw = (inputPath || "").trim();
+  if (!raw || raw === "." || raw === "/" || raw === "\\") {
+    return root;
+  }
+  // Absolute path: keep if under root, else clamp to root
+  if (path.isAbsolute(raw)) {
+    const resolved = path.resolve(raw);
+    return isPathUnderRoot(resolved, root) ? resolved : root;
+  }
+  // Relative to document root
+  const resolved = path.resolve(root, raw);
+  return isPathUnderRoot(resolved, root) ? resolved : root;
+}
+
 export async function fileManagerRead(
   target: string,
   userId: string,
@@ -165,7 +181,7 @@ export async function fileManagerRead(
   fileName: string
 ) {
   const ctx = await getTargetContext(target, userId);
-  const dirReal = path.resolve(dirPath);
+  const dirReal = resolveUnderRoot(dirPath, ctx.documentRoot);
   assertPathAllowed(dirReal, ctx.documentRoot);
   const filePath = path.join(dirReal, path.basename(fileName));
   assertPathAllowed(filePath, ctx.documentRoot);
@@ -191,9 +207,12 @@ export async function fileManagerWrite(
   content: string
 ) {
   const ctx = await getTargetContext(target, userId);
-  const resolved = path.resolve(filePath);
-  assertPathAllowed(resolved, ctx.documentRoot);
-  await agentCall(ctx.agentKey, { action: "write_file", path: resolved, content });
+  const raw = filePath.trim();
+  const finalPath = path.isAbsolute(raw)
+    ? path.resolve(raw)
+    : path.join(path.resolve(ctx.documentRoot), raw.replace(/^[/\\]+/, ""));
+  assertPathAllowed(finalPath, ctx.documentRoot);
+  await agentCall(ctx.agentKey, { action: "write_file", path: finalPath, content });
   return { success: true, message: "Saved." };
 }
 
@@ -205,7 +224,7 @@ export async function fileManagerCreate(
   kind: "createFolder" | "createFile"
 ) {
   const ctx = await getTargetContext(target, userId);
-  const dirReal = path.resolve(dirPath);
+  const dirReal = resolveUnderRoot(dirPath, ctx.documentRoot);
   assertPathAllowed(dirReal, ctx.documentRoot);
   const itemPath = path.join(dirReal, path.basename(name));
   assertPathAllowed(itemPath, ctx.documentRoot);
@@ -225,7 +244,7 @@ export async function fileManagerDelete(
   isFile: boolean
 ) {
   const ctx = await getTargetContext(target, userId);
-  const resolved = path.resolve(targetPath);
+  const resolved = resolveUnderRoot(targetPath, ctx.documentRoot);
   assertPathAllowed(resolved, ctx.documentRoot);
   await agentCall(ctx.agentKey, {
     action: isFile ? "delete_file" : "delete_directory",
@@ -241,7 +260,7 @@ export async function fileManagerAction(
   params: { source: string; name?: string; dest?: string }
 ) {
   const ctx = await getTargetContext(target, userId);
-  const source = path.resolve(params.source);
+  const source = resolveUnderRoot(params.source, ctx.documentRoot);
   assertPathAllowed(source, ctx.documentRoot);
 
   if (action === "rename") {
@@ -254,7 +273,7 @@ export async function fileManagerAction(
   }
 
   if (!params.dest) throw new Error("Valid destination directory is required.");
-  const destDir = path.resolve(params.dest);
+  const destDir = resolveUnderRoot(params.dest, ctx.documentRoot);
   assertPathAllowed(destDir, ctx.documentRoot);
   await agentCall(ctx.agentKey, {
     action: action === "move" ? "move_path" : "copy_path",
@@ -272,7 +291,7 @@ export async function fileManagerUpload(
   contentBase64: string
 ) {
   const ctx = await getTargetContext(target, userId);
-  const dirReal = path.resolve(dirPath);
+  const dirReal = resolveUnderRoot(dirPath, ctx.documentRoot);
   assertPathAllowed(dirReal, ctx.documentRoot);
   const filePath = path.join(dirReal, path.basename(fileName));
   assertPathAllowed(filePath, ctx.documentRoot);
@@ -291,7 +310,7 @@ export async function fileManagerDownloadPath(
   fileName: string
 ) {
   const ctx = await getTargetContext(target, userId);
-  const dirReal = path.resolve(dirPath);
+  const dirReal = resolveUnderRoot(dirPath, ctx.documentRoot);
   assertPathAllowed(dirReal, ctx.documentRoot);
   const filePath = path.join(dirReal, path.basename(fileName));
   assertPathAllowed(filePath, ctx.documentRoot);

@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# Fix browser "download" on sites where .php is served as static/octet-stream
+set -euo pipefail
+
+fix_site() {
+  local conf="$1"
+  local root="$2"
+  local name="$3"
+
+  mkdir -p "$root"
+
+  # Prefer a real HTML index; remove empty stub index.php that triggers downloads
+  if [[ ! -s "$root/index.html" ]]; then
+    cat > "$root/index.html" <<EOF
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${name}</title>
+</head>
+<body style="font-family:system-ui,sans-serif;padding:2rem;background:#0f172a;color:#e2e8f0">
+  <h1 style="margin:0 0 .5rem">${name}</h1>
+  <p style="color:#94a3b8">Hosted on Naviyra Panel. Upload your site files to replace this page.</p>
+</body>
+</html>
+EOF
+  fi
+
+  if [[ -f "$root/index.php" && ! -s "$root/index.php" ]]; then
+    rm -f "$root/index.php"
+    echo "removed empty index.php in $root"
+  fi
+
+  [[ -f "$conf" ]] || return 0
+
+  # Prefer html indexes
+  sed -i 's/index index.html index.htm index.php;/index index.html index.htm;/' "$conf"
+  sed -i 's/index index.php index.html index.htm;/index index.html index.htm;/' "$conf"
+
+  # Block raw .php downloads when no PHP-FPM location exists
+  if ! grep -q 'fastcgi_pass' "$conf" && ! grep -q 'location ~ \\.php\$' "$conf"; then
+    python3 - <<PY
+from pathlib import Path
+p = Path("$conf")
+text = p.read_text()
+deny = """
+    location ~ \\.php$ {
+        return 404;
+    }
+"""
+if "location ~ \\.php$" in text:
+    print("php location already present:", p)
+else:
+    # insert before last closing brace of https server if possible
+    idx = text.rfind("location / {")
+    if idx == -1:
+        print("no location / in", p)
+    else:
+        # find end of that location block and insert after it
+        end = text.find("}", idx)
+        if end != -1:
+            text = text[: end + 1] + "\n" + deny + text[end + 1 :]
+            p.write_text(text)
+            print("added php deny to", p)
+PY
+  fi
+}
+
+fix_site /etc/nginx/sites-available/test.kongunattugounder.com \
+  /var/www/kongunattugounder.com/subdomains/test/public_html \
+  test.kongunattugounder.com
+
+fix_site /etc/nginx/sites-available/kongunattugounder.com \
+  /var/www/kongunattugounder.com/public_html \
+  kongunattugounder.com
+
+nginx -t
+systemctl reload nginx
+
+echo "=== verify ==="
+curl -sI https://test.kongunattugounder.com/ | head -n 10
+curl -sI https://kongunattugounder.com/ | head -n 10
+curl -sI https://test.kongunattugounder.com/index.php | head -n 8 || true

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createSession, hashPassword, verifyPassword } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { bootstrapMainServer } from "@/lib/services/bootstrap";
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -37,6 +38,7 @@ const registerSchema = z.object({
   name: z.string().min(2),
   email: z.string().email(),
   password: z.string().min(8),
+  domain: z.string().min(3),
 });
 
 export async function PUT(request: Request) {
@@ -58,9 +60,37 @@ export async function PUT(request: Request) {
       },
     });
 
+    let bootstrap: Awaited<ReturnType<typeof bootstrapMainServer>> | null = null;
+    try {
+      bootstrap = await bootstrapMainServer({
+        userId: user.id,
+        domainName: body.domain,
+      });
+    } catch (error) {
+      console.error("Main server bootstrap failed:", error);
+      await createSession(user.id);
+      return NextResponse.json(
+        {
+          user: {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            role: user.role,
+          },
+          warning:
+            error instanceof Error
+              ? error.message
+              : "Admin created but main server setup failed",
+        },
+        { status: 201 }
+      );
+    }
+
     await createSession(user.id);
     return NextResponse.json({
       user: { id: user.id, email: user.email, name: user.name, role: user.role },
+      server: bootstrap.server,
+      domain: bootstrap.domain,
     });
   } catch (error) {
     if (error instanceof z.ZodError) {

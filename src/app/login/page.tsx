@@ -9,6 +9,7 @@ export default function LoginPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [domain, setDomain] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -32,16 +33,28 @@ export default function LoginPage() {
       method: isSetup ? "POST" : "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(
-        isSetup ? { email, password } : { name, email, password }
+        isSetup
+          ? { email, password }
+          : { name, email, password, domain }
       ),
     });
 
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      setError(isSetup ? "Invalid credentials" : "Setup failed");
+      setError(
+        data.warning ||
+          data.error?.formErrors?.[0] ||
+          (typeof data.error === "string" ? data.error : null) ||
+          (isSetup ? "Invalid credentials" : "Setup failed")
+      );
       return;
     }
 
-    router.push("/dashboard");
+    if (data.warning) {
+      setError(data.warning);
+    }
+
+    router.push("/dashboard/domains");
     router.refresh();
   }
 
@@ -57,18 +70,38 @@ export default function LoginPage() {
         <p className="mt-1 text-sm text-slate-400">
           {isSetup
             ? "Access your hosting control panel"
-            : "Create the first admin account"}
+            : "Create the admin account and register this server’s main domain"}
         </p>
 
         <form onSubmit={handleSubmit} className="mt-8 space-y-4">
           {!isSetup && (
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Your name"
-              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-white"
-              required
-            />
+            <>
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Your name"
+                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-white"
+                required
+              />
+              <div>
+                <input
+                  value={domain}
+                  onChange={(e) => setDomain(e.target.value)}
+                  placeholder="Main domain (e.g. naviyra.uk)"
+                  className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-white"
+                  required
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                />
+                <p className="mt-1.5 text-xs text-slate-500">
+                  Registers primary server as{" "}
+                  <span className="font-mono text-slate-400">
+                    server1.{domain.trim() || "yourdomain"}
+                  </span>
+                </p>
+              </div>
+            </>
           )}
           <input
             type="email"
@@ -92,7 +125,7 @@ export default function LoginPage() {
             type="submit"
             className="w-full rounded-lg bg-emerald-600 py-2.5 font-medium text-white hover:bg-emerald-500"
           >
-            {isSetup ? "Sign in" : "Create admin & continue"}
+            {isSetup ? "Sign in" : "Create admin & register server"}
           </button>
         </form>
       </div>
