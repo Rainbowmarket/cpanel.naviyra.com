@@ -4,6 +4,7 @@
 
 import http from "node:http";
 import fs from "node:fs/promises";
+import fsSync from "node:fs";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -30,13 +31,18 @@ import {
 } from "./mail";
 import {
   buildHttpVhost,
+  buildHttpsVhost,
+  buildMailProxyHttpVhost,
+  buildMailProxyHttpsVhost,
   ensureDefaultIndex,
   expandSslHosts,
+  isMailHostname,
   issueLetsEncrypt,
   removeNginxSite,
+  resolveVhostOptions,
   writeAndEnableNginxSite,
 } from "./nginx";
-
+import { resolvePhpFpmPass } from "./php-fpm";
 const exec = promisify(execFile);
 const PORT = Number(process.env.AGENT_PORT ?? 4000);
 const isWindows = process.platform === "win32";
@@ -72,19 +78,28 @@ async function runCmd(cmd: string, args: string[]): Promise<string> {
   return stdout;
 }
 
-async function writeVhostConfig(domain: string, documentRoot: string) {
+async function writeVhostConfig(
+  domain: string,
+  documentRoot: string,
+  phpEnabled = true
+) {
   await ensureConfigDir();
   const configPath = path.join(CONFIG_ROOT, `${domain}.conf`);
-  const content = `# Naviyra vhost\n# domain: ${domain}\n# root: ${documentRoot}\n`;
+  const content = `# Naviyra vhost\n# domain: ${domain}\n# root: ${documentRoot}\n# php: ${phpEnabled}\n`;
   await fs.writeFile(configPath, content, "utf8");
 
   if (!isWindows) {
     await ensureDefaultIndex(documentRoot, domain);
-    await writeAndEnableNginxSite(
-      domain,
-      buildHttpVhost(expandSslHosts(domain, ["www"]), documentRoot),
-      DRY_RUN
-    );
+    const vhostOpts = await resolveVhostOptions(phpEnabled);
+    const certDir = `/etc/letsencrypt/live/${domain}`;
+    const hasCert =
+      fsSync.existsSync(path.join(certDir, "fullchain.pem")) &&
+      fsSync.existsSync(path.join(certDir, "privkey.pem"));
+    const hosts = expandSslHosts(domain, ["www"]);
+    const conf = hasCert
+      ? buildHttpsVhost(hosts, documentRoot, certDir, vhostOpts)
+      : buildHttpVhost(hosts, documentRoot, vhostOpts);
+    await writeAndEnableNginxSite(domain, conf, DRY_RUN);
   }
 }
 
@@ -108,9 +123,18 @@ async function handleAction(payload: Action) {
         String(payload.documentRoot),
         domain
       );
+      const phpEnabled = payload.phpEnabled !== false;
       await fs.mkdir(documentRoot, { recursive: true });
-      await writeVhostConfig(domain, documentRoot);
-      return { success: true, data: { domain, documentRoot } };
+      await writeVhostConfig(domain, documentRoot, phpEnabled);
+      return {
+        success: true,
+        data: {
+          domain,
+          documentRoot,
+          phpEnabled,
+          phpFpm: await resolvePhpFpmPass(),
+        },
+      };
     }
 
     case "delete_domain": {
@@ -131,17 +155,33 @@ async function handleAction(payload: Action) {
         domain,
         subdomain
       );
+      const phpEnabled = payload.phpEnabled !== false;
       await fs.mkdir(documentRoot, { recursive: true });
       const hostname = `${subdomain}.${domain}`;
       if (!isWindows) {
         await ensureDefaultIndex(documentRoot, hostname);
-        await writeAndEnableNginxSite(
-          hostname,
-          buildHttpVhost([hostname], documentRoot),
-          DRY_RUN
-        );
+        const certDir = `/etc/letsencrypt/live/${hostname}`;
+        const hasCert =
+          fsSync.existsSync(path.join(certDir, "fullchain.pem")) &&
+          fsSync.existsSync(path.join(certDir, "privkey.pem"));
+
+        let conf: string;
+        if (isMailHostname(hostname)) {
+          conf = hasCert
+            ? buildMailProxyHttpsVhost([hostname], certDir)
+            : buildMailProxyHttpVhost([hostname]);
+        } else {
+          const vhostOpts = await resolveVhostOptions(phpEnabled);
+          conf = hasCert
+            ? buildHttpsVhost([hostname], documentRoot, certDir, vhostOpts)
+            : buildHttpVhost([hostname], documentRoot, vhostOpts);
+        }
+        await writeAndEnableNginxSite(hostname, conf, DRY_RUN);
       }
-      return { success: true, data: { documentRoot, hostname } };
+      return {
+        success: true,
+        data: { documentRoot, hostname, phpEnabled, phpFpm: await resolvePhpFpmPass() },
+      };
     }
 
     case "delete_subdomain": {
@@ -194,7 +234,8 @@ async function handleAction(payload: Action) {
         domain,
         documentRoot,
         DRY_RUN,
-        subdomains
+        subdomains,
+        payload.phpEnabled !== false
       );
       await fs.writeFile(
         path.join(CONFIG_ROOT, `ssl-${domain}.txt`),

@@ -126,6 +126,7 @@ export async function issueSslCertificate(input: {
       domain: domain.name,
       subdomains,
       documentRoot: domain.documentRoot,
+      phpEnabled: domain.phpEnabled,
     },
     agentKey
   );
@@ -177,6 +178,7 @@ export async function issueSubdomainSslCertificate(input: {
       domain: hostname,
       subdomains: [],
       documentRoot: subdomain.documentRoot,
+      phpEnabled: subdomain.domain.phpEnabled,
     },
     agentKey
   );
@@ -200,7 +202,11 @@ export async function renewSslCertificate(certId: string, userId: string) {
 
   const hostname = getCertificateHostname(cert);
   const agentResult = await callAgent(
-    { action: "renew_ssl", domain: hostname },
+    {
+      action: "renew_ssl",
+      domain: hostname,
+      phpEnabled: cert.domain.phpEnabled,
+    },
     cert.domain.server.agentKey || getAgentApiKey()
   );
 

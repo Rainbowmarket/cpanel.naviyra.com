@@ -5,12 +5,19 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { buildPhpLocationBlock, resolvePhpFpmPass } from "./php-fpm";
 
 const exec = promisify(execFile);
 
 const SITES_AVAILABLE = "/etc/nginx/sites-available";
 const SITES_ENABLED = "/etc/nginx/sites-enabled";
 const ACME_WEBROOT = "/var/www/certbot";
+
+export type VhostOptions = {
+  phpEnabled?: boolean;
+  /** Override auto-detected fastcgi_pass (unix:/path or 127.0.0.1:9000) */
+  phpFpmPass?: string | null;
+};
 
 async function fileExists(target: string): Promise<boolean> {
   try {
@@ -43,15 +50,59 @@ export function expandSslHosts(
   return Array.from(hosts);
 }
 
-export function buildHttpVhost(hosts: string[], documentRoot: string): string {
+function panelUpstream(): string {
+  const port = process.env.PANEL_PORT?.trim() || "3100";
+  return `http://127.0.0.1:${port}`;
+}
+
+export function isMailHostname(hostname: string): boolean {
+  return /^mail\./i.test(hostname.trim());
+}
+
+function proxyPassBlock(): string {
+  const upstream = panelUpstream();
+  return `    location / {
+        proxy_pass ${upstream};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 300s;
+    }
+`;
+}
+
+/** mail.* hosts reverse-proxy to Naviyra panel webmail login. */
+export function buildMailProxyHttpVhost(hosts: string[]): string {
   const serverName = hosts.join(" ");
   return `server {
     listen 80;
     listen [::]:80;
     server_name ${serverName};
+    client_max_body_size 64M;
 
-    root ${documentRoot};
-    index index.html index.htm index.php;
+    location ^~ /.well-known/acme-challenge/ {
+        root ${ACME_WEBROOT};
+        default_type text/plain;
+    }
+
+${proxyPassBlock()}}
+`;
+}
+
+export function buildMailProxyHttpsVhost(
+  hosts: string[],
+  certDir: string
+): string {
+  const serverName = hosts.join(" ");
+  const dhParam = `/etc/letsencrypt/ssl-dhparams.pem`;
+  return `server {
+    listen 80;
+    listen [::]:80;
+    server_name ${serverName};
 
     location ^~ /.well-known/acme-challenge/ {
         root ${ACME_WEBROOT};
@@ -59,18 +110,80 @@ export function buildHttpVhost(hosts: string[], documentRoot: string): string {
     }
 
     location / {
-        try_files $uri $uri/ =404;
+        return 301 https://$host$request_uri;
     }
 }
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name ${serverName};
+
+    ssl_certificate     ${certDir}/fullchain.pem;
+    ssl_certificate_key ${certDir}/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam ${dhParam};
+
+    client_max_body_size 64M;
+
+${proxyPassBlock()}}
+`;
+}
+
+function rootLocationBlock(phpEnabled: boolean): string {
+  if (phpEnabled) {
+    return `    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+`;
+  }
+  return `    location / {
+        try_files $uri $uri/ =404;
+    }
+`;
+}
+
+export function buildHttpVhost(
+  hosts: string[],
+  documentRoot: string,
+  options: VhostOptions = {}
+): string {
+  const phpEnabled = Boolean(options.phpEnabled && options.phpFpmPass);
+  const serverName = hosts.join(" ");
+  const phpBlock =
+    phpEnabled && options.phpFpmPass
+      ? buildPhpLocationBlock(options.phpFpmPass)
+      : "";
+  return `server {
+    listen 80;
+    listen [::]:80;
+    server_name ${serverName};
+
+    root ${documentRoot};
+    index index.html index.htm index.php;
+    client_max_body_size 64M;
+
+    location ^~ /.well-known/acme-challenge/ {
+        root ${ACME_WEBROOT};
+        default_type text/plain;
+    }
+
+${rootLocationBlock(phpEnabled)}${phpBlock}}
 `;
 }
 
 export function buildHttpsVhost(
   hosts: string[],
   documentRoot: string,
-  certDir: string
+  certDir: string,
+  options: VhostOptions = {}
 ): string {
+  const phpEnabled = Boolean(options.phpEnabled && options.phpFpmPass);
   const serverName = hosts.join(" ");
+  const phpBlock =
+    phpEnabled && options.phpFpmPass
+      ? buildPhpLocationBlock(options.phpFpmPass)
+      : "";
   return `server {
     listen 80;
     listen [::]:80;
@@ -100,11 +213,23 @@ server {
     index index.html index.htm index.php;
     client_max_body_size 64M;
 
-    location / {
-        try_files $uri $uri/ =404;
-    }
-}
+${rootLocationBlock(phpEnabled)}${phpBlock}}
 `;
+}
+
+/** Resolve FPM pass when PHP is requested; warn via console if missing. */
+export async function resolveVhostOptions(
+  phpEnabled?: boolean
+): Promise<VhostOptions> {
+  if (!phpEnabled) return { phpEnabled: false, phpFpmPass: null };
+  const phpFpmPass = await resolvePhpFpmPass();
+  if (!phpFpmPass) {
+    console.warn(
+      "[nginx] phpEnabled but no PHP-FPM socket found — install php-fpm or set PHP_FPM_SOCKET"
+    );
+    return { phpEnabled: true, phpFpmPass: null };
+  }
+  return { phpEnabled: true, phpFpmPass };
 }
 
 export async function writeAndEnableNginxSite(
@@ -152,16 +277,95 @@ export async function removeNginxSite(siteName: string, dryRun: boolean) {
   }
 }
 
+function panelPublicUrl(): string {
+  const configured = process.env.PANEL_PUBLIC_URL?.trim();
+  if (configured) return configured.replace(/\/$/, "");
+  const ip = process.env.SERVER_PUBLIC_IP?.trim() || "127.0.0.1";
+  const port = process.env.PANEL_PORT?.trim() || "3100";
+  return `http://${ip}:${port}`;
+}
+
+function buildMailPortalIndex(mailHost: string): string {
+  const domainName = mailHost.replace(/^mail\./i, "");
+  const panelUrl = panelPublicUrl();
+  const webmail = `${panelUrl}/dashboard/mail`;
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mail · ${domainName}</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { margin:0; font-family: system-ui,sans-serif; background:#0f172a; color:#e2e8f0; }
+    .wrap { max-width:720px; margin:0 auto; padding:2.5rem 1.25rem 4rem; }
+    h1 { font-size:1.75rem; margin:0 0 .35rem; }
+    .sub { color:#94a3b8; margin:0 0 1.75rem; }
+    .card { background:#111827; border:1px solid #1e293b; border-radius:14px; padding:1.25rem 1.35rem; margin:0 0 1rem; }
+    .card h2 { margin:0 0 .75rem; font-size:1rem; color:#34d399; letter-spacing:.04em; text-transform:uppercase; }
+    table { width:100%; border-collapse:collapse; font-size:.95rem; }
+    td { padding:.4rem 0; vertical-align:top; }
+    td:first-child { color:#94a3b8; width:42%; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color:#f8fafc; }
+    a.btn { display:inline-block; margin-top:.25rem; background:#059669; color:#fff; text-decoration:none;
+      padding:.7rem 1.1rem; border-radius:10px; font-weight:600; }
+    a.btn:hover { background:#10b981; }
+    .note { font-size:.9rem; color:#94a3b8; line-height:1.5; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>${mailHost}</h1>
+    <p class="sub">Naviyra mail host for <span class="mono">${domainName}</span></p>
+    <div class="card">
+      <h2>Webmail</h2>
+      <p class="note">This hostname is for IMAP/SMTP apps. Open webmail in the Naviyra Panel — there is no separate Roundcube login here.</p>
+      <p><a class="btn" href="${webmail}">Open webmail in panel</a></p>
+      <p class="note" style="margin-top:.85rem">Panel: <span class="mono">${panelUrl}</span> → Mail</p>
+    </div>
+    <div class="card">
+      <h2>Mobile / desktop setup</h2>
+      <table>
+        <tr><td>Username</td><td class="mono">full email address</td></tr>
+        <tr><td>Password</td><td>mailbox password from the panel</td></tr>
+        <tr><td>IMAP host</td><td class="mono">${mailHost}</td></tr>
+        <tr><td>IMAP port</td><td class="mono">993</td> (SSL/TLS)</td></tr>
+        <tr><td>SMTP host</td><td class="mono">${mailHost}</td></tr>
+        <tr><td>SMTP port</td><td class="mono">587</td> STARTTLS or <span class="mono">465</span> SSL/TLS</td></tr>
+        <tr><td>POP3 port</td><td class="mono">995</td> (SSL/TLS, optional)</td></tr>
+      </table>
+    </div>
+  </div>
+</body>
+</html>
+`;
+}
+
+const STUB_INDEX_MARKERS = [
+  "Mailbox host is live",
+  "Hosted on Naviyra Panel. Upload your site files",
+  "Naviyra mail host for",
+];
+
 export async function ensureDefaultIndex(documentRoot: string, domain: string) {
   await fs.mkdir(documentRoot, { recursive: true });
   const indexPath = path.join(documentRoot, "index.html");
+  const mailHost = isMailHostname(domain);
+
   if (await fileExists(indexPath)) {
-    const stat = await fs.stat(indexPath);
-    if (stat.size > 0) return;
+    const existing = await fs.readFile(indexPath, "utf8");
+    const isManagedStub =
+      existing.trim().length === 0 ||
+      STUB_INDEX_MARKERS.some((m) => existing.includes(m));
+    // Never overwrite a custom site upload.
+    if (!isManagedStub) return;
+    // Keep ordinary domain stubs; only refresh mail.* portal pages.
+    if (!mailHost) return;
   }
-  await fs.writeFile(
-    indexPath,
-    `<!doctype html>
+
+  const html = mailHost
+    ? buildMailPortalIndex(domain)
+    : `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -173,20 +377,21 @@ export async function ensureDefaultIndex(documentRoot: string, domain: string) {
   <p style="color:#94a3b8">Hosted on Naviyra Panel. Upload your site files to replace this page.</p>
 </body>
 </html>
-`,
-    "utf8"
-  );
+`;
+  await fs.writeFile(indexPath, html, "utf8");
 }
 
 export async function issueLetsEncrypt(
   domain: string,
   documentRoot: string,
   dryRun: boolean,
-  extraLabels: string[] = []
+  extraLabels: string[] = [],
+  phpEnabled = true
 ): Promise<{ issuedAt: string; expiresAt: string; certDir: string }> {
   const hosts = expandSslHosts(domain, extraLabels);
   const certDir = `/etc/letsencrypt/live/${domain}`;
   const siteName = domain;
+  const vhostOpts = await resolveVhostOptions(phpEnabled);
 
   if (dryRun) {
     const now = new Date();
@@ -202,12 +407,12 @@ export async function issueLetsEncrypt(
   await fs.mkdir(ACME_WEBROOT, { recursive: true });
   await ensureDefaultIndex(documentRoot, domain);
 
+  const httpConf = isMailHostname(domain)
+    ? buildMailProxyHttpVhost(hosts)
+    : buildHttpVhost(hosts, documentRoot, vhostOpts);
+
   // Ensure HTTP vhost exists for ACME challenge before requesting cert
-  await writeAndEnableNginxSite(
-    siteName,
-    buildHttpVhost(hosts, documentRoot),
-    false
-  );
+  await writeAndEnableNginxSite(siteName, httpConf, false);
 
   const email =
     process.env.LETSENCRYPT_EMAIL?.trim() ||
@@ -230,11 +435,11 @@ export async function issueLetsEncrypt(
 
   await exec("certbot", args);
 
-  await writeAndEnableNginxSite(
-    siteName,
-    buildHttpsVhost(hosts, documentRoot, certDir),
-    false
-  );
+  const httpsConf = isMailHostname(domain)
+    ? buildMailProxyHttpsVhost(hosts, certDir)
+    : buildHttpsVhost(hosts, documentRoot, certDir, vhostOpts);
+
+  await writeAndEnableNginxSite(siteName, httpsConf, false);
 
   const now = new Date();
   const expires = new Date(now);

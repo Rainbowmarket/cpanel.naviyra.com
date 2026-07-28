@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireSessionUser } from "@/lib/auth";
 import {
   deleteWebmailMessage,
   getWebmailMessage,
@@ -13,7 +12,6 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 export async function GET(request: Request, context: RouteContext) {
   try {
-    const user = await requireSessionUser();
     const { id } = await context.params;
     const { searchParams } = new URL(request.url);
     const accountId = searchParams.get("accountId");
@@ -28,9 +26,12 @@ export async function GET(request: Request, context: RouteContext) {
       return NextResponse.json({ error: "Invalid folder" }, { status: 400 });
     }
 
-    const data = await getWebmailMessage(accountId, user.id, folder, id);
+    const data = await getWebmailMessage(accountId, folder, id);
     return NextResponse.json(data);
   } catch (error) {
+    if (error instanceof Error && error.message === "Unauthorized") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Message not found" },
       { status: 404 }
@@ -49,19 +50,20 @@ const patchSchema = z.discriminatedUnion("action", [
 
 export async function PATCH(request: Request, context: RouteContext) {
   try {
-    const user = await requireSessionUser();
     const { id } = await context.params;
     const body = patchSchema.parse(await request.json());
 
     const result = await moveWebmailMessage(
       body.accountId,
-      user.id,
       body.folder,
       id,
       body.targetFolder
     );
     return NextResponse.json(result);
   } catch (error) {
+    if (error instanceof Error && error.message === "Unauthorized") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: error.flatten() }, { status: 400 });
     }
@@ -74,7 +76,6 @@ export async function PATCH(request: Request, context: RouteContext) {
 
 export async function DELETE(request: Request, context: RouteContext) {
   try {
-    const user = await requireSessionUser();
     const { id } = await context.params;
     const { searchParams } = new URL(request.url);
     const accountId = searchParams.get("accountId");
@@ -92,13 +93,15 @@ export async function DELETE(request: Request, context: RouteContext) {
 
     const result = await deleteWebmailMessage(
       accountId,
-      user.id,
       folder,
       id,
       permanent
     );
     return NextResponse.json(result);
   } catch (error) {
+    if (error instanceof Error && error.message === "Unauthorized") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to delete message" },
       { status: 500 }

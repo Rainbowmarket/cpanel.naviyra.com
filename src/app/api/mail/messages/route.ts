@@ -1,16 +1,14 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
-import { requireSessionUser } from "@/lib/auth";
 import {
   composeWebmailMessage,
   getWebmailMessages,
   getWebmailOverview,
   parseMailFolder,
 } from "@/lib/services/webmail";
+import { z } from "zod";
 
 export async function GET(request: Request) {
   try {
-    const user = await requireSessionUser();
     const { searchParams } = new URL(request.url);
     const accountId = searchParams.get("accountId");
     if (!accountId) {
@@ -19,7 +17,7 @@ export async function GET(request: Request) {
 
     const folderParam = searchParams.get("folder");
     if (!folderParam) {
-      const overview = await getWebmailOverview(accountId, user.id);
+      const overview = await getWebmailOverview(accountId);
       return NextResponse.json(overview);
     }
 
@@ -28,7 +26,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Invalid folder" }, { status: 400 });
     }
 
-    const data = await getWebmailMessages(accountId, user.id, folder);
+    const data = await getWebmailMessages(accountId, folder);
     return NextResponse.json(data);
   } catch (error) {
     if (error instanceof Error && error.message === "Unauthorized") {
@@ -43,8 +41,8 @@ export async function GET(request: Request) {
 
 const composeSchema = z.object({
   accountId: z.string(),
-  to: z.array(z.string()).default([]),
-  cc: z.array(z.string()).optional(),
+  to: z.array(z.string().email()).default([]),
+  cc: z.array(z.string().email()).optional(),
   subject: z.string().default(""),
   body: z.string().default(""),
   draft: z.boolean().optional(),
@@ -53,9 +51,14 @@ const composeSchema = z.object({
 
 export async function POST(request: Request) {
   try {
-    const user = await requireSessionUser();
     const body = composeSchema.parse(await request.json());
-    const result = await composeWebmailMessage(body.accountId, user.id, {
+    if (!body.draft && body.to.length === 0) {
+      return NextResponse.json(
+        { error: "Add at least one recipient" },
+        { status: 400 }
+      );
+    }
+    const result = await composeWebmailMessage(body.accountId, {
       to: body.to,
       cc: body.cc,
       subject: body.subject,
@@ -65,8 +68,14 @@ export async function POST(request: Request) {
     });
     return NextResponse.json(result, { status: 201 });
   } catch (error) {
+    if (error instanceof Error && error.message === "Unauthorized") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: error.flatten() }, { status: 400 });
+      return NextResponse.json(
+        { error: "Invalid recipient email address" },
+        { status: 400 }
+      );
     }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to send message" },

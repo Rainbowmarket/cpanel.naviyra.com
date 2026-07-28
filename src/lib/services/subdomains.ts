@@ -19,7 +19,7 @@ async function provisionSubdomain(subdomain: {
   id: string;
   name: string;
   documentRoot: string;
-  domain: { name: string; server: { agentKey: string } };
+  domain: { name: string; phpEnabled: boolean; server: { agentKey: string } };
 }) {
   const agentResult = await callAgent(
     {
@@ -27,6 +27,7 @@ async function provisionSubdomain(subdomain: {
       domain: subdomain.domain.name,
       subdomain: subdomain.name,
       documentRoot: subdomain.documentRoot,
+      phpEnabled: subdomain.domain.phpEnabled,
     },
     subdomain.domain.server.agentKey || getAgentApiKey()
   );
@@ -83,7 +84,11 @@ export async function createSubdomain(input: {
     id: subdomain.id,
     name: subdomain.name,
     documentRoot: subdomain.documentRoot,
-    domain: { name: domain.name, server: domain.server },
+    domain: {
+      name: domain.name,
+      phpEnabled: domain.phpEnabled,
+      server: domain.server,
+    },
   });
 }
 
@@ -107,7 +112,11 @@ export async function retrySubdomain(subdomainId: string, userId: string) {
     id: subdomain.id,
     name: subdomain.name,
     documentRoot,
-    domain: subdomain.domain,
+    domain: {
+      name: subdomain.domain.name,
+      phpEnabled: subdomain.domain.phpEnabled,
+      server: subdomain.domain.server,
+    },
   });
 }
 

@@ -19,6 +19,9 @@ export type MailMessage = {
   body: string;
   date: string;
   read: boolean;
+  /** Internal Maildir metadata (not shown in UI). */
+  _maildirFile?: string;
+  _maildirNew?: boolean;
 };
 
 export type MailFolderCounts = Record<MailFolder, number>;

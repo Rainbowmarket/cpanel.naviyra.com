@@ -62,6 +62,7 @@ export default function MailboxPage() {
   const [composeTo, setComposeTo] = useState("");
   const [composeSubject, setComposeSubject] = useState("");
   const [composeBody, setComposeBody] = useState("");
+  const [composeError, setComposeError] = useState("");
   const [draftId, setDraftId] = useState<string | undefined>();
   const [sending, setSending] = useState(false);
 
@@ -106,6 +107,7 @@ export default function MailboxPage() {
   }, [folder]);
 
   function openCompose(message?: MailMessage) {
+    setComposeError("");
     if (message && folder === "Drafts") {
       setDraftId(message.id);
       setComposeTo(message.to.join(", "));
@@ -122,25 +124,45 @@ export default function MailboxPage() {
 
   async function handleSend(e: FormEvent, draft = false) {
     e.preventDefault();
+    setComposeError("");
+    const recipients = parseRecipients(composeTo);
+    if (!draft && recipients.length === 0) {
+      setComposeError("Add at least one recipient");
+      return;
+    }
     setSending(true);
-    await fetch("/api/mail/messages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        accountId,
-        to: parseRecipients(composeTo),
-        subject: composeSubject,
-        body: composeBody,
-        draft,
-        draftId,
-      }),
-    });
-    setSending(false);
-    setComposeOpen(false);
-    setDraftId(undefined);
-    if (!draft) setFolder("Sent");
-    else setFolder("Drafts");
-    await loadFolder();
+    try {
+      const res = await fetch("/api/mail/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          accountId,
+          to: recipients,
+          subject: composeSubject,
+          body: composeBody,
+          draft,
+          draftId,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setComposeError(
+          typeof data.error === "string"
+            ? data.error
+            : "Failed to send message"
+        );
+        return;
+      }
+      setComposeOpen(false);
+      setDraftId(undefined);
+      if (!draft) setFolder("Sent");
+      else setFolder("Drafts");
+      await loadFolder();
+    } catch (error) {
+      setComposeError(error instanceof Error ? error.message : "Send failed");
+    } finally {
+      setSending(false);
+    }
   }
 
   async function handleMove(targetFolder: MailFolder) {
@@ -194,6 +216,16 @@ export default function MailboxPage() {
             title="Refresh"
           >
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+          </button>
+          <button
+            type="button"
+            onClick={async () => {
+              await fetch("/api/webmail/login", { method: "DELETE" });
+              window.location.href = "/webmail";
+            }}
+            className="rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:text-white"
+          >
+            Sign out
           </button>
           <button
             type="button"
@@ -387,6 +419,9 @@ export default function MailboxPage() {
                   rows={12}
                   className="w-full resize-none rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
                 />
+                {composeError ? (
+                  <p className="text-sm text-red-400">{composeError}</p>
+                ) : null}
               </div>
               <div className="flex justify-end gap-2 border-t border-slate-800 px-5 py-3">
                 <button

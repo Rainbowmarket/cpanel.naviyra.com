@@ -1,4 +1,6 @@
 import { prisma } from "@/lib/prisma";
+import { getSessionUser } from "@/lib/auth";
+import { getMailSession } from "@/lib/mail/session";
 import {
   deleteMessage,
   ensureMailboxDirs,
@@ -21,8 +23,25 @@ async function getOwnedAccount(accountId: string, userId: string) {
   });
 }
 
-export async function getWebmailAccount(accountId: string, userId: string) {
-  const account = await getOwnedAccount(accountId, userId);
+/** Panel owner session or mailbox user session. */
+export async function authorizeWebmail(accountId: string) {
+  const mailSession = await getMailSession();
+  if (mailSession?.accountId === accountId) {
+    const account = await prisma.mailAccount.findFirst({
+      where: { id: accountId, isActive: true },
+      select: { id: true, email: true, isActive: true },
+    });
+    if (!account) throw new Error("Unauthorized");
+    return account;
+  }
+
+  const user = await getSessionUser();
+  if (!user) throw new Error("Unauthorized");
+  return getOwnedAccount(accountId, user.id);
+}
+
+export async function getWebmailAccount(accountId: string) {
+  const account = await authorizeWebmail(accountId);
   if (!account.isActive) {
     throw new Error("Mailbox is deactivated");
   }
@@ -31,29 +50,24 @@ export async function getWebmailAccount(accountId: string, userId: string) {
   return account;
 }
 
-export async function getWebmailOverview(accountId: string, userId: string) {
-  const account = await getWebmailAccount(accountId, userId);
+export async function getWebmailOverview(accountId: string) {
+  const account = await getWebmailAccount(accountId);
   const counts = await getFolderCounts(account.email);
   return { account, folders: MAIL_FOLDERS, counts };
 }
 
-export async function getWebmailMessages(
-  accountId: string,
-  userId: string,
-  folder: MailFolder
-) {
-  const account = await getWebmailAccount(accountId, userId);
+export async function getWebmailMessages(accountId: string, folder: MailFolder) {
+  const account = await getWebmailAccount(accountId);
   const messages = await listMessages(account.email, folder);
   return { account, messages };
 }
 
 export async function getWebmailMessage(
   accountId: string,
-  userId: string,
   folder: MailFolder,
   messageId: string
 ) {
-  const account = await getWebmailAccount(accountId, userId);
+  const account = await getWebmailAccount(accountId);
   const message = await getMessage(account.email, folder, messageId);
   if (!message) throw new Error("Message not found");
   if (!message.read) {
@@ -65,7 +79,6 @@ export async function getWebmailMessage(
 
 export async function composeWebmailMessage(
   accountId: string,
-  userId: string,
   input: {
     to: string[];
     cc?: string[];
@@ -75,7 +88,7 @@ export async function composeWebmailMessage(
     draftId?: string;
   }
 ) {
-  const account = await getWebmailAccount(accountId, userId);
+  const account = await getWebmailAccount(accountId);
   const message = await sendMessage({
     fromEmail: account.email,
     ...input,
@@ -85,12 +98,11 @@ export async function composeWebmailMessage(
 
 export async function moveWebmailMessage(
   accountId: string,
-  userId: string,
   folder: MailFolder,
   messageId: string,
   targetFolder: MailFolder
 ) {
-  const account = await getWebmailAccount(accountId, userId);
+  const account = await getWebmailAccount(accountId);
   const message = await moveMessage(account.email, folder, targetFolder, messageId);
   if (!message) throw new Error("Message not found");
   return { account, message };
@@ -98,12 +110,11 @@ export async function moveWebmailMessage(
 
 export async function deleteWebmailMessage(
   accountId: string,
-  userId: string,
   folder: MailFolder,
   messageId: string,
   permanent = false
 ) {
-  const account = await getWebmailAccount(accountId, userId);
+  const account = await getWebmailAccount(accountId);
 
   if (folder === "Trash" || permanent) {
     await deleteMessage(account.email, folder, messageId);
