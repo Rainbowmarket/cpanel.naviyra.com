@@ -1,4 +1,5 @@
 import path from "node:path";
+import { getPanelBaseDomain } from "@/lib/base-domain";
 
 /** Cross-platform website root for a domain. */
 export function getDefaultDocumentRoot(domain: string): string {
@@ -34,11 +35,31 @@ export function getDnsRoot(): string {
 }
 
 export function getDnsNs1(): string {
-  return process.env.DNS_NS1 ?? "ns1.naviyra.uk";
+  if (process.env.DNS_NS1?.trim()) return process.env.DNS_NS1.trim();
+  const base = getPanelBaseDomain();
+  return base ? `ns1.${base}` : "ns1.localhost";
 }
 
 export function getDnsNs2(): string {
-  return process.env.DNS_NS2 ?? "ns2.naviyra.uk";
+  if (process.env.DNS_NS2?.trim()) return process.env.DNS_NS2.trim();
+  const base = getPanelBaseDomain();
+  return base ? `ns2.${base}` : "ns2.localhost";
+}
+
+export function getDefaultServerHostname(): string {
+  if (process.env.DEFAULT_SERVER_HOSTNAME?.trim()) {
+    return process.env.DEFAULT_SERVER_HOSTNAME.trim();
+  }
+  const base = getPanelBaseDomain();
+  return base ? `server1.${base}` : "server1.localhost";
+}
+
+export function getLetsEncryptEmail(): string {
+  if (process.env.LETSENCRYPT_EMAIL?.trim()) {
+    return process.env.LETSENCRYPT_EMAIL.trim();
+  }
+  const base = getPanelBaseDomain();
+  return base ? `admin@${base}` : "admin@localhost";
 }
 
 export function getBindZonesDir(): string | undefined {

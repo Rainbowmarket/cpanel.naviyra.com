@@ -1,10 +1,18 @@
 #!/usr/bin/env bash
-# Re-issue SSL for mail.kongunattugounder.com only (no www.mail)
+# Re-issue SSL for a mail host (default: mail.<PANEL_HOSTNAME>)
+# Usage: sudo ./scripts/fix-mail-ssl.sh [mail.example.com]
 set -euo pipefail
 
-HOST=mail.kongunattugounder.com
-DOC=/var/www/kongunattugounder.com/subdomains/mail/public_html
+# shellcheck source=lib/load-env.sh
+source "$(dirname "$0")/lib/load-env.sh"
+require_base_domain
+
+HOST="${1:-mail.${BASE_DOMAIN}}"
+# document root: mail.example.com → /var/www/example.com/subdomains/mail/...
+APEX="${HOST#mail.}"
+DOC="/var/www/${APEX}/subdomains/mail/public_html"
 ACME=/var/www/certbot
+EMAIL="${LETSENCRYPT_EMAIL:-admin@${BASE_DOMAIN}}"
 
 mkdir -p "$DOC" "$ACME/.well-known/acme-challenge"
 
@@ -38,7 +46,7 @@ echo "ACME webroot OK"
 certbot certonly --non-interactive --agree-tos --keep-until-expiring \
   --cert-name "${HOST}" \
   --webroot -w "${ACME}" \
-  --email admin@naviyra.uk \
+  --email "${EMAIL}" \
   -d "${HOST}"
 
 CERT=/etc/letsencrypt/live/${HOST}

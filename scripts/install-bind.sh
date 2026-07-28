@@ -8,8 +8,24 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
-PUBLIC_IP="${1:-136.243.196.166}"
-BASE_DOMAIN="${2:-naviyra.uk}"
+PUBLIC_IP_ARG="${1:-}"
+BASE_DOMAIN_ARG="${2:-}"
+
+# shellcheck source=lib/load-env.sh
+if [ -f "$(dirname "$0")/lib/load-env.sh" ]; then
+  # shellcheck disable=SC1091
+  source "$(dirname "$0")/lib/load-env.sh"
+fi
+
+PUBLIC_IP="${PUBLIC_IP_ARG:-${SERVER_PUBLIC_IP:-}}"
+BASE_DOMAIN="${BASE_DOMAIN_ARG:-${BASE_DOMAIN:-}}"
+
+if [ -z "$PUBLIC_IP" ] || [ -z "$BASE_DOMAIN" ]; then
+  echo "Usage: sudo ./scripts/install-bind.sh <PUBLIC_IP> <BASE_DOMAIN>"
+  echo "Or set SERVER_PUBLIC_IP and PANEL_HOSTNAME in .env"
+  exit 1
+fi
+
 NS1="ns1.${BASE_DOMAIN}"
 NS2="ns2.${BASE_DOMAIN}"
 ZONES_DIR=/etc/bind/zones

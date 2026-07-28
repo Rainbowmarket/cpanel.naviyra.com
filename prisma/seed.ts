@@ -12,7 +12,10 @@ async function main() {
   const ipAddress = process.env.SERVER_PUBLIC_IP?.trim() || "127.0.0.1";
 
   const hostname =
-    process.env.DEFAULT_SERVER_HOSTNAME?.trim() || "server1.naviyra.uk";
+    process.env.DEFAULT_SERVER_HOSTNAME?.trim() ||
+    (process.env.PANEL_HOSTNAME?.trim()
+      ? `server1.${process.env.PANEL_HOSTNAME.trim().replace(/^www\./, "")}`
+      : "server1.localhost");
 
   const server = await prisma.server.upsert({
     where: { hostname },

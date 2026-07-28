@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
-# Sync panel DNS zones into BIND and ensure kongunattugounder.com answers
+# Sync panel DNS zones into BIND
 set -euo pipefail
 
-DOMAIN=kongunattugounder.com
-IP=136.243.196.166
-NS1=ns1.naviyra.uk
-NS2=ns2.naviyra.uk
+# shellcheck source=lib/load-env.sh
+source "$(dirname "$0")/lib/load-env.sh"
+require_base_domain
+
+DOMAIN="${1:-kongunattugounder.com}"
+IP="${SERVER_PUBLIC_IP:-136.243.196.166}"
+NS1="${DNS_NS1:-ns1.${BASE_DOMAIN}}"
+NS2="${DNS_NS2:-ns2.${BASE_DOMAIN}}"
 ZONES_DIR=/etc/bind/zones
 NAMED_DIR=/etc/bind/naviyra-zones.d
 INCLUDE_FILE=/etc/bind/naviyra-zones.conf

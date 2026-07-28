@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { callAgent } from "@/lib/agent/client";
 import { getAgentApiKey } from "@/lib/paths";
+import { isPanelHostname, panelHostnameError } from "@/lib/panel-host";
 import type { SslStatus } from "@/generated/prisma/client";
 
 function getCertificateHostname(cert: {
@@ -92,6 +93,13 @@ export async function issueSslCertificate(input: {
     where: { id: input.domainId, userId: input.userId },
     include: { server: true },
   });
+
+  if (isPanelHostname(domain.name)) {
+    throw new Error(
+      panelHostnameError(domain.name) +
+        " SSL for the control panel is managed separately."
+    );
+  }
 
   await dedupeSslCertificates(input.userId);
 

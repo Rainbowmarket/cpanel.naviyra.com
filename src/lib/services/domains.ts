@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { callAgent } from "@/lib/agent/client";
 import { getAgentApiKey, getDefaultDocumentRoot } from "@/lib/paths";
+import { isPanelHostname, panelHostnameError } from "@/lib/panel-host";
 import { deleteDnsZoneForDomain, syncDnsZone } from "@/lib/services/dns";
 import type { DomainStatus } from "@/generated/prisma/client";
 
@@ -68,8 +69,13 @@ export async function createDomain(input: {
   documentRoot?: string;
   phpEnabled?: boolean;
 }) {
+  const name = input.name.trim().toLowerCase();
+  if (isPanelHostname(name)) {
+    throw new Error(panelHostnameError(name));
+  }
+
   const documentRoot =
-    input.documentRoot ?? getDefaultDocumentRoot(input.name);
+    input.documentRoot ?? getDefaultDocumentRoot(name);
 
   await prisma.server.findUniqueOrThrow({
     where: { id: input.serverId },
@@ -77,7 +83,7 @@ export async function createDomain(input: {
 
   const domain = await prisma.domain.create({
     data: {
-      name: input.name,
+      name,
       documentRoot,
       phpEnabled: input.phpEnabled ?? true,
       userId: input.userId,
@@ -96,6 +102,18 @@ export async function retryDomain(domainId: string, userId: string) {
     include: { server: true },
   });
 
+  if (isPanelHostname(domain.name)) {
+    // Keep DB row active; never reprovision nginx over the control panel.
+    return prisma.domain.update({
+      where: { id: domain.id },
+      data: {
+        status: "ACTIVE",
+        lastError: null,
+        documentRoot: getDefaultDocumentRoot(domain.name),
+      },
+    });
+  }
+
   const documentRoot = getDefaultDocumentRoot(domain.name);
 
   await prisma.domain.update({
@@ -111,6 +129,10 @@ export async function deleteDomain(domainId: string, userId: string) {
     where: { id: domainId, userId },
     include: { server: true },
   });
+
+  if (isPanelHostname(domain.name)) {
+    throw new Error(panelHostnameError(domain.name));
+  }
 
   await callAgent(
     { action: "delete_domain", domain: domain.name },

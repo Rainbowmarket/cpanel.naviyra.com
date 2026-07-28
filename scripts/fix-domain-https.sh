@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
 # 1) Stop HTTPS default_server from serving Naviyra Chat for other domains
-# 2) Issue Let's Encrypt + HTTPS vhost for kongunattugounder.com
+# 2) Issue Let's Encrypt + HTTPS vhost for a customer domain
 set -euo pipefail
 
-DOMAIN=kongunattugounder.com
+# shellcheck source=lib/load-env.sh
+source "$(dirname "$0")/lib/load-env.sh"
+
+DOMAIN="${1:-kongunattugounder.com}"
 DOC=/var/www/${DOMAIN}/public_html
 ACME=/var/www/certbot
 CHAT_CONF=/etc/nginx/sites-available/naviyra-chat
+EMAIL="${LETSENCRYPT_EMAIL:-admin@${BASE_DOMAIN:-localhost}}"
 
 mkdir -p "$DOC" "$ACME"
 
@@ -207,7 +211,7 @@ fi
 
 certbot certonly --non-interactive --agree-tos --keep-until-expiring \
   --webroot -w "${ACME}" \
-  --email admin@naviyra.uk \
+  --email "${EMAIL}" \
   -d "${DOMAIN}" -d "www.${DOMAIN}"
 
 CERT=/etc/letsencrypt/live/${DOMAIN}

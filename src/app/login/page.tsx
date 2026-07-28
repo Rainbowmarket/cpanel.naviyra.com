@@ -87,7 +87,7 @@ export default function LoginPage() {
                 <input
                   value={domain}
                   onChange={(e) => setDomain(e.target.value)}
-                  placeholder="Main domain (e.g. naviyra.uk)"
+                  placeholder="Main domain (e.g. yourdomain.com)"
                   className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-white"
                   required
                   autoCapitalize="off"

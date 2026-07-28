@@ -240,11 +240,61 @@ export async function resolveVhostOptions(
   return { phpEnabled: true, phpFpmPass };
 }
 
+function panelHostnames(): Set<string> {
+  const hosts = new Set<string>();
+  const add = (raw?: string | null) => {
+    if (!raw?.trim()) return;
+    let h = raw.trim().toLowerCase();
+    h = h.replace(/^https?:\/\//, "").split("/")[0] ?? h;
+    h = h.split(":")[0] ?? h;
+    h = h.replace(/^www\./, "");
+    if (!h) return;
+    hosts.add(h);
+    hosts.add(`www.${h}`);
+  };
+
+  add(process.env.PANEL_HOSTNAME);
+  try {
+    if (process.env.PANEL_PUBLIC_URL?.trim()) {
+      add(new URL(process.env.PANEL_PUBLIC_URL.trim()).hostname);
+    }
+  } catch {
+    /* ignore */
+  }
+  const serverHost = process.env.DEFAULT_SERVER_HOSTNAME?.trim();
+  if (serverHost) {
+    add(serverHost.replace(/^server\d+\./i, ""));
+  }
+  const ns1 = process.env.DNS_NS1?.trim();
+  if (ns1) {
+    add(ns1.replace(/^ns\d+\./i, ""));
+  }
+  return hosts;
+}
+
+export function isPanelHostname(hostname: string): boolean {
+  const h = hostname.trim().toLowerCase().replace(/\.$/, "");
+  if (!h) return false;
+  const hosts = panelHostnames();
+  return hosts.has(h) || hosts.has(h.replace(/^www\./, ""));
+}
+
 export async function writeAndEnableNginxSite(
   siteName: string,
   content: string,
   dryRun: boolean
 ) {
+  if (isPanelHostname(siteName)) {
+    console.warn(
+      `[nginx] Refusing to overwrite panel hostname vhost: ${siteName}`
+    );
+    return {
+      available: path.join(SITES_AVAILABLE, siteName),
+      enabled: path.join(SITES_ENABLED, siteName),
+      skipped: true as const,
+    };
+  }
+
   const available = path.join(SITES_AVAILABLE, siteName);
   const enabled = path.join(SITES_ENABLED, siteName);
 
@@ -271,6 +321,12 @@ export async function writeAndEnableNginxSite(
 }
 
 export async function removeNginxSite(siteName: string, dryRun: boolean) {
+  if (isPanelHostname(siteName)) {
+    console.warn(
+      `[nginx] Refusing to remove panel hostname vhost: ${siteName}`
+    );
+    return;
+  }
   if (dryRun) {
     console.log(`[DRY RUN] remove nginx site ${siteName}`);
     return;

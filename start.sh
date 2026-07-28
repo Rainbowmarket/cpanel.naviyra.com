@@ -3,9 +3,8 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-if ! command -v node >/dev/null 2>&1; then
-  echo "ERROR: Node.js is not installed. Get it from https://nodejs.org"
-  exit 1
-fi
+# shellcheck source=scripts/ensure-node.sh
+source "./scripts/ensure-node.sh"
+ensure_node
 
 exec node launcher/index.mjs start "$@"

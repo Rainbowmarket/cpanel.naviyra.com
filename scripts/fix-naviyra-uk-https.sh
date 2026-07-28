@@ -1,29 +1,38 @@
 #!/usr/bin/env bash
+# Point PANEL_HOSTNAME (+ www) HTTPS at Naviyra Panel (127.0.0.1:PANEL_PORT)
+# Domain / email come from .env (or first admin login values).
 set -euo pipefail
+
+# shellcheck source=lib/load-env.sh
+source "$(dirname "$0")/lib/load-env.sh"
+require_base_domain
+
+DOMAIN="${BASE_DOMAIN}"
+WWW="www.${DOMAIN}"
+EMAIL="${LETSENCRYPT_EMAIL:-admin@${DOMAIN}}"
+PORT="${PANEL_PORT:-3100}"
 
 mkdir -p /var/www/certbot /etc/nginx/ssl
 
-# Prefer Let's Encrypt; fall back to self-signed (Cloudflare Full accepts it)
-if [ ! -f /etc/letsencrypt/live/naviyra.uk/fullchain.pem ]; then
+if [ ! -f "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" ]; then
   certbot certonly --webroot -w /var/www/certbot \
-    -d naviyra.uk -d www.naviyra.uk \
-    --non-interactive --agree-tos --email admin@naviyra.uk \
+    -d "${DOMAIN}" -d "${WWW}" \
+    --non-interactive --agree-tos --email "${EMAIL}" \
     --keep-until-expiring || true
 fi
 
-CERT=/etc/letsencrypt/live/naviyra.uk/fullchain.pem
-KEY=/etc/letsencrypt/live/naviyra.uk/privkey.pem
+CERT="/etc/letsencrypt/live/${DOMAIN}/fullchain.pem"
+KEY="/etc/letsencrypt/live/${DOMAIN}/privkey.pem"
 
 if [ ! -f "$CERT" ]; then
-  echo "Using self-signed cert for origin (Cloudflare Full)"
-  mkdir -p /etc/nginx/ssl
-  CERT=/etc/nginx/ssl/naviyra.uk.crt
-  KEY=/etc/nginx/ssl/naviyra.uk.key
+  echo "Using self-signed cert for origin"
+  CERT="/etc/nginx/ssl/${DOMAIN}.crt"
+  KEY="/etc/nginx/ssl/${DOMAIN}.key"
   if [ ! -f "$CERT" ]; then
     openssl req -x509 -nodes -newkey rsa:2048 -days 825 \
       -keyout "$KEY" -out "$CERT" \
-      -subj "/CN=naviyra.uk" \
-      -addext "subjectAltName=DNS:naviyra.uk,DNS:www.naviyra.uk"
+      -subj "/CN=${DOMAIN}" \
+      -addext "subjectAltName=DNS:${DOMAIN},DNS:${WWW}"
   fi
 fi
 
@@ -36,12 +45,12 @@ if [ -f /etc/letsencrypt/ssl-dhparams.pem ]; then
   DH="    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;"
 fi
 
-cat > /etc/nginx/sites-available/naviyra.uk <<EOF
-# Naviyra Panel — apex → :3100
+cat > "/etc/nginx/sites-available/${DOMAIN}" <<EOF
+# Naviyra Panel — ${DOMAIN} → :${PORT}
 server {
     listen 80;
     listen [::]:80;
-    server_name naviyra.uk www.naviyra.uk;
+    server_name ${DOMAIN} ${WWW};
 
     location ^~ /.well-known/acme-challenge/ {
         root /var/www/certbot;
@@ -56,7 +65,7 @@ server {
 server {
     listen 443 ssl http2;
     listen [::]:443 ssl http2;
-    server_name naviyra.uk www.naviyra.uk;
+    server_name ${DOMAIN} ${WWW};
 
     ssl_certificate     ${CERT};
     ssl_certificate_key ${KEY};
@@ -65,8 +74,10 @@ ${DH}
 
     client_max_body_size 64M;
 
+    include /etc/nginx/snippets/naviyra-terminal-ws.conf;
+
     location / {
-        proxy_pass http://127.0.0.1:3100;
+        proxy_pass http://127.0.0.1:${PORT};
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
@@ -79,10 +90,10 @@ ${DH}
 }
 EOF
 
-ln -sfn /etc/nginx/sites-available/naviyra.uk /etc/nginx/sites-enabled/naviyra.uk
+ln -sfn "/etc/nginx/sites-available/${DOMAIN}" "/etc/nginx/sites-enabled/${DOMAIN}"
 nginx -t
 systemctl reload nginx
 
 echo "=== local https ==="
-curl -skI -H 'Host: naviyra.uk' https://127.0.0.1/ | head -n 12
-echo "cert: $CERT"
+curl -skI -H "Host: ${DOMAIN}" https://127.0.0.1/ | head -n 12
+echo "cert: $CERT domain: $DOMAIN"

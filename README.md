@@ -18,6 +18,7 @@ Works on **Windows**, **Linux**, and **macOS**.
 ## Requirements
 
 - **Node.js 20+** — [nodejs.org](https://nodejs.org)
+- Start scripts **auto-install Node** if missing (Linux via apt/nodesource, macOS via Homebrew, Windows via winget), then start the panel
 - No Docker required
 - No PostgreSQL required (embedded SQLite database)
 
