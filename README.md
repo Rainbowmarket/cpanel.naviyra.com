@@ -12,6 +12,8 @@ Works on **Windows**, **Linux**, and **macOS**.
 - **FTP server** — FTP accounts per domain
 - **SSL certificates** — Let's Encrypt issue & renew
 - **File manager** — browse and edit website files
+- **Terminal** — interactive web shell (admin full access; users jailed to document root) with session command log
+- **Security Manager** — visitors, threats, IP block/whitelist
 
 ## Requirements
 
@@ -231,6 +233,49 @@ npm run build
 ```
 
 The launcher automatically uses production mode when `.next` exists.
+
+---
+
+## Terminal (web shell)
+
+Dashboard → **Tools → Terminal**.
+
+| Role | Scope |
+|------|--------|
+| **ADMIN** | Full server shell (optional: start in a domain document root) |
+| **USER / RESELLER** | Shell jailed to the selected domain/subdomain document root |
+
+### Local development
+
+The browser connects to the agent WebSocket at `ws://127.0.0.1:4000/terminal` (derived from `AGENT_URL`). No extra nginx config is required.
+
+Live PTY requires `AGENT_DRY_RUN=false` and admin/root on Linux. On Windows dry-run, the session shows a dry-run banner instead of a real shell.
+
+### Production (HTTPS panel)
+
+1. Set in `.env` (use your public panel host and agent port):
+
+```bash
+NEXT_PUBLIC_TERMINAL_WS_URL=wss://naviyra.uk/terminal-ws/terminal
+AGENT_URL=http://127.0.0.1:4100
+```
+
+2. Proxy WebSocket upgrades on the panel nginx vhost:
+
+```nginx
+location /terminal-ws/ {
+    proxy_pass http://127.0.0.1:4100/;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_read_timeout 3600s;
+}
+```
+
+Adjust `4100` to match `AGENT_PORT`. Reload nginx after editing.
+
+Session command/output lines are stored in SQLite (`TerminalSession` / `TerminalSessionLog`) for audit.
 
 ---
 

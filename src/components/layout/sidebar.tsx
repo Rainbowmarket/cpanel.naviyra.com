@@ -14,6 +14,7 @@ import {
   Users,
   Network,
   Shield,
+  Terminal,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -43,6 +44,7 @@ const navGroups = [
     items: [
       { href: "/file-manager", label: "File Manager", icon: FolderOpen },
       { href: "/dashboard/security", label: "Security Manager", icon: Shield },
+      { href: "/dashboard/terminal", label: "Terminal", icon: Terminal },
     ],
   },
 ];

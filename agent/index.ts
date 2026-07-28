@@ -43,6 +43,7 @@ import {
   writeAndEnableNginxSite,
 } from "./nginx";
 import { resolvePhpFpmPass } from "./php-fpm";
+import { attachTerminalWs } from "./terminal";
 const exec = promisify(execFile);
 const PORT = Number(process.env.AGENT_PORT ?? 4000);
 const isWindows = process.platform === "win32";
@@ -529,6 +530,8 @@ const server = http.createServer(async (req, res) => {
   res.writeHead(404);
   res.end("Not found");
 });
+
+attachTerminalWs(server, { dryRun: DRY_RUN });
 
 server.listen(PORT, async () => {
   await fs.mkdir(SITES_ROOT, { recursive: true });

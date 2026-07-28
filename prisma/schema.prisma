@@ -74,6 +74,17 @@ enum SecurityAction {
   BLOCKED_AUTO
 }
 
+enum TerminalMode {
+  FULL
+  JAIL
+}
+
+enum TerminalLogKind {
+  CMD
+  OUT
+  SYS
+}
+
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
@@ -83,8 +94,9 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  domains      Domain[]
-  jobs         Job[]
+  domains          Domain[]
+  jobs             Job[]
+  terminalSessions TerminalSession[]
 }
 
 model Server {
@@ -337,4 +349,32 @@ model WhitelistedIp {
   ipAddress String   @unique
   label     String?
   createdAt DateTime @default(now())
+}
+
+model TerminalSession {
+  id          String       @id @default(cuid())
+  mode        TerminalMode
+  cwd         String
+  targetLabel String?
+  createdAt   DateTime     @default(now())
+  endedAt     DateTime?
+
+  userId String
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  logs TerminalSessionLog[]
+
+  @@index([userId, createdAt])
+}
+
+model TerminalSessionLog {
+  id   String          @id @default(cuid())
+  at   DateTime        @default(now())
+  kind TerminalLogKind
+  text String
+
+  sessionId String
+  session   TerminalSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, at])
 }
