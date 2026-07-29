@@ -45,6 +45,17 @@ import {
 import { resolvePhpFpmPass } from "./php-fpm";
 import { attachTerminalWs } from "./terminal";
 import { extractZipArchive, isZipFileName } from "./zip";
+import {
+  allocateUpstreamPort,
+  getAppUnitStatus,
+  isProxyAppType,
+  removeAppUnit,
+  restartAppUnit,
+  startAppUnit,
+  stopAppUnit,
+  writeAppUnit,
+} from "./apps";
+import type { VhostOptions } from "./nginx";
 const exec = promisify(execFile);
 const PORT = Number(process.env.AGENT_PORT ?? 4000);
 const isWindows = process.platform === "win32";
@@ -83,16 +94,22 @@ async function runCmd(cmd: string, args: string[]): Promise<string> {
 async function writeVhostConfig(
   domain: string,
   documentRoot: string,
-  phpEnabled = true
+  phpEnabled = true,
+  extras?: Partial<VhostOptions>
 ) {
   await ensureConfigDir();
   const configPath = path.join(CONFIG_ROOT, `${domain}.conf`);
-  const content = `# Naviyra vhost\n# domain: ${domain}\n# root: ${documentRoot}\n# php: ${phpEnabled}\n`;
+  const appType = extras?.appType ?? (phpEnabled ? "PHP" : "STATIC");
+  const content = `# Naviyra vhost\n# domain: ${domain}\n# root: ${documentRoot}\n# appType: ${appType}\n# php: ${phpEnabled}\n`;
   await fs.writeFile(configPath, content, "utf8");
 
   if (!isWindows) {
     await ensureDefaultIndex(documentRoot, domain);
-    const vhostOpts = await resolveVhostOptions(phpEnabled);
+    const vhostOpts = await resolveVhostOptions(phpEnabled, {
+      appType,
+      upstreamPort: extras?.upstreamPort ?? null,
+      spaMode: extras?.spaMode,
+    });
     const certDir = `/etc/letsencrypt/live/${domain}`;
     const hasCert =
       fsSync.existsSync(path.join(certDir, "fullchain.pem")) &&
@@ -125,15 +142,24 @@ async function handleAction(payload: Action) {
         String(payload.documentRoot),
         domain
       );
-      const phpEnabled = payload.phpEnabled !== false;
+      const appType = String(payload.appType ?? (payload.phpEnabled === false ? "STATIC" : "PHP"));
+      const phpEnabled = appType === "PHP";
+      const upstreamPort = payload.upstreamPort
+        ? Number(payload.upstreamPort)
+        : null;
       await fs.mkdir(documentRoot, { recursive: true });
-      await writeVhostConfig(domain, documentRoot, phpEnabled);
+      await writeVhostConfig(domain, documentRoot, phpEnabled, {
+        appType,
+        upstreamPort,
+      });
       return {
         success: true,
         data: {
           domain,
           documentRoot,
           phpEnabled,
+          appType,
+          upstreamPort,
           phpFpm: await resolvePhpFpmPass(),
         },
       };
@@ -157,7 +183,11 @@ async function handleAction(payload: Action) {
         domain,
         subdomain
       );
-      const phpEnabled = payload.phpEnabled !== false;
+      const appType = String(payload.appType ?? (payload.phpEnabled === false ? "STATIC" : "PHP"));
+      const phpEnabled = appType === "PHP";
+      const upstreamPort = payload.upstreamPort
+        ? Number(payload.upstreamPort)
+        : null;
       await fs.mkdir(documentRoot, { recursive: true });
       const hostname = `${subdomain}.${domain}`;
       if (!isWindows) {
@@ -173,7 +203,10 @@ async function handleAction(payload: Action) {
             ? buildMailProxyHttpsVhost([hostname], certDir)
             : buildMailProxyHttpVhost([hostname]);
         } else {
-          const vhostOpts = await resolveVhostOptions(phpEnabled);
+          const vhostOpts = await resolveVhostOptions(phpEnabled, {
+            appType,
+            upstreamPort,
+          });
           conf = hasCert
             ? buildHttpsVhost([hostname], documentRoot, certDir, vhostOpts)
             : buildHttpVhost([hostname], documentRoot, vhostOpts);
@@ -182,7 +215,14 @@ async function handleAction(payload: Action) {
       }
       return {
         success: true,
-        data: { documentRoot, hostname, phpEnabled, phpFpm: await resolvePhpFpmPass() },
+        data: {
+          documentRoot,
+          hostname,
+          phpEnabled,
+          appType,
+          upstreamPort,
+          phpFpm: await resolvePhpFpmPass(),
+        },
       };
     }
 
@@ -237,7 +277,11 @@ async function handleAction(payload: Action) {
         documentRoot,
         DRY_RUN,
         subdomains,
-        payload.phpEnabled !== false
+        payload.phpEnabled !== false && String(payload.appType ?? "PHP") === "PHP",
+        {
+          appType: payload.appType ? String(payload.appType) : undefined,
+          upstreamPort: payload.upstreamPort ? Number(payload.upstreamPort) : null,
+        }
       );
       await fs.writeFile(
         path.join(CONFIG_ROOT, `ssl-${domain}.txt`),
@@ -528,6 +572,89 @@ async function handleAction(payload: Action) {
         /* no file */
       }
       return { success: true, data: { ip, dryRun: DRY_RUN } };
+    }
+
+    case "configure_site_app": {
+      const siteId = String(payload.siteId);
+      const siteName = String(payload.siteName);
+      const documentRoot = String(payload.documentRoot);
+      const appType = String(payload.appType ?? "STATIC");
+      const phpEnabled = appType === "PHP";
+      let upstreamPort =
+        payload.upstreamPort != null ? Number(payload.upstreamPort) : null;
+
+      if (isProxyAppType(appType)) {
+        upstreamPort = await allocateUpstreamPort(upstreamPort);
+        const startCommand = String(payload.startCommand ?? "");
+        await writeAppUnit({
+          siteId,
+          documentRoot,
+          workingDirRel: String(payload.appWorkingDir ?? "."),
+          startCommand,
+          port: upstreamPort,
+          appEnv: payload.appEnv != null ? String(payload.appEnv) : null,
+          dryRun: DRY_RUN,
+        });
+      } else {
+        await removeAppUnit(siteId, DRY_RUN).catch(() => undefined);
+        upstreamPort = null;
+      }
+
+      const isSub = Boolean(payload.isSubdomain);
+      if (isSub) {
+        const certDir = `/etc/letsencrypt/live/${siteName}`;
+        const hasCert =
+          fsSync.existsSync(path.join(certDir, "fullchain.pem")) &&
+          fsSync.existsSync(path.join(certDir, "privkey.pem"));
+        const vhostOpts = await resolveVhostOptions(phpEnabled, {
+          appType,
+          upstreamPort,
+        });
+        const conf = hasCert
+          ? buildHttpsVhost([siteName], documentRoot, certDir, vhostOpts)
+          : buildHttpVhost([siteName], documentRoot, vhostOpts);
+        await writeAndEnableNginxSite(siteName, conf, DRY_RUN);
+      } else {
+        await writeVhostConfig(siteName, documentRoot, phpEnabled, {
+          appType,
+          upstreamPort,
+        });
+      }
+
+      return {
+        success: true,
+        data: { siteId, appType, upstreamPort, phpEnabled },
+      };
+    }
+
+    case "app_start": {
+      const siteId = String(payload.siteId);
+      const result = await startAppUnit(siteId, DRY_RUN);
+      return { success: true, data: result };
+    }
+
+    case "app_stop": {
+      const siteId = String(payload.siteId);
+      const result = await stopAppUnit(siteId, DRY_RUN);
+      return { success: true, data: result };
+    }
+
+    case "app_restart": {
+      const siteId = String(payload.siteId);
+      const result = await restartAppUnit(siteId, DRY_RUN);
+      return { success: true, data: result };
+    }
+
+    case "app_status": {
+      const siteId = String(payload.siteId);
+      const result = await getAppUnitStatus(siteId);
+      return { success: true, data: result };
+    }
+
+    case "app_remove": {
+      const siteId = String(payload.siteId);
+      await removeAppUnit(siteId, DRY_RUN);
+      return { success: true, data: { siteId } };
     }
 
     default:

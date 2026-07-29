@@ -27,6 +27,7 @@ const createSchema = z.object({
   domainId: z.string(),
   name: z.string().min(1),
   documentRoot: z.string().optional(),
+  appType: z.enum(["STATIC", "PHP", "PYTHON", "GO"]).optional(),
 });
 
 export async function POST(request: Request) {

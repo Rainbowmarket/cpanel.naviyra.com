@@ -135,6 +135,8 @@ export async function issueSslCertificate(input: {
       subdomains,
       documentRoot: domain.documentRoot,
       phpEnabled: domain.phpEnabled,
+      appType: domain.appType,
+      upstreamPort: domain.upstreamPort,
     },
     agentKey
   );
@@ -186,7 +188,9 @@ export async function issueSubdomainSslCertificate(input: {
       domain: hostname,
       subdomains: [],
       documentRoot: subdomain.documentRoot,
-      phpEnabled: subdomain.domain.phpEnabled,
+      phpEnabled: subdomain.appType === "PHP",
+      appType: subdomain.appType,
+      upstreamPort: subdomain.upstreamPort,
     },
     agentKey
   );
@@ -199,7 +203,7 @@ export async function renewSslCertificate(certId: string, userId: string) {
     where: { id: certId, domain: { userId } },
     include: {
       domain: { include: { server: true } },
-      subdomain: { select: { name: true } },
+      subdomain: true,
     },
   });
 
@@ -209,11 +213,16 @@ export async function renewSslCertificate(certId: string, userId: string) {
   });
 
   const hostname = getCertificateHostname(cert);
+  const appType = cert.subdomain?.appType ?? cert.domain.appType;
+  const upstreamPort = cert.subdomain?.upstreamPort ?? cert.domain.upstreamPort;
   const agentResult = await callAgent(
     {
       action: "renew_ssl",
       domain: hostname,
-      phpEnabled: cert.domain.phpEnabled,
+      documentRoot: cert.subdomain?.documentRoot ?? cert.domain.documentRoot,
+      phpEnabled: appType === "PHP",
+      appType,
+      upstreamPort,
     },
     cert.domain.server.agentKey || getAgentApiKey()
   );

@@ -3,16 +3,27 @@
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertCircle, FolderOpen, Globe, Lock, RefreshCw } from "lucide-react";
+import { AlertCircle, FolderOpen, Globe, Lock, RefreshCw, Settings2 } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { Modal, modalInputClass, modalLabelClass } from "@/components/ui/modal";
 import { ModalActions, PageHeader } from "@/components/ui/page-header";
+import {
+  AppRuntimeControls,
+  AppTypeSelectField,
+  type AppType,
+} from "@/components/apps/AppRuntimeControls";
 
 type Domain = {
   id: string;
   name: string;
   status: string;
   documentRoot: string;
+  appType?: AppType;
+  startCommand?: string | null;
+  appWorkingDir?: string | null;
+  upstreamPort?: number | null;
+  appStatus?: string | null;
+  appEnv?: string | null;
   lastError?: string | null;
   server: { name: string; hostname: string };
   sslCerts: Array<{
@@ -56,12 +67,14 @@ export default function DomainsPage() {
   const [servers, setServers] = useState<ServerOption[]>([]);
   const [name, setName] = useState("");
   const [serverId, setServerId] = useState("");
+  const [appType, setAppType] = useState<AppType>("STATIC");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [retrying, setRetrying] = useState<string | null>(null);
   const [sslLoading, setSslLoading] = useState<string | null>(null);
   const [sslError, setSslError] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
+  const [runtimeDomain, setRuntimeDomain] = useState<Domain | null>(null);
 
   async function load() {
     const [domainsRes, serversRes] = await Promise.all([
@@ -86,7 +99,7 @@ export default function DomainsPage() {
     const res = await fetch("/api/domains", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, serverId }),
+      body: JSON.stringify({ name, serverId, appType }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -98,6 +111,7 @@ export default function DomainsPage() {
       return;
     }
     setName("");
+    setAppType("STATIC");
     setCreateOpen(false);
     await load();
     router.refresh();
@@ -154,7 +168,7 @@ export default function DomainsPage() {
     <div className="space-y-8">
       <PageHeader
         title="Domains"
-        description="Add and manage hosted domains."
+        description="Add and manage hosted domains (React, PHP, Python, Go)."
         actionLabel="Add Domain"
         onAction={() => setCreateOpen(true)}
         actionIcon={<Globe className="h-4 w-4" />}
@@ -191,11 +205,8 @@ export default function DomainsPage() {
               }))}
               placeholder="Choose server..."
             />
-            <p className="mt-2 text-xs text-slate-500">
-              Picks which machine will host the domain. With one server, keep Primary
-              Server selected.
-            </p>
           </div>
+          <AppTypeSelectField value={appType} onChange={setAppType} />
           {error && (
             <p className="flex items-center gap-2 text-sm text-red-400">
               <AlertCircle className="h-4 w-4 shrink-0" />
@@ -204,6 +215,29 @@ export default function DomainsPage() {
           )}
           <ModalActions onCancel={() => setCreateOpen(false)} submitLabel="Add Domain" />
         </form>
+      </Modal>
+
+      <Modal
+        open={Boolean(runtimeDomain)}
+        onClose={() => setRuntimeDomain(null)}
+        title={runtimeDomain ? `App runtime — ${runtimeDomain.name}` : "App runtime"}
+        description="Choose how this site is served and manage Python/Go processes."
+      >
+        {runtimeDomain ? (
+          <AppRuntimeControls
+            kind="domain"
+            id={runtimeDomain.id}
+            appType={runtimeDomain.appType ?? "PHP"}
+            startCommand={runtimeDomain.startCommand}
+            appWorkingDir={runtimeDomain.appWorkingDir}
+            upstreamPort={runtimeDomain.upstreamPort}
+            appStatus={runtimeDomain.appStatus}
+            appEnv={runtimeDomain.appEnv}
+            onUpdated={async () => {
+              await load();
+            }}
+          />
+        ) : null}
       </Modal>
 
       {sslError && (
@@ -218,7 +252,7 @@ export default function DomainsPage() {
           <thead className="bg-slate-900/80 text-slate-400">
             <tr>
               <th className="px-5 py-3.5 font-medium">Domain</th>
-              <th className="px-5 py-3.5 font-medium">Server</th>
+              <th className="px-5 py-3.5 font-medium">App</th>
               <th className="px-5 py-3.5 font-medium">Status</th>
               <th className="px-5 py-3.5 font-medium">Document Root</th>
               <th className="px-5 py-3.5 font-medium text-right">Actions</th>
@@ -228,76 +262,88 @@ export default function DomainsPage() {
             {domains.map((d) => {
               const ssl = d.sslCerts[0];
               return (
-              <tr key={d.id} className="border-t border-slate-800/80 hover:bg-slate-900/30">
-                <td className="px-5 py-4 font-medium text-white">{d.name}</td>
-                <td className="px-5 py-4 text-slate-300">{d.server.hostname}</td>
-                <td className="px-5 py-4">
-                  <StatusBadge status={d.status} error={d.lastError} />
-                </td>
-                <td className="max-w-xs truncate px-5 py-4 font-mono text-xs text-slate-400">
-                  {d.documentRoot}
-                </td>
-                <td className="px-5 py-4 text-right">
-                  <div className="flex flex-wrap items-center justify-end gap-2">
-                    {ssl?.status === "ACTIVE" ? (
+                <tr key={d.id} className="border-t border-slate-800/80 hover:bg-slate-900/30">
+                  <td className="px-5 py-4 font-medium text-white">{d.name}</td>
+                  <td className="px-5 py-4 text-slate-300">
+                    <span className="rounded-md bg-slate-800 px-2 py-0.5 text-xs">
+                      {d.appType ?? "PHP"}
+                    </span>
+                    {d.upstreamPort ? (
+                      <span className="ml-2 font-mono text-xs text-slate-500">
+                        :{d.upstreamPort}
+                      </span>
+                    ) : null}
+                  </td>
+                  <td className="px-5 py-4">
+                    <StatusBadge status={d.status} error={d.lastError} />
+                  </td>
+                  <td className="max-w-xs truncate px-5 py-4 font-mono text-xs text-slate-400">
+                    {d.documentRoot}
+                  </td>
+                  <td className="px-5 py-4 text-right">
+                    <div className="flex flex-wrap items-center justify-end gap-2">
                       <button
                         type="button"
-                        onClick={() => handleRenewSsl(ssl.id, d.id)}
-                        disabled={sslLoading === d.id}
-                        className="flex items-center gap-1.5 rounded-lg border border-emerald-500/30 px-3 py-1.5 text-xs text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-50"
+                        onClick={() => setRuntimeDomain(d)}
+                        className="flex items-center gap-1.5 rounded-lg border border-sky-500/30 px-3 py-1.5 text-xs text-sky-400 hover:bg-sky-500/10"
                       >
-                        <RefreshCw
-                          className={`h-3.5 w-3.5 ${sslLoading === d.id ? "animate-spin" : ""}`}
-                        />
-                        Renew SSL
+                        <Settings2 className="h-3.5 w-3.5" />
+                        Runtime
                       </button>
-                    ) : (
+                      {ssl?.status === "ACTIVE" ? (
+                        <button
+                          type="button"
+                          onClick={() => handleRenewSsl(ssl.id, d.id)}
+                          disabled={sslLoading === d.id}
+                          className="flex items-center gap-1.5 rounded-lg border border-emerald-500/30 px-3 py-1.5 text-xs text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-50"
+                        >
+                          <RefreshCw
+                            className={`h-3.5 w-3.5 ${sslLoading === d.id ? "animate-spin" : ""}`}
+                          />
+                          Renew SSL
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleIssueSsl(d.id)}
+                          disabled={sslLoading === d.id || d.status !== "ACTIVE"}
+                          className="flex items-center gap-1.5 rounded-lg border border-emerald-500/30 px-3 py-1.5 text-xs text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-50"
+                        >
+                          <Lock className="h-3.5 w-3.5" />
+                          {ssl ? "Re-issue SSL" : "Issue SSL"}
+                        </button>
+                      )}
+                      <Link
+                        href={`/file-manager?target=d:${d.id}`}
+                        className="flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-emerald-400 hover:bg-slate-800"
+                      >
+                        <FolderOpen className="h-3.5 w-3.5" />
+                        Open files
+                      </Link>
+                      {d.status === "ERROR" && (
+                        <button
+                          type="button"
+                          onClick={() => handleRetry(d.id)}
+                          disabled={retrying === d.id}
+                          className="flex items-center gap-1.5 rounded-lg border border-amber-500/30 px-3 py-1.5 text-xs text-amber-400 hover:bg-amber-500/10 disabled:opacity-50"
+                        >
+                          <RefreshCw
+                            className={`h-3.5 w-3.5 ${retrying === d.id ? "animate-spin" : ""}`}
+                          />
+                          Retry
+                        </button>
+                      )}
                       <button
                         type="button"
-                        onClick={() => handleIssueSsl(d.id)}
-                        disabled={sslLoading === d.id || d.status !== "ACTIVE"}
-                        className="flex items-center gap-1.5 rounded-lg border border-emerald-500/30 px-3 py-1.5 text-xs text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-50"
-                        title={
-                          d.status !== "ACTIVE"
-                            ? "Domain must be active before issuing SSL"
-                            : undefined
-                        }
+                        onClick={() => handleDelete(d.id)}
+                        className="flex items-center gap-1.5 rounded-lg border border-red-500/30 px-3 py-1.5 text-xs text-red-400 hover:bg-red-500/10"
                       >
-                        <Lock className="h-3.5 w-3.5" />
-                        {ssl ? "Re-issue SSL" : "Issue SSL"}
+                        Delete
                       </button>
-                    )}
-                    <Link
-                      href={`/file-manager?target=d:${d.id}`}
-                      className="flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-emerald-400 hover:bg-slate-800"
-                    >
-                      <FolderOpen className="h-3.5 w-3.5" />
-                      Open files
-                    </Link>
-                    {d.status === "ERROR" && (
-                      <button
-                        type="button"
-                        onClick={() => handleRetry(d.id)}
-                        disabled={retrying === d.id}
-                        className="flex items-center gap-1.5 rounded-lg border border-amber-500/30 px-3 py-1.5 text-xs text-amber-400 hover:bg-amber-500/10 disabled:opacity-50"
-                      >
-                        <RefreshCw
-                          className={`h-3.5 w-3.5 ${retrying === d.id ? "animate-spin" : ""}`}
-                        />
-                        Retry
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(d.id)}
-                      className="flex items-center gap-1.5 rounded-lg border border-red-500/30 px-3 py-1.5 text-xs text-red-400 hover:bg-red-500/10"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            );
+                    </div>
+                  </td>
+                </tr>
+              );
             })}
             {domains.length === 0 && (
               <tr>

@@ -9,12 +9,18 @@ import {
   Pencil,
   RefreshCw,
   Server,
+  Settings2,
   Trash2,
 } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { Modal, modalInputClass, modalLabelClass } from "@/components/ui/modal";
 import { ModalActions, PageHeader } from "@/components/ui/page-header";
 import { matchesSearch } from "@/lib/utils";
+import {
+  AppRuntimeControls,
+  AppTypeSelectField,
+  type AppType,
+} from "@/components/apps/AppRuntimeControls";
 
 type Domain = { id: string; name: string };
 type Subdomain = {
@@ -22,6 +28,12 @@ type Subdomain = {
   name: string;
   status: string;
   documentRoot: string;
+  appType?: AppType;
+  startCommand?: string | null;
+  appWorkingDir?: string | null;
+  upstreamPort?: number | null;
+  appStatus?: string | null;
+  appEnv?: string | null;
   lastError?: string | null;
   domain: { name: string };
   sslCerts: Array<{
@@ -64,6 +76,8 @@ export default function SubdomainsPage() {
   const [sslError, setSslError] = useState("");
   const [search, setSearch] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
+  const [appType, setAppType] = useState<AppType>("STATIC");
+  const [runtimeSub, setRuntimeSub] = useState<Subdomain | null>(null);
 
   async function loadDomains() {
     const res = await fetch("/api/domains");
@@ -97,6 +111,7 @@ export default function SubdomainsPage() {
         domainId,
         name,
         documentRoot: useCustomDir && customDir ? customDir : undefined,
+        appType,
       }),
     });
     const data = await res.json();
@@ -107,6 +122,7 @@ export default function SubdomainsPage() {
     setName("");
     setCustomDir("");
     setUseCustomDir(false);
+    setAppType("STATIC");
     setCreateOpen(false);
     loadSubdomains(domainId);
   }
@@ -280,6 +296,7 @@ export default function SubdomainsPage() {
               className={`${modalInputClass} font-mono text-sm`}
             />
           )}
+          <AppTypeSelectField value={appType} onChange={setAppType} />
           <p className="text-xs text-slate-500">
             Default folder:{" "}
             <span className="font-mono text-slate-400">
@@ -294,6 +311,31 @@ export default function SubdomainsPage() {
           )}
           <ModalActions onCancel={() => setCreateOpen(false)} submitLabel="Add Subdomain" />
         </form>
+      </Modal>
+
+      <Modal
+        open={Boolean(runtimeSub)}
+        onClose={() => setRuntimeSub(null)}
+        title={
+          runtimeSub
+            ? `App runtime — ${runtimeSub.name}.${runtimeSub.domain.name}`
+            : "App runtime"
+        }
+        description="Choose how this subdomain is served and manage Python/Go processes."
+      >
+        {runtimeSub ? (
+          <AppRuntimeControls
+            kind="subdomain"
+            id={runtimeSub.id}
+            appType={runtimeSub.appType ?? "PHP"}
+            startCommand={runtimeSub.startCommand}
+            appWorkingDir={runtimeSub.appWorkingDir}
+            upstreamPort={runtimeSub.upstreamPort}
+            appStatus={runtimeSub.appStatus}
+            appEnv={runtimeSub.appEnv}
+            onUpdated={() => loadSubdomains(domainId)}
+          />
+        ) : null}
       </Modal>
 
       {sslError && (
@@ -318,6 +360,9 @@ export default function SubdomainsPage() {
                 <div className="flex flex-wrap items-center gap-3">
                   <p className="font-medium text-white">{fqdn}</p>
                   <StatusBadge status={s.status} />
+                  <span className="rounded-md bg-slate-800 px-2 py-0.5 text-xs text-slate-300">
+                    {s.appType ?? "PHP"}
+                  </span>
                   {ssl ? (
                     <span
                       className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${sslStatusColor(ssl.status)}`}
@@ -367,6 +412,14 @@ export default function SubdomainsPage() {
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setRuntimeSub(s)}
+                  className="flex items-center gap-1.5 rounded-lg border border-sky-500/30 px-3 py-1.5 text-xs text-sky-400 hover:bg-sky-500/10"
+                >
+                  <Settings2 className="h-3.5 w-3.5" />
+                  Runtime
+                </button>
                 {ssl?.status === "ACTIVE" ? (
                   <button
                     type="button"

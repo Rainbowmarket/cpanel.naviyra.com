@@ -7,11 +7,12 @@ Works on **Windows**, **Linux**, and **macOS**.
 ## Features
 
 - **Domains** — add/remove domains, document roots
+- **App runtimes** — React/static SPA, PHP-FPM, managed Python & Go (systemd + reverse proxy)
 - **Subdomains** — create subdomains under any domain
 - **Mail server** — email accounts per domain
 - **FTP server** — FTP accounts per domain
 - **SSL certificates** — Let's Encrypt issue & renew
-- **File manager** — browse and edit website files
+- **File manager** — browse and edit website files (ZIP auto-extract)
 - **Terminal** — interactive web shell (admin full access; users jailed to document root) with session command log
 - **Security Manager** — visitors, threats, IP block/whitelist
 
@@ -419,6 +420,23 @@ chmod +x NaviyraPanel-*.AppImage
 ```
 
 Edit `/opt/naviyra-panel/app/.env` (deb) or `app/.env` in the bundle for `SERVER_PUBLIC_IP` and production settings.
+
+## App runtimes (React / PHP / Python / Go)
+
+On the server (once):
+
+```bash
+sudo bash scripts/install-runtimes.sh
+```
+
+| Type | How it works |
+|------|----------------|
+| **React / Static** | Upload built SPA files to `public_html`. Nginx falls back to `index.html` for client routes. |
+| **PHP** | PHP-FPM + `try_files` front controller. |
+| **Python** | Set start command (e.g. `python3 -m uvicorn main:app --host 127.0.0.1 --port 12000`). Panel writes a systemd unit and nginx reverse-proxies to `127.0.0.1:$PORT`. |
+| **Go** | Upload a **compiled** binary; start command like `./app`. Process must listen on `PORT` / `127.0.0.1`. |
+
+In **Domains** / **Subdomains**, use **Runtime** to change app type and Start / Stop / Restart Python or Go apps. Ports are allocated in **12000–12999** and stay localhost-only.
 
 ## License
 

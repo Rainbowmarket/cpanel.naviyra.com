@@ -2,12 +2,12 @@ import { executeLocalAgent, isAgentUnreachable } from "./local";
 
 export type AgentAction =
   | { action: "ping" }
-  | { action: "create_domain"; domain: string; documentRoot: string; phpEnabled?: boolean }
+  | { action: "create_domain"; domain: string; documentRoot: string; phpEnabled?: boolean; appType?: string; upstreamPort?: number | null }
   | { action: "delete_domain"; domain: string }
-  | { action: "create_subdomain"; domain: string; subdomain: string; documentRoot: string; phpEnabled?: boolean }
+  | { action: "create_subdomain"; domain: string; subdomain: string; documentRoot: string; phpEnabled?: boolean; appType?: string; upstreamPort?: number | null }
   | { action: "delete_subdomain"; domain: string; subdomain: string; documentRoot?: string; deleteFiles?: boolean }
-  | { action: "issue_ssl"; domain: string; subdomains?: string[]; documentRoot?: string; phpEnabled?: boolean }
-  | { action: "renew_ssl"; domain: string; documentRoot?: string; phpEnabled?: boolean }
+  | { action: "issue_ssl"; domain: string; subdomains?: string[]; documentRoot?: string; phpEnabled?: boolean; appType?: string; upstreamPort?: number | null }
+  | { action: "renew_ssl"; domain: string; documentRoot?: string; phpEnabled?: boolean; appType?: string; upstreamPort?: number | null }
   | { action: "create_mail_account"; email: string; password: string; quotaMb?: number }
   | { action: "delete_mail_account"; email: string }
   | { action: "reset_mail_password"; email: string; password: string }
@@ -45,7 +45,24 @@ export type AgentAction =
     }
   | { action: "delete_dns_zone"; domain: string }
   | { action: "block_ip"; ip: string; reason?: string }
-  | { action: "unblock_ip"; ip: string };
+  | { action: "unblock_ip"; ip: string }
+  | {
+      action: "configure_site_app";
+      siteId: string;
+      siteName: string;
+      documentRoot: string;
+      appType: string;
+      startCommand?: string;
+      appWorkingDir?: string;
+      appEnv?: string | null;
+      upstreamPort?: number | null;
+      isSubdomain?: boolean;
+    }
+  | { action: "app_start"; siteId: string }
+  | { action: "app_stop"; siteId: string }
+  | { action: "app_restart"; siteId: string }
+  | { action: "app_status"; siteId: string }
+  | { action: "app_remove"; siteId: string };
 
 export type AgentResponse<T = unknown> = {
   success: boolean;

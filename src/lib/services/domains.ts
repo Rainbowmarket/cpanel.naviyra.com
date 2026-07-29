@@ -3,7 +3,8 @@ import { callAgent } from "@/lib/agent/client";
 import { getAgentApiKey, getDefaultDocumentRoot } from "@/lib/paths";
 import { isPanelHostname, panelHostnameError } from "@/lib/panel-host";
 import { deleteDnsZoneForDomain, syncDnsZone } from "@/lib/services/dns";
-import type { DomainStatus } from "@/generated/prisma/client";
+import { phpEnabledForAppType, removeSiteAppUnit } from "@/lib/services/apps";
+import type { AppType, DomainStatus } from "@/generated/prisma/client";
 
 export async function listDomains(userId: string) {
   return prisma.domain.findMany({
@@ -27,6 +28,8 @@ async function provisionDomain(domain: {
   name: string;
   documentRoot: string;
   phpEnabled: boolean;
+  appType: AppType;
+  upstreamPort: number | null;
   server: { agentKey: string };
 }) {
   const agentKey = domain.server.agentKey || getAgentApiKey();
@@ -37,6 +40,8 @@ async function provisionDomain(domain: {
       domain: domain.name,
       documentRoot: domain.documentRoot,
       phpEnabled: domain.phpEnabled,
+      appType: domain.appType,
+      upstreamPort: domain.upstreamPort,
     },
     agentKey
   );
@@ -68,6 +73,7 @@ export async function createDomain(input: {
   name: string;
   documentRoot?: string;
   phpEnabled?: boolean;
+  appType?: AppType;
 }) {
   const name = input.name.trim().toLowerCase();
   if (isPanelHostname(name)) {
@@ -81,11 +87,17 @@ export async function createDomain(input: {
     where: { id: input.serverId },
   });
 
+  const appType: AppType =
+    input.appType ??
+    (input.phpEnabled === false ? "STATIC" : "PHP");
+  const phpEnabled = phpEnabledForAppType(appType);
+
   const domain = await prisma.domain.create({
     data: {
       name,
       documentRoot,
-      phpEnabled: input.phpEnabled ?? true,
+      phpEnabled,
+      appType,
       userId: input.userId,
       serverId: input.serverId,
       status: "PENDING",
@@ -103,7 +115,6 @@ export async function retryDomain(domainId: string, userId: string) {
   });
 
   if (isPanelHostname(domain.name)) {
-    // Keep DB row active; never reprovision nginx over the control panel.
     return prisma.domain.update({
       where: { id: domain.id },
       data: {
@@ -127,12 +138,17 @@ export async function retryDomain(domainId: string, userId: string) {
 export async function deleteDomain(domainId: string, userId: string) {
   const domain = await prisma.domain.findFirstOrThrow({
     where: { id: domainId, userId },
-    include: { server: true },
+    include: { server: true, subdomains: true },
   });
 
   if (isPanelHostname(domain.name)) {
     throw new Error(panelHostnameError(domain.name));
   }
+
+  for (const sub of domain.subdomains) {
+    await removeSiteAppUnit("subdomain", sub.id, userId).catch(() => undefined);
+  }
+  await removeSiteAppUnit("domain", domain.id, userId).catch(() => undefined);
 
   await callAgent(
     { action: "delete_domain", domain: domain.name },

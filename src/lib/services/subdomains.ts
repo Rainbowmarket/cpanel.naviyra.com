@@ -2,13 +2,14 @@ import { prisma } from "@/lib/prisma";
 import { callAgent } from "@/lib/agent/client";
 import { getAgentApiKey, getDefaultSubdomainRoot } from "@/lib/paths";
 import { addSubdomainDnsRecord, removeSubdomainDnsRecord } from "@/lib/services/dns";
-import type { DomainStatus } from "@/generated/prisma/client";
+import { phpEnabledForAppType, removeSiteAppUnit } from "@/lib/services/apps";
+import type { AppType, DomainStatus } from "@/generated/prisma/client";
 
 export async function listSubdomains(domainId: string, userId: string) {
   return prisma.subdomain.findMany({
     where: { domainId, domain: { userId } },
     include: {
-      domain: { select: { name: true } },
+      domain: { select: { name: true, appType: true, phpEnabled: true } },
       sslCerts: { orderBy: { createdAt: "desc" }, take: 1 },
     },
     orderBy: { createdAt: "desc" },
@@ -19,6 +20,8 @@ async function provisionSubdomain(subdomain: {
   id: string;
   name: string;
   documentRoot: string;
+  appType: AppType;
+  upstreamPort: number | null;
   domain: { name: string; phpEnabled: boolean; server: { agentKey: string } };
 }) {
   const agentResult = await callAgent(
@@ -27,7 +30,9 @@ async function provisionSubdomain(subdomain: {
       domain: subdomain.domain.name,
       subdomain: subdomain.name,
       documentRoot: subdomain.documentRoot,
-      phpEnabled: subdomain.domain.phpEnabled,
+      phpEnabled: phpEnabledForAppType(subdomain.appType),
+      appType: subdomain.appType,
+      upstreamPort: subdomain.upstreamPort,
     },
     subdomain.domain.server.agentKey || getAgentApiKey()
   );
@@ -62,6 +67,7 @@ export async function createSubdomain(input: {
   userId: string;
   name: string;
   documentRoot?: string;
+  appType?: AppType;
 }) {
   const domain = await prisma.domain.findFirstOrThrow({
     where: { id: input.domainId, userId: input.userId },
@@ -71,11 +77,14 @@ export async function createSubdomain(input: {
   const documentRoot =
     input.documentRoot ?? getDefaultSubdomainRoot(domain.name, input.name);
 
+  const appType: AppType = input.appType ?? domain.appType;
+
   const subdomain = await prisma.subdomain.create({
     data: {
       name: input.name,
       documentRoot,
       domainId: domain.id,
+      appType,
       status: "PENDING",
     },
   });
@@ -84,6 +93,8 @@ export async function createSubdomain(input: {
     id: subdomain.id,
     name: subdomain.name,
     documentRoot: subdomain.documentRoot,
+    appType: subdomain.appType,
+    upstreamPort: subdomain.upstreamPort,
     domain: {
       name: domain.name,
       phpEnabled: domain.phpEnabled,
@@ -112,6 +123,8 @@ export async function retrySubdomain(subdomainId: string, userId: string) {
     id: subdomain.id,
     name: subdomain.name,
     documentRoot,
+    appType: subdomain.appType,
+    upstreamPort: subdomain.upstreamPort,
     domain: {
       name: subdomain.domain.name,
       phpEnabled: subdomain.domain.phpEnabled,
@@ -164,6 +177,8 @@ export async function deleteSubdomain(
     where: { id: subdomainId, domain: { userId } },
     include: { domain: { include: { server: true } } },
   });
+
+  await removeSiteAppUnit("subdomain", subdomain.id, userId).catch(() => undefined);
 
   await callAgent(
     {

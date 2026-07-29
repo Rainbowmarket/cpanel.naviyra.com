@@ -85,6 +85,19 @@ enum TerminalLogKind {
   SYS
 }
 
+enum AppType {
+  STATIC
+  PHP
+  PYTHON
+  GO
+}
+
+enum AppStatus {
+  STOPPED
+  RUNNING
+  ERROR
+}
+
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
@@ -119,6 +132,12 @@ model Domain {
   documentRoot String
   status       DomainStatus @default(PENDING)
   phpEnabled   Boolean      @default(true)
+  appType      AppType      @default(PHP)
+  startCommand String?
+  appWorkingDir String      @default(".")
+  upstreamPort Int?
+  appStatus    AppStatus    @default(STOPPED)
+  appEnv       String?
   lastError    String?
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
@@ -143,6 +162,12 @@ model Subdomain {
   name         String
   documentRoot String
   status       DomainStatus @default(PENDING)
+  appType      AppType      @default(PHP)
+  startCommand String?
+  appWorkingDir String      @default(".")
+  upstreamPort Int?
+  appStatus    AppStatus    @default(STOPPED)
+  appEnv       String?
   lastError    String?
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt

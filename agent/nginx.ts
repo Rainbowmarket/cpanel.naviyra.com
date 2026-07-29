@@ -20,6 +20,10 @@ export type VhostOptions = {
   phpFpmPass?: string | null;
   /** React/Vite SPA: fallback unknown paths to /index.html */
   spaMode?: boolean;
+  /** STATIC | PHP | PYTHON | GO */
+  appType?: string;
+  /** Local upstream for PYTHON/GO proxy apps */
+  upstreamPort?: number | null;
 };
 
 async function fileExists(target: string): Promise<boolean> {
@@ -143,11 +147,35 @@ function errorPagesInclude(): string {
 `;
 }
 
+function appProxyLocationBlock(port: number): string {
+  const upstream = `http://127.0.0.1:${port}`;
+  return `    location / {
+        proxy_pass ${upstream};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 300s;
+        proxy_connect_timeout 10s;
+    }
+`;
+}
+
 /**
  * SPA (React/Vite/etc.) needs fallback to index.html so client routes
  * like /login survive a browser reload. PHP apps keep the front-controller.
  */
-function rootLocationBlock(phpEnabled: boolean, spaMode = false): string {
+function rootLocationBlock(
+  phpEnabled: boolean,
+  spaMode = false,
+  upstreamPort?: number | null
+): string {
+  if (upstreamPort && upstreamPort > 0) {
+    return appProxyLocationBlock(upstreamPort);
+  }
   if (spaMode) {
     return `    location / {
         try_files $uri $uri/ /index.html;
@@ -192,6 +220,10 @@ export function detectSpaMode(documentRoot: string): boolean {
 }
 
 function phpBlockForOptions(options: VhostOptions): string {
+  if (options.upstreamPort && options.upstreamPort > 0) {
+    // Proxy apps do not serve PHP from the same location /
+    return buildPhpDenyBlock();
+  }
   if (options.phpEnabled && options.phpFpmPass) {
     return buildPhpLocationBlock(options.phpFpmPass);
   }
@@ -199,10 +231,13 @@ function phpBlockForOptions(options: VhostOptions): string {
   return buildPhpDenyBlock();
 }
 
-function indexDirective(phpEnabled: boolean): string {
-  return phpEnabled
-    ? "index index.html index.htm index.php;"
-    : "index index.html index.htm;";
+function resolveSpaMode(documentRoot: string, options: VhostOptions): boolean {
+  if (options.appType === "STATIC") return true;
+  if (options.appType === "PHP" || options.appType === "PYTHON" || options.appType === "GO") {
+    return false;
+  }
+  if (options.spaMode != null) return Boolean(options.spaMode);
+  return detectSpaMode(documentRoot);
 }
 
 export function buildHttpVhost(
@@ -210,8 +245,11 @@ export function buildHttpVhost(
   documentRoot: string,
   options: VhostOptions = {}
 ): string {
-  const phpEnabled = Boolean(options.phpEnabled && options.phpFpmPass);
-  const spaMode = Boolean(options.spaMode ?? detectSpaMode(documentRoot));
+  const upstreamPort =
+    options.upstreamPort && options.upstreamPort > 0 ? options.upstreamPort : null;
+  const phpEnabled =
+    !upstreamPort && Boolean(options.phpEnabled && options.phpFpmPass);
+  const spaMode = !upstreamPort && resolveSpaMode(documentRoot, options);
   const serverName = hosts.join(" ");
   const phpBlock = phpBlockForOptions(options);
   return `server {
@@ -228,7 +266,7 @@ export function buildHttpVhost(
         default_type text/plain;
     }
 
-${sensitiveDenyInclude()}${errorPagesInclude()}${rootLocationBlock(phpEnabled, spaMode)}${phpBlock}}
+${sensitiveDenyInclude()}${errorPagesInclude()}${rootLocationBlock(phpEnabled, spaMode, upstreamPort)}${phpBlock}}
 `;
 }
 
@@ -238,8 +276,11 @@ export function buildHttpsVhost(
   certDir: string,
   options: VhostOptions = {}
 ): string {
-  const phpEnabled = Boolean(options.phpEnabled && options.phpFpmPass);
-  const spaMode = Boolean(options.spaMode ?? detectSpaMode(documentRoot));
+  const upstreamPort =
+    options.upstreamPort && options.upstreamPort > 0 ? options.upstreamPort : null;
+  const phpEnabled =
+    !upstreamPort && Boolean(options.phpEnabled && options.phpFpmPass);
+  const spaMode = !upstreamPort && resolveSpaMode(documentRoot, options);
   const serverName = hosts.join(" ");
   const phpBlock = phpBlockForOptions(options);
   return `server {
@@ -271,23 +312,57 @@ server {
     ${indexDirective(phpEnabled)}
     client_max_body_size 64M;
 
-${sensitiveDenyInclude()}${errorPagesInclude()}${rootLocationBlock(phpEnabled, spaMode)}${phpBlock}}
+${sensitiveDenyInclude()}${errorPagesInclude()}${rootLocationBlock(phpEnabled, spaMode, upstreamPort)}${phpBlock}}
 `;
+}
+
+function indexDirective(phpEnabled: boolean): string {
+  return phpEnabled
+    ? "index index.html index.htm index.php;"
+    : "index index.html index.htm;";
 }
 
 /** Resolve FPM pass when PHP is requested; warn via console if missing. */
 export async function resolveVhostOptions(
-  phpEnabled?: boolean
+  phpEnabled?: boolean,
+  extras?: Partial<VhostOptions>
 ): Promise<VhostOptions> {
-  if (!phpEnabled) return { phpEnabled: false, phpFpmPass: null };
+  const base: VhostOptions = { ...(extras ?? {}) };
+  const wantPhp =
+    extras?.appType === "PHP" ||
+    (extras?.appType == null && phpEnabled !== false && !extras?.upstreamPort);
+
+  if (extras?.appType === "STATIC") {
+    return { ...base, phpEnabled: false, phpFpmPass: null, spaMode: true, appType: "STATIC" };
+  }
+  if (extras?.appType === "PYTHON" || extras?.appType === "GO") {
+    return {
+      ...base,
+      phpEnabled: false,
+      phpFpmPass: null,
+      spaMode: false,
+      appType: extras.appType,
+      upstreamPort: extras.upstreamPort ?? null,
+    };
+  }
+
+  if (!wantPhp && !phpEnabled) {
+    return { ...base, phpEnabled: false, phpFpmPass: null };
+  }
+
   const phpFpmPass = await resolvePhpFpmPass();
   if (!phpFpmPass) {
     console.warn(
       "[nginx] phpEnabled but no PHP-FPM socket found — install php-fpm or set PHP_FPM_SOCKET"
     );
-    return { phpEnabled: true, phpFpmPass: null };
+    return { ...base, phpEnabled: true, phpFpmPass: null, appType: extras?.appType ?? "PHP" };
   }
-  return { phpEnabled: true, phpFpmPass };
+  return {
+    ...base,
+    phpEnabled: true,
+    phpFpmPass,
+    appType: extras?.appType ?? "PHP",
+  };
 }
 
 function panelHostnames(): Set<string> {
@@ -500,12 +575,13 @@ export async function issueLetsEncrypt(
   documentRoot: string,
   dryRun: boolean,
   extraLabels: string[] = [],
-  phpEnabled = true
+  phpEnabled = true,
+  extras?: Partial<VhostOptions>
 ): Promise<{ issuedAt: string; expiresAt: string; certDir: string }> {
   const hosts = expandSslHosts(domain, extraLabels);
   const certDir = `/etc/letsencrypt/live/${domain}`;
   const siteName = domain;
-  const vhostOpts = await resolveVhostOptions(phpEnabled);
+  const vhostOpts = await resolveVhostOptions(phpEnabled, extras);
 
   if (dryRun) {
     const now = new Date();

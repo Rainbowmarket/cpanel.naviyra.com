@@ -19,6 +19,7 @@ const createSchema = z.object({
   serverId: z.string(),
   documentRoot: z.string().optional(),
   phpEnabled: z.boolean().optional(),
+  appType: z.enum(["STATIC", "PHP", "PYTHON", "GO"]).optional(),
 });
 
 export async function POST(request: Request) {
