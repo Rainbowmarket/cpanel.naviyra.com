@@ -44,6 +44,7 @@ import {
 } from "./nginx";
 import { resolvePhpFpmPass } from "./php-fpm";
 import { attachTerminalWs } from "./terminal";
+import { extractZipArchive, isZipFileName } from "./zip";
 const exec = promisify(execFile);
 const PORT = Number(process.env.AGENT_PORT ?? 4000);
 const isWindows = process.platform === "win32";
@@ -437,7 +438,41 @@ async function handleAction(payload: Action) {
       const filePath = String(payload.path);
       await fs.mkdir(path.dirname(filePath), { recursive: true });
       await fs.writeFile(filePath, Buffer.from(String(payload.contentBase64), "base64"));
+      if (isZipFileName(filePath)) {
+        const destDir = path.dirname(filePath);
+        const result = await extractZipArchive(filePath, destDir, {
+          removeZip: payload.removeZip !== false,
+        });
+        return {
+          success: true,
+          data: {
+            path: filePath,
+            extracted: true,
+            extractedTo: result.extractedTo,
+            removedZip: result.removedZip,
+          },
+        };
+      }
       return { success: true, data: { path: filePath } };
+    }
+
+    case "extract_zip": {
+      const filePath = String(payload.path);
+      const destDir = String(payload.dest || path.dirname(filePath));
+      if (!isZipFileName(filePath)) {
+        return { success: false, error: "Not a ZIP file" };
+      }
+      const result = await extractZipArchive(filePath, destDir, {
+        removeZip: payload.removeZip === true,
+      });
+      return {
+        success: true,
+        data: {
+          path: filePath,
+          extractedTo: result.extractedTo,
+          removedZip: result.removedZip,
+        },
+      };
     }
 
     case "read_file_binary": {

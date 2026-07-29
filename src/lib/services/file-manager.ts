@@ -295,12 +295,48 @@ export async function fileManagerUpload(
   assertPathAllowed(dirReal, ctx.documentRoot);
   const filePath = path.join(dirReal, path.basename(fileName));
   assertPathAllowed(filePath, ctx.documentRoot);
-  await agentCall(ctx.agentKey, {
+  const result = await agentCall<{
+    path: string;
+    extracted?: boolean;
+    extractedTo?: string;
+    removedZip?: boolean;
+  }>(ctx.agentKey, {
     action: "upload_file",
     path: filePath,
     contentBase64,
+    removeZip: true,
   });
+  if (result.extracted) {
+    return `ZIP uploaded and extracted to: ${result.extractedTo ?? dirReal}`;
+  }
   return `File uploaded successfully to: ${filePath}`;
+}
+
+export async function fileManagerExtractZip(
+  target: string,
+  userId: string,
+  dirPath: string,
+  fileName: string,
+  removeZip = false
+) {
+  const ctx = await getTargetContext(target, userId);
+  const dirReal = resolveUnderRoot(dirPath, ctx.documentRoot);
+  assertPathAllowed(dirReal, ctx.documentRoot);
+  const filePath = path.join(dirReal, path.basename(fileName));
+  assertPathAllowed(filePath, ctx.documentRoot);
+  if (!/\.zip$/i.test(fileName)) {
+    throw new Error("Only .zip files can be extracted");
+  }
+  const result = await agentCall<{ extractedTo: string; removedZip: boolean }>(
+    ctx.agentKey,
+    {
+      action: "extract_zip",
+      path: filePath,
+      dest: dirReal,
+      removeZip,
+    }
+  );
+  return `Extracted to: ${result.extractedTo}`;
 }
 
 export async function fileManagerDownloadPath(

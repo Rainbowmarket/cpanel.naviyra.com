@@ -317,6 +317,7 @@ model SecurityEvent {
   url         String?
   payload     String?
   userAgent   String?
+  statusCode  Int?
   actionTaken SecurityAction  @default(LOGGED)
   detectedAt  DateTime        @default(now())
 

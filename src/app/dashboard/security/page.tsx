@@ -1,9 +1,10 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
   Ban,
+  Download,
   Eye,
   Globe,
   Plus,
@@ -15,6 +16,48 @@ import {
 import { Select } from "@/components/ui/select";
 import { PageHeader } from "@/components/ui/page-header";
 import { cn } from "@/lib/utils";
+
+type DatePreset = "today" | "yesterday" | "custom" | "all";
+
+function toDateInputValue(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function resolveVisitorRange(
+  preset: DatePreset,
+  customFrom: string,
+  customTo: string
+): { from?: string; to?: string; label: string } {
+  const now = new Date();
+  if (preset === "today") {
+    const f = toDateInputValue(now);
+    return { from: f, to: f, label: "Today" };
+  }
+  if (preset === "yesterday") {
+    const y = new Date(now);
+    y.setDate(y.getDate() - 1);
+    const f = toDateInputValue(y);
+    return { from: f, to: f, label: "Yesterday" };
+  }
+  if (preset === "custom") {
+    return {
+      from: customFrom || undefined,
+      to: customTo || undefined,
+      label:
+        customFrom && customTo
+          ? `${customFrom} → ${customTo}`
+          : customFrom
+            ? `From ${customFrom}`
+            : customTo
+              ? `Until ${customTo}`
+              : "Custom range",
+    };
+  }
+  return { label: "All time" };
+}
 
 type Domain = { id: string; name: string };
 type Stats = {
@@ -42,6 +85,7 @@ type Visitor = {
   os: string | null;
   countryName: string | null;
   visitedAt: string;
+  statusCode: number | null;
   isBot: boolean;
   domain: { name: string };
 };
@@ -52,6 +96,7 @@ type Event = {
   severity: string;
   url: string | null;
   payload: string | null;
+  statusCode: number | null;
   actionTaken: string;
   detectedAt: string;
   domain: { name: string } | null;
@@ -100,6 +145,15 @@ function severityBadge(severity: string) {
   return map[severity] ?? map.LOW;
 }
 
+function statusCodeClass(code: number | null | undefined) {
+  if (code == null) return "text-slate-500";
+  if (code >= 500) return "text-red-400";
+  if (code >= 400) return "text-amber-400";
+  if (code >= 300) return "text-sky-400";
+  if (code >= 200) return "text-emerald-400";
+  return "text-slate-400";
+}
+
 export default function SecurityPage() {
   const [tab, setTab] = useState<Tab>("overview");
   const [domains, setDomains] = useState<Domain[]>([]);
@@ -111,6 +165,10 @@ export default function SecurityPage() {
   const [blocked, setBlocked] = useState<Blocked[]>([]);
   const [whitelist, setWhitelist] = useState<WhitelistRow[]>([]);
   const [search, setSearch] = useState("");
+  const [datePreset, setDatePreset] = useState<DatePreset>("today");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
+  const [exporting, setExporting] = useState(false);
   const [blockIp, setBlockIp] = useState("");
   const [blockReason, setBlockReason] = useState("Manual block");
   const [whiteIp, setWhiteIp] = useState("");
@@ -118,6 +176,26 @@ export default function SecurityPage() {
   const [simulating, setSimulating] = useState(false);
 
   const domainQuery = domainId ? `?domainId=${domainId}` : "";
+
+  const visitorRange = useMemo(
+    () => resolveVisitorRange(datePreset, customFrom, customTo),
+    [datePreset, customFrom, customTo]
+  );
+
+  const buildVisitorQuery = useCallback(
+    (extra?: Record<string, string>) => {
+      const q = new URLSearchParams();
+      if (domainId) q.set("domainId", domainId);
+      if (search) q.set("search", search);
+      if (visitorRange.from) q.set("from", visitorRange.from);
+      if (visitorRange.to) q.set("to", visitorRange.to);
+      if (extra) {
+        for (const [k, v] of Object.entries(extra)) q.set(k, v);
+      }
+      return q;
+    },
+    [domainId, search, visitorRange.from, visitorRange.to]
+  );
 
   const loadOverview = useCallback(async () => {
     const [s, l] = await Promise.all([
@@ -129,13 +207,28 @@ export default function SecurityPage() {
   }, [domainId, domainQuery]);
 
   const loadVisitors = useCallback(async () => {
-    const q = new URLSearchParams();
-    if (domainId) q.set("domainId", domainId);
-    if (search) q.set("search", search);
-    const data = await fetch(`/api/security/visitors?${q}`).then((r) => r.json());
+    const data = await fetch(`/api/security/visitors?${buildVisitorQuery()}`).then((r) => r.json());
     setVisitors(data.visitors ?? []);
-  }, [domainId, search]);
+  }, [buildVisitorQuery]);
 
+  async function exportVisitorsCsv() {
+    setExporting(true);
+    try {
+      const res = await fetch(`/api/security/visitors?${buildVisitorQuery({ format: "csv" })}`);
+      if (!res.ok) throw new Error("Export failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `visitors-${visitorRange.from || "all"}-${visitorRange.to || "now"}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } finally {
+      setExporting(false);
+    }
+  }
   const loadEvents = useCallback(async () => {
     const data = await fetch(`/api/security/events${domainQuery}`).then((r) => r.json());
     setEvents(data.events ?? []);
@@ -328,19 +421,104 @@ export default function SecurityPage() {
 
       {tab === "visitors" && (
         <div className="space-y-4">
-          <input
-            className="w-full max-w-md rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-white outline-none focus:border-emerald-500/50"
-            placeholder="Search IP, URL, browser…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          <TableShell empty={visitors.length === 0} emptyText="No visitors logged yet.">
+          <div className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-800 bg-slate-950/50 p-4">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-slate-500">Range</label>
+              <div className="flex flex-wrap gap-2">
+                {(
+                  [
+                    ["today", "Today"],
+                    ["yesterday", "Yesterday"],
+                    ["custom", "Custom"],
+                    ["all", "All time"],
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => {
+                      setDatePreset(id);
+                      if (id === "custom" && !customFrom && !customTo) {
+                        const y = new Date();
+                        y.setDate(y.getDate() - 1);
+                        setCustomFrom(toDateInputValue(y));
+                        setCustomTo(toDateInputValue(new Date()));
+                      }
+                    }}
+                    className={cn(
+                      "rounded-lg px-3 py-2 text-sm font-medium transition",
+                      datePreset === id
+                        ? "bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/25"
+                        : "border border-slate-700 text-slate-400 hover:bg-slate-800 hover:text-white"
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {datePreset === "custom" && (
+              <>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-slate-500">From</label>
+                  <input
+                    type="date"
+                    value={customFrom}
+                    onChange={(e) => setCustomFrom(e.target.value)}
+                    className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-white outline-none focus:border-emerald-500/50"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-slate-500">To</label>
+                  <input
+                    type="date"
+                    value={customTo}
+                    onChange={(e) => setCustomTo(e.target.value)}
+                    className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-white outline-none focus:border-emerald-500/50"
+                  />
+                </div>
+              </>
+            )}
+
+            <div className="min-w-[220px] flex-1 space-y-1.5">
+              <label className="text-xs font-medium text-slate-500">Search</label>
+              <input
+                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-white outline-none focus:border-emerald-500/50"
+                placeholder="Search IP, URL, browser…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={() => void exportVisitorsCsv()}
+              disabled={exporting}
+              className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+            >
+              <Download className="h-4 w-4" />
+              {exporting ? "Exporting…" : "Export CSV"}
+            </button>
+          </div>
+
+          <p className="text-sm text-slate-500">
+            Showing <span className="text-slate-300">{visitorRange.label}</span>
+            {" · "}
+            <span className="text-slate-300">{visitors.length}</span> records
+          </p>
+
+          <TableShell
+            empty={visitors.length === 0}
+            emptyText={`No visitors for ${visitorRange.label.toLowerCase()}.`}
+          >
             <thead>
               <tr className="border-b border-slate-800 text-left text-xs uppercase text-slate-500">
                 <th className="px-5 py-3">Time</th>
                 <th className="px-5 py-3">Domain</th>
                 <th className="px-5 py-3">IP</th>
                 <th className="px-5 py-3">URL</th>
+                <th className="px-5 py-3">Code</th>
                 <th className="px-5 py-3">Browser / OS</th>
                 <th className="px-5 py-3">Country</th>
               </tr>
@@ -352,6 +530,9 @@ export default function SecurityPage() {
                   <td className="px-5 py-3">{v.domain.name}</td>
                   <td className="px-5 py-3 font-mono text-xs">{v.ipAddress}</td>
                   <td className="max-w-xs truncate px-5 py-3">{v.url}</td>
+                  <td className={cn("px-5 py-3 font-mono text-xs font-semibold", statusCodeClass(v.statusCode))}>
+                    {v.statusCode ?? "—"}
+                  </td>
                   <td className="px-5 py-3">
                     {v.browser} / {v.os}
                     {v.isBot && (
@@ -375,6 +556,7 @@ export default function SecurityPage() {
               <th className="px-5 py-3">Severity</th>
               <th className="px-5 py-3">IP</th>
               <th className="px-5 py-3">Domain</th>
+              <th className="px-5 py-3">Code</th>
               <th className="px-5 py-3">Details</th>
               <th className="px-5 py-3"></th>
             </tr>
@@ -391,6 +573,9 @@ export default function SecurityPage() {
                 </td>
                 <td className="px-5 py-3 font-mono text-xs">{e.ipAddress}</td>
                 <td className="px-5 py-3">{e.domain?.name ?? "—"}</td>
+                <td className={cn("px-5 py-3 font-mono text-xs font-semibold", statusCodeClass(e.statusCode))}>
+                  {e.statusCode ?? "—"}
+                </td>
                 <td className="max-w-xs truncate px-5 py-3 text-xs text-slate-400">
                   {e.url} {e.payload ? `· ${e.payload.slice(0, 40)}` : ""}
                 </td>

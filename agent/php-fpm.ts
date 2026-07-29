@@ -40,6 +40,7 @@ export function buildPhpLocationBlock(fastcgiPass: string): string {
         include snippets/fastcgi-php.conf;
         fastcgi_pass ${fastcgiPass};
         fastcgi_read_timeout 300;
+        fastcgi_intercept_errors on;
     }
 `;
 }

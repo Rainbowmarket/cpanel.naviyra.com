@@ -211,7 +211,39 @@ export async function executeLocalAgent<T = unknown>(
           payload.path,
           Buffer.from(payload.contentBase64, "base64")
         );
+        if (/\.zip$/i.test(payload.path)) {
+          const { extractZipArchive } = await import("../../../agent/zip");
+          const destDir = path.dirname(payload.path);
+          const result = await extractZipArchive(payload.path, destDir, {
+            removeZip: payload.removeZip !== false,
+          });
+          return {
+            success: true,
+            data: {
+              path: payload.path,
+              extracted: true,
+              extractedTo: result.extractedTo,
+              removedZip: result.removedZip,
+            } as T,
+          };
+        }
         return { success: true, data: { path: payload.path } as T };
+      }
+
+      case "extract_zip": {
+        const { extractZipArchive } = await import("../../../agent/zip");
+        const destDir = payload.dest || path.dirname(payload.path);
+        const result = await extractZipArchive(payload.path, destDir, {
+          removeZip: payload.removeZip === true,
+        });
+        return {
+          success: true,
+          data: {
+            path: payload.path,
+            extractedTo: result.extractedTo,
+            removedZip: result.removedZip,
+          } as T,
+        };
       }
 
       case "read_file_binary": {

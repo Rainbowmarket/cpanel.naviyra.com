@@ -24,7 +24,8 @@ export type AgentAction =
   | { action: "rename_path"; source: string; dest: string }
   | { action: "move_path"; source: string; dest: string }
   | { action: "copy_path"; source: string; dest: string }
-  | { action: "upload_file"; path: string; contentBase64: string }
+  | { action: "upload_file"; path: string; contentBase64: string; removeZip?: boolean }
+  | { action: "extract_zip"; path: string; dest?: string; removeZip?: boolean }
   | { action: "read_file_binary"; path: string }
   | {
       action: "sync_dns_zone";
@@ -64,6 +65,8 @@ async function callAgentRemote<T = unknown>(
   payload: AgentAction,
   serverAgentKey?: string
 ): Promise<AgentResponse<T>> {
+  const longRunning =
+    payload.action === "upload_file" || payload.action === "extract_zip";
   try {
     const response = await fetch(`${AGENT_URL}/execute`, {
       method: "POST",
@@ -73,7 +76,7 @@ async function callAgentRemote<T = unknown>(
       },
       body: JSON.stringify(payload),
       cache: "no-store",
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(longRunning ? 120000 : 10000),
     });
 
     if (!response.ok) {

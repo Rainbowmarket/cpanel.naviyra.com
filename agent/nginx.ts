@@ -2,6 +2,7 @@
  * Linux nginx + Let's Encrypt helpers for Naviyra agent
  */
 import fs from "node:fs/promises";
+import fsSync from "node:fs";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -17,6 +18,8 @@ export type VhostOptions = {
   phpEnabled?: boolean;
   /** Override auto-detected fastcgi_pass (unix:/path or 127.0.0.1:9000) */
   phpFpmPass?: string | null;
+  /** React/Vite SPA: fallback unknown paths to /index.html */
+  spaMode?: boolean;
 };
 
 async function fileExists(target: string): Promise<boolean> {
@@ -130,7 +133,27 @@ ${proxyPassBlock()}}
 `;
 }
 
-function rootLocationBlock(phpEnabled: boolean): string {
+function sensitiveDenyInclude(): string {
+  return `    include /etc/nginx/snippets/naviyra-deny-sensitive.conf;
+`;
+}
+
+function errorPagesInclude(): string {
+  return `    include /etc/nginx/snippets/naviyra-error-pages.conf;
+`;
+}
+
+/**
+ * SPA (React/Vite/etc.) needs fallback to index.html so client routes
+ * like /login survive a browser reload. PHP apps keep the front-controller.
+ */
+function rootLocationBlock(phpEnabled: boolean, spaMode = false): string {
+  if (spaMode) {
+    return `    location / {
+        try_files $uri $uri/ /index.html;
+    }
+`;
+  }
   if (phpEnabled) {
     return `    location / {
         try_files $uri $uri/ /index.php?$query_string;
@@ -138,9 +161,34 @@ function rootLocationBlock(phpEnabled: boolean): string {
 `;
   }
   return `    location / {
-        try_files $uri $uri/ =404;
+        try_files $uri $uri/ /index.html;
     }
 `;
+}
+
+/** Detect React/Vite-style SPA document roots (vs PHP apps). */
+export function detectSpaMode(documentRoot: string): boolean {
+  try {
+    const indexHtml = path.join(documentRoot, "index.html");
+    if (!fsSync.existsSync(indexHtml)) return false;
+    const indexPhp = path.join(documentRoot, "index.php");
+    if (!fsSync.existsSync(indexPhp)) return true;
+    const htaccess = path.join(documentRoot, ".htaccess");
+    if (fsSync.existsSync(htaccess)) {
+      const text = fsSync.readFileSync(htaccess, "utf8");
+      if (/RewriteRule\s+\^\s+index\.html/i.test(text) || /SPA fallback/i.test(text)) {
+        return true;
+      }
+    }
+    const assetsDir = path.join(documentRoot, "assets");
+    if (fsSync.existsSync(assetsDir) && fsSync.statSync(assetsDir).isDirectory()) {
+      const files = fsSync.readdirSync(assetsDir);
+      if (files.some((f) => /\.(js|css)$/i.test(f))) return true;
+    }
+  } catch {
+    /* ignore */
+  }
+  return false;
 }
 
 function phpBlockForOptions(options: VhostOptions): string {
@@ -163,6 +211,7 @@ export function buildHttpVhost(
   options: VhostOptions = {}
 ): string {
   const phpEnabled = Boolean(options.phpEnabled && options.phpFpmPass);
+  const spaMode = Boolean(options.spaMode ?? detectSpaMode(documentRoot));
   const serverName = hosts.join(" ");
   const phpBlock = phpBlockForOptions(options);
   return `server {
@@ -179,7 +228,7 @@ export function buildHttpVhost(
         default_type text/plain;
     }
 
-${rootLocationBlock(phpEnabled)}${phpBlock}}
+${sensitiveDenyInclude()}${errorPagesInclude()}${rootLocationBlock(phpEnabled, spaMode)}${phpBlock}}
 `;
 }
 
@@ -190,6 +239,7 @@ export function buildHttpsVhost(
   options: VhostOptions = {}
 ): string {
   const phpEnabled = Boolean(options.phpEnabled && options.phpFpmPass);
+  const spaMode = Boolean(options.spaMode ?? detectSpaMode(documentRoot));
   const serverName = hosts.join(" ");
   const phpBlock = phpBlockForOptions(options);
   return `server {
@@ -221,7 +271,7 @@ server {
     ${indexDirective(phpEnabled)}
     client_max_body_size 64M;
 
-${rootLocationBlock(phpEnabled)}${phpBlock}}
+${sensitiveDenyInclude()}${errorPagesInclude()}${rootLocationBlock(phpEnabled, spaMode)}${phpBlock}}
 `;
 }
 

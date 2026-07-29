@@ -74,12 +74,29 @@ export async function listLiveVisitors(userId: string, domainId?: string) {
   });
 }
 
-export async function listVisitors(userId: string, opts: { domainId?: string; search?: string; limit?: number }) {
-  const limit = Math.min(opts.limit ?? 100, 500);
+export async function listVisitors(
+  userId: string,
+  opts: {
+    domainId?: string;
+    search?: string;
+    limit?: number;
+    from?: Date;
+    to?: Date;
+  }
+) {
+  const limit = Math.min(opts.limit ?? 100, 5000);
   return prisma.visitorLog.findMany({
     where: {
       domain: { userId },
       ...(opts.domainId ? { domainId: opts.domainId } : {}),
+      ...(opts.from || opts.to
+        ? {
+            visitedAt: {
+              ...(opts.from ? { gte: opts.from } : {}),
+              ...(opts.to ? { lte: opts.to } : {}),
+            },
+          }
+        : {}),
       ...(opts.search
         ? {
             OR: [
@@ -194,6 +211,7 @@ export async function logVisit(input: {
         url: input.url,
         payload: finding.payload,
         userAgent: input.userAgent,
+        statusCode: input.statusCode ?? null,
         actionTaken:
           finding.severity === "high" || finding.severity === "critical"
             ? "BLOCKED_AUTO"

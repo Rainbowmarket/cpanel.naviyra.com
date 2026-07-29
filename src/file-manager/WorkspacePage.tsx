@@ -28,6 +28,7 @@ import {
   createItem,
   deleteItem,
   downloadFileUrl,
+  extractZip,
   fileActions,
   isSessionExpiredPayload,
   openFolderDownloadPage,
@@ -36,6 +37,7 @@ import {
 } from '@/file-manager/client';
 import {
   IcArchiveArrowDown,
+  IcArchiveExtract,
   IcArrowsRightLeft,
   IcCircleX,
   IcDuplicate,
@@ -1082,6 +1084,29 @@ export function WorkspacePage({
               aria-label="Delete"
             >
               <IcTrash />
+            </button>
+          ) : null}
+          {fileName && /\.zip$/i.test(fileName) && canUpload ? (
+            <button
+              type="button"
+              className="nav-icon-btn"
+              title="Extract ZIP here"
+              aria-label="Extract ZIP"
+              onClick={async () => {
+                try {
+                  const res = await extractZip(dirPath, fileName, false);
+                  if (!res.success) {
+                    showToast(res.message || 'Extract failed', 'error');
+                    return;
+                  }
+                  showToast(res.message || 'Extracted');
+                  setListVersion((v) => v + 1);
+                } catch (e) {
+                  showToast(e instanceof Error ? e.message : 'Extract failed', 'error');
+                }
+              }}
+            >
+              <IcArchiveExtract />
             </button>
           ) : null}
           {fileName && canDownload ? (

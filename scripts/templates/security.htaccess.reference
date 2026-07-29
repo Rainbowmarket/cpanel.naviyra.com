@@ -1,0 +1,21 @@
+# =============================================================================
+# Naviyra Panel — security template (Apache .htaccess style)
+# =============================================================================
+# IMPORTANT: This server runs **nginx**, which does NOT read .htaccess.
+# The same protections are enforced in:
+#   /etc/nginx/snippets/naviyra-deny-sensitive.conf
+#
+# Keep this file only as a reference / for Apache migrations.
+# Visiting /.htaccess on nginx returns 404 (blocked).
+# =============================================================================
+
+<IfModule mod_authz_core.c>
+  Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+  Order deny,allow
+  Deny from all
+</IfModule>
+
+# (If you ever switch a site to Apache, replace the block above with rules
+#  that deny .env, .git, backups, etc., matching the nginx snippet.)

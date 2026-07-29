@@ -81,6 +81,16 @@ export function IcArchiveArrowDown(props: IconProps) {
   );
 }
 
+export function IcArchiveExtract(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M4 3h16v5H4z" />
+      <path d="M5 8v11a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8" />
+      <path d="M12 18v-6M9 15l3-3 3 3" />
+    </svg>
+  );
+}
+
 export function IcTrash(props: IconProps) {
   return (
     <svg {...base(props)}>

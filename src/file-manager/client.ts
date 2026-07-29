@@ -123,6 +123,21 @@ const formHeaders = {
   "X-Requested-With": "XMLHttpRequest",
 };
 
+export async function extractZip(dirPath: string, fileName: string, removeZip = false) {
+  const body = new URLSearchParams();
+  body.set("target", getFileManagerTarget());
+  body.set("path", dirPath);
+  body.set("file", fileName);
+  if (removeZip) body.set("removeZip", "1");
+  const r = await fetch("/api/file-manager/extract", {
+    method: "POST",
+    credentials: "include",
+    headers: formHeaders,
+    body,
+  });
+  return readJson<{ success: boolean; message?: string }>(r);
+}
+
 export async function fileActions(
   action: "rename" | "move" | "copy",
   params: { source: string; name?: string; dest?: string }
