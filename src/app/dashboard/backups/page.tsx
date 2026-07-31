@@ -6,6 +6,7 @@ import {
   AlertCircle,
   Archive,
   CheckCircle2,
+  Globe,
   HardDrive,
   Play,
   RefreshCw,
@@ -48,6 +49,8 @@ type BackupRun = {
   summary: string | null;
 };
 
+type DomainOption = { id: string; name: string };
+
 type RestoreSelection = {
   restorePanelDb: boolean;
   restoreSites: boolean;
@@ -87,20 +90,51 @@ function statusTone(status: string | null | undefined) {
   }
 }
 
-function parseIncluded(summary: string | null): string[] {
+function parseSummary(summary: string | null): {
+  included: string[];
+  type?: string;
+  domain?: string;
+} {
   try {
-    return JSON.parse(summary || "{}").included ?? [];
+    const parsed = JSON.parse(summary || "{}") as {
+      included?: string[];
+      type?: string;
+      domain?: string;
+    };
+    return {
+      included: parsed.included ?? [],
+      type: parsed.type,
+      domain: parsed.domain,
+    };
   } catch {
-    return [];
+    return { included: [] };
   }
 }
 
-function defaultRestoreSelection(included: string[]): RestoreSelection {
+function isDomainRun(run: BackupRun): boolean {
+  const s = parseSummary(run.summary);
+  if (s.type === "domain") return true;
+  if (run.source === "domain") return true;
+  return Boolean(run.archivePath && /naviyra-domain-/i.test(run.archivePath));
+}
+
+function defaultRestoreSelection(
+  included: string[],
+  domainOnly: boolean
+): RestoreSelection {
   const has = (name: string) => included.includes(name);
   const anyKnown =
-    has("panel-db") || has("sites") || has("dns") || has("bind-zones") || has("mail");
+    has("panel-db") ||
+    has("sites") ||
+    has("dns") ||
+    has("bind-zones") ||
+    has("mail");
   return {
-    restorePanelDb: anyKnown ? has("panel-db") : true,
+    restorePanelDb: domainOnly
+      ? false
+      : anyKnown
+        ? has("panel-db")
+        : true,
     restoreSites: anyKnown ? has("sites") : true,
     restoreDns: anyKnown ? has("dns") || has("bind-zones") : true,
     restoreMail: has("mail"),
@@ -111,6 +145,12 @@ export default function BackupsPage() {
   const router = useRouter();
   const [config, setConfig] = useState<BackupConfig | null>(null);
   const [runs, setRuns] = useState<BackupRun[]>([]);
+  const [domains, setDomains] = useState<DomainOption[]>([]);
+  const [domainId, setDomainId] = useState("");
+  const [domainIncludeSites, setDomainIncludeSites] = useState(true);
+  const [domainIncludeDns, setDomainIncludeDns] = useState(true);
+  const [domainIncludeMail, setDomainIncludeMail] = useState(true);
+  const [domainRunning, setDomainRunning] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
@@ -126,25 +166,39 @@ export default function BackupsPage() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
-  const restoreIncluded = useMemo(
-    () => (restoreRun ? parseIncluded(restoreRun.summary) : []),
+  const restoreMeta = useMemo(
+    () => (restoreRun ? parseSummary(restoreRun.summary) : { included: [] }),
     [restoreRun]
   );
+  const restoreIsDomain = restoreRun ? isDomainRun(restoreRun) : false;
 
   async function load() {
-    const res = await fetch("/api/backups");
-    if (res.status === 403) {
+    const [backupRes, domainsRes] = await Promise.all([
+      fetch("/api/backups"),
+      fetch("/api/domains"),
+    ]);
+    if (backupRes.status === 403) {
       router.replace("/dashboard");
       return;
     }
-    if (!res.ok) {
+    if (!backupRes.ok) {
       setError("Failed to load backup settings");
       setLoading(false);
       return;
     }
-    const data = await res.json();
+    const data = await backupRes.json();
     setConfig(data.config);
     setRuns(data.runs ?? []);
+
+    if (domainsRes.ok) {
+      const d = await domainsRes.json();
+      const list = (d.domains ?? d ?? []) as DomainOption[];
+      const normalized = Array.isArray(list)
+        ? list.map((x) => ({ id: x.id, name: x.name }))
+        : [];
+      setDomains(normalized);
+      setDomainId((prev) => prev || normalized[0]?.id || "");
+    }
     setLoading(false);
   }
 
@@ -211,20 +265,66 @@ export default function BackupsPage() {
     load();
   }
 
+  async function handleDomainBackup() {
+    if (!domainId) {
+      setError("Select a domain to back up");
+      return;
+    }
+    if (!domainIncludeSites && !domainIncludeDns && !domainIncludeMail) {
+      setError("Select at least one component for the domain backup");
+      return;
+    }
+    setDomainRunning(true);
+    setError("");
+    setMessage("");
+    const res = await fetch("/api/backups/domain", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        domainId,
+        includeSites: domainIncludeSites,
+        includeDns: domainIncludeDns,
+        includeMail: domainIncludeMail,
+      }),
+    });
+    const data = await res.json();
+    setDomainRunning(false);
+    if (!res.ok) {
+      setError(
+        typeof data.error === "string" ? data.error : "Domain backup failed"
+      );
+      return;
+    }
+    const name =
+      domains.find((d) => d.id === domainId)?.name ?? "domain";
+    setMessage(
+      data.run?.status === "COMPLETED"
+        ? `Domain backup completed for ${name}: ${data.run.archivePath ?? "ok"}`
+        : `Domain backup ${data.run?.status ?? "finished"} for ${name}`
+    );
+    load();
+  }
+
   function openRestore(run: BackupRun) {
+    const domainOnly = isDomainRun(run);
     setRestoreRun(run);
-    setRestoreSelection(defaultRestoreSelection(parseIncluded(run.summary)));
+    setRestoreSelection(
+      defaultRestoreSelection(parseSummary(run.summary).included, domainOnly)
+    );
     setError("");
     setMessage("");
   }
 
   async function handleRestoreConfirm() {
     if (!restoreRun) return;
-    const selected =
-      restoreSelection.restorePanelDb ||
-      restoreSelection.restoreSites ||
-      restoreSelection.restoreDns ||
-      restoreSelection.restoreMail;
+    const selected = restoreIsDomain
+      ? restoreSelection.restoreSites ||
+        restoreSelection.restoreDns ||
+        restoreSelection.restoreMail
+      : restoreSelection.restorePanelDb ||
+        restoreSelection.restoreSites ||
+        restoreSelection.restoreDns ||
+        restoreSelection.restoreMail;
     if (!selected) {
       setError("Select at least one component to restore");
       return;
@@ -238,7 +338,12 @@ export default function BackupsPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         runId: restoreRun.id,
-        ...restoreSelection,
+        restorePanelDb: restoreIsDomain
+          ? false
+          : restoreSelection.restorePanelDb,
+        restoreSites: restoreSelection.restoreSites,
+        restoreDns: restoreSelection.restoreDns,
+        restoreMail: restoreSelection.restoreMail,
       }),
     });
     const data = await res.json();
@@ -292,12 +397,16 @@ export default function BackupsPage() {
   }
 
   const restoreBusy = restoringId !== null;
+  const domainOptions = domains.map((d) => ({
+    value: d.id,
+    label: d.name,
+  }));
 
   return (
     <div className="space-y-8">
       <PageHeader
         title="Backups"
-        description="Scheduled panel backups via systemd timer — database, sites, DNS, optional mail."
+        description="Full-panel and per-domain backups — files, DNS, and mail."
       />
 
       <div className="grid gap-4 sm:grid-cols-3">
@@ -356,16 +465,83 @@ export default function BackupsPage() {
         </p>
       ) : null}
 
+      <section className="space-y-4 rounded-xl border border-slate-800 bg-slate-950/80 px-5 py-5">
+        <div>
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-white">
+            <Globe className="h-4 w-4 text-slate-400" />
+            Domain backup
+          </h2>
+          <p className="mt-0.5 text-xs text-slate-500">
+            Back up one domain’s website files, DNS zone, and mail — without
+            touching the panel database or other domains.
+          </p>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-slate-400">
+              Domain
+            </label>
+            {domainOptions.length === 0 ? (
+              <p className="text-sm text-slate-500">No domains available.</p>
+            ) : (
+              <Select
+                value={domainId}
+                onChange={setDomainId}
+                options={domainOptions}
+              />
+            )}
+          </div>
+          <div className="grid gap-2 content-end">
+            {(
+              [
+                ["sites", domainIncludeSites, setDomainIncludeSites, "Website files"],
+                ["dns", domainIncludeDns, setDomainIncludeDns, "DNS zone"],
+                ["mail", domainIncludeMail, setDomainIncludeMail, "Mail vhosts"],
+              ] as const
+            ).map(([key, checked, setChecked, label]) => (
+              <label
+                key={key}
+                className="flex items-center gap-2 text-sm text-slate-300"
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(e) => setChecked(e.target.checked)}
+                  className="rounded border-slate-600"
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleDomainBackup}
+          disabled={domainRunning || !domainId}
+          className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50"
+        >
+          {domainRunning ? (
+            <RefreshCw className="h-4 w-4 animate-spin" />
+          ) : (
+            <Archive className="h-4 w-4" />
+          )}
+          Backup domain
+        </button>
+      </section>
+
       <form
         onSubmit={handleSave}
         className="space-y-5 rounded-xl border border-slate-800 bg-slate-950/80 px-5 py-5"
       >
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-sm font-semibold text-white">Worker settings</h2>
+            <h2 className="text-sm font-semibold text-white">
+              Full panel worker
+            </h2>
             <p className="mt-0.5 text-xs text-slate-500">
-              systemd timer calls the panel API; archives land under the backup
-              root.
+              Scheduled full backups (all sites, panel DB, DNS, optional mail).
             </p>
           </div>
           <label className="flex items-center gap-2 text-sm text-slate-300">
@@ -477,7 +653,7 @@ export default function BackupsPage() {
             ) : (
               <Play className="h-4 w-4" />
             )}
-            Run now
+            Run full backup now
           </button>
         </div>
       </form>
@@ -493,7 +669,8 @@ export default function BackupsPage() {
           </p>
         ) : (
           runs.map((run) => {
-            const included = parseIncluded(run.summary);
+            const meta = parseSummary(run.summary);
+            const domainOnly = isDomainRun(run);
             return (
               <div
                 key={run.id}
@@ -501,12 +678,19 @@ export default function BackupsPage() {
               >
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className={`text-sm font-medium ${statusTone(run.status)}`}>
+                    <span
+                      className={`text-sm font-medium ${statusTone(run.status)}`}
+                    >
                       {run.status}
                     </span>
                     <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[10px] uppercase tracking-wide text-slate-400">
-                      {run.source}
+                      {domainOnly ? "domain" : run.source}
                     </span>
+                    {domainOnly && meta.domain ? (
+                      <span className="rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-medium text-sky-300">
+                        {meta.domain}
+                      </span>
+                    ) : null}
                   </div>
                   <p className="mt-1 text-xs text-slate-500">
                     {new Date(run.startedAt).toLocaleString()}
@@ -520,9 +704,9 @@ export default function BackupsPage() {
                       {run.archivePath} · {formatBytes(run.sizeBytes)}
                     </p>
                   ) : null}
-                  {included.length > 0 ? (
+                  {meta.included.length > 0 ? (
                     <p className="mt-1 text-xs text-slate-500">
-                      Included: {included.join(", ")}
+                      Included: {meta.included.join(", ")}
                     </p>
                   ) : null}
                   {run.error ? (
@@ -566,70 +750,80 @@ export default function BackupsPage() {
         onClose={() => {
           if (!restoreBusy) setRestoreRun(null);
         }}
-        title="Custom restore"
+        title={restoreIsDomain ? "Restore domain backup" : "Custom restore"}
         description={
-          restoreRun?.archivePath
-            ? `Choose what to restore from ${restoreRun.archivePath}`
-            : "Choose what to restore from this archive"
+          restoreIsDomain && restoreMeta.domain
+            ? `Choose what to restore for ${restoreMeta.domain}`
+            : restoreRun?.archivePath
+              ? `Choose what to restore from ${restoreRun.archivePath}`
+              : "Choose what to restore from this archive"
         }
         className="max-w-md"
       >
         <div className="space-y-4">
-          {restoreIncluded.length > 0 ? (
+          {restoreMeta.included.length > 0 ? (
             <p className="text-xs text-slate-500">
-              Archive contains: {restoreIncluded.join(", ")}
+              Archive contains: {restoreMeta.included.join(", ")}
             </p>
           ) : null}
 
           <div className="space-y-2">
             {(
               [
-                ["restorePanelDb", "Panel SQLite database", "panel-db"],
-                ["restoreSites", "Website files", "sites"],
-                ["restoreDns", "DNS / BIND zones", "dns"],
-                ["restoreMail", "Mail vhosts", "mail"],
+                [
+                  "restorePanelDb",
+                  "Panel SQLite database",
+                  "panel-db",
+                  !restoreIsDomain,
+                ],
+                ["restoreSites", "Website files", "sites", true],
+                ["restoreDns", "DNS / BIND zones", "dns", true],
+                ["restoreMail", "Mail vhosts", "mail", true],
               ] as const
-            ).map(([key, label, tag]) => {
-              const inArchive =
-                restoreIncluded.length === 0 ||
-                restoreIncluded.includes(tag) ||
-                (tag === "dns" && restoreIncluded.includes("bind-zones"));
-              return (
-                <label
-                  key={key}
-                  className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
-                    inArchive
-                      ? "border-slate-700 text-slate-200"
-                      : "border-slate-800 text-slate-500"
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={restoreSelection[key]}
-                    disabled={!inArchive || restoreBusy}
-                    onChange={(e) =>
-                      setRestoreSelection({
-                        ...restoreSelection,
-                        [key]: e.target.checked,
-                      })
-                    }
-                    className="rounded border-slate-600"
-                  />
-                  <span className="flex-1">{label}</span>
-                  {!inArchive ? (
-                    <span className="text-[10px] uppercase tracking-wide text-slate-600">
-                      not in archive
-                    </span>
-                  ) : null}
-                </label>
-              );
-            })}
+            )
+              .filter(([, , , show]) => show)
+              .map(([key, label, tag]) => {
+                const inArchive =
+                  restoreMeta.included.length === 0 ||
+                  restoreMeta.included.includes(tag) ||
+                  (tag === "dns" &&
+                    restoreMeta.included.includes("bind-zones"));
+                return (
+                  <label
+                    key={key}
+                    className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
+                      inArchive
+                        ? "border-slate-700 text-slate-200"
+                        : "border-slate-800 text-slate-500"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={restoreSelection[key]}
+                      disabled={!inArchive || restoreBusy}
+                      onChange={(e) =>
+                        setRestoreSelection({
+                          ...restoreSelection,
+                          [key]: e.target.checked,
+                        })
+                      }
+                      className="rounded border-slate-600"
+                    />
+                    <span className="flex-1">{label}</span>
+                    {!inArchive ? (
+                      <span className="text-[10px] uppercase tracking-wide text-slate-600">
+                        not in archive
+                      </span>
+                    ) : null}
+                  </label>
+                );
+              })}
           </div>
 
           <p className="text-xs text-amber-200/80">
-            Restoring overwrites live data for the selected parts. A safety copy
-            of the panel DB is kept first when restoring the database. The panel
-            may restart.
+            {restoreIsDomain
+              ? "Only this domain’s selected parts are overwritten. Other domains are left alone."
+              : "Restoring overwrites live data for the selected parts. A safety copy of the panel DB is kept first when restoring the database. The panel may restart."}
           </p>
 
           <div className="flex flex-wrap justify-end gap-2 pt-1">

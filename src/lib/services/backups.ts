@@ -197,6 +197,109 @@ export async function runBackupNow(source: "manual" | "timer" = "manual") {
   return { skipped: false as const, run: completed };
 }
 
+export async function runDomainBackupNow(
+  domainId: string,
+  opts?: {
+    includeSites?: boolean;
+    includeDns?: boolean;
+    includeMail?: boolean;
+  }
+) {
+  const config = await getOrCreateBackupConfig();
+  const domain = await prisma.domain.findUnique({ where: { id: domainId } });
+  if (!domain) {
+    throw new Error("Domain not found");
+  }
+
+  const includeSites = opts?.includeSites !== false;
+  const includeDns = opts?.includeDns !== false;
+  const includeMail = opts?.includeMail !== false;
+
+  if (!includeSites && !includeDns && !includeMail) {
+    throw new Error("Select at least one component to back up");
+  }
+
+  const run = await prisma.backupRun.create({
+    data: {
+      status: "RUNNING",
+      source: "domain",
+    },
+  });
+
+  const agentResult = await callAgent(
+    {
+      action: "run_domain_backup",
+      domain: domain.name,
+      backupRoot: config.backupRoot,
+      retainCount: config.retainCount,
+      includeSites,
+      includeDns,
+      includeMail,
+    },
+    getAgentApiKey()
+  );
+
+  if (!agentResult.success) {
+    const error = agentResult.error ?? "Domain backup failed";
+    const failed = await prisma.backupRun.update({
+      where: { id: run.id },
+      data: {
+        status: "FAILED",
+        finishedAt: new Date(),
+        error,
+        summary: JSON.stringify({ type: "domain", domain: domain.name }),
+      },
+    });
+    return { run: failed };
+  }
+
+  const data = (agentResult.data ?? {}) as {
+    archivePath?: string;
+    sizeBytes?: number;
+    included?: string[];
+    pruned?: string[];
+  };
+
+  const completed = await prisma.backupRun.update({
+    where: { id: run.id },
+    data: {
+      status: "COMPLETED",
+      finishedAt: new Date(),
+      archivePath: data.archivePath ?? null,
+      sizeBytes: data.sizeBytes ?? null,
+      summary: JSON.stringify({
+        type: "domain",
+        domain: domain.name,
+        included: data.included ?? [],
+        pruned: data.pruned ?? [],
+      }),
+    },
+  });
+
+  return { run: completed };
+}
+
+function isDomainArchive(
+  archivePath: string | null | undefined,
+  summary: string | null | undefined
+): { domain?: string } | null {
+  try {
+    const parsed = JSON.parse(summary || "{}") as {
+      type?: string;
+      domain?: string;
+    };
+    if (parsed.type === "domain") {
+      return { domain: parsed.domain };
+    }
+  } catch {
+    /* ignore */
+  }
+  if (archivePath && /naviyra-domain-/i.test(archivePath)) {
+    return {};
+  }
+  return null;
+}
+
 export async function restoreBackupRun(
   runId: string,
   opts?: {
@@ -216,6 +319,37 @@ export async function restoreBackupRun(
   const restoreSites = Boolean(opts?.restoreSites);
   const restoreDns = Boolean(opts?.restoreDns);
   const restoreMail = Boolean(opts?.restoreMail);
+
+  const domainMeta = isDomainArchive(run.archivePath, run.summary);
+
+  if (domainMeta) {
+    if (!restoreSites && !restoreDns && !restoreMail) {
+      throw new Error("Select at least one component to restore");
+    }
+
+    const agentResult = await callAgent(
+      {
+        action: "restore_domain_backup",
+        archivePath: run.archivePath,
+        allowedRoot: config.backupRoot,
+        domain: domainMeta.domain,
+        restoreSites,
+        restoreDns,
+        restoreMail,
+      },
+      getAgentApiKey()
+    );
+
+    if (!agentResult.success) {
+      throw new Error(agentResult.error ?? "Domain restore failed");
+    }
+
+    return agentResult.data as {
+      restored: string[];
+      safetyDbBackup?: string;
+      panelRestartScheduled: boolean;
+    };
+  }
 
   if (!restorePanelDb && !restoreSites && !restoreDns && !restoreMail) {
     throw new Error("Select at least one component to restore");

@@ -351,7 +351,59 @@ export async function executeLocalAgent<T = unknown>(
         };
       }
 
+      case "run_domain_backup": {
+        const root = path.join(process.cwd(), "data", "backups");
+        await fs.mkdir(root, { recursive: true });
+        const domain = String(payload.domain || "local");
+        const name = `naviyra-domain-${domain.replace(/[^a-z0-9.-]/gi, "-")}-${Date.now()}.tar.gz`;
+        const archivePath = path.join(root, name);
+        const work = path.join(root, `.work-domain-${Date.now()}`);
+        await fs.mkdir(work, { recursive: true });
+        await fs.writeFile(
+          path.join(work, "manifest.json"),
+          JSON.stringify({
+            type: "domain",
+            domain,
+            included: ["sites"],
+          }),
+          "utf8"
+        );
+        try {
+          const { execFile } = await import("node:child_process");
+          const { promisify } = await import("node:util");
+          const exec = promisify(execFile);
+          await exec("tar", ["-czf", archivePath, "-C", work, "."]);
+        } catch {
+          await fs.writeFile(archivePath, "", "utf8");
+        }
+        await fs.rm(work, { recursive: true, force: true });
+        let sizeBytes = 0;
+        try {
+          sizeBytes = (await fs.stat(archivePath)).size;
+        } catch {
+          /* ignore */
+        }
+        return {
+          success: true,
+          data: {
+            archivePath,
+            sizeBytes,
+            included: ["sites"],
+            pruned: [],
+          } as T,
+        };
+      }
+
       case "restore_backup":
+        return {
+          success: true,
+          data: {
+            restored: ["(local-fallback-noop)"],
+            panelRestartScheduled: false,
+          } as T,
+        };
+
+      case "restore_domain_backup":
         return {
           success: true,
           data: {

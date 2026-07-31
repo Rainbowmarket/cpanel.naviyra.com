@@ -439,6 +439,412 @@ async function pruneOldBackups(
   return pruned;
 }
 
+function safeDomainLabel(domain: string): string {
+  return domain
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9.-]+/g, "-")
+    .replace(/^\.+|\.+$/g, "");
+}
+
+function assertSafeDomainName(domain: string): string {
+  const d = domain.trim().toLowerCase();
+  if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(d)) {
+    throw new Error("Invalid domain name");
+  }
+  if (d.includes("..") || d.includes("/") || d.includes("\\")) {
+    throw new Error("Invalid domain name");
+  }
+  return d;
+}
+
+function domainSitesPath(domain: string): string {
+  return isWindows
+    ? path.join(SITES_ROOT, domain)
+    : path.join("/var/www", domain);
+}
+
+async function pruneDomainBackups(
+  backupRoot: string,
+  domain: string,
+  retainCount: number
+): Promise<string[]> {
+  const label = safeDomainLabel(domain);
+  const prefix = `naviyra-domain-${label}-`;
+  const entries = await fs.readdir(backupRoot);
+  const archives = entries
+    .filter(
+      (name) => name.startsWith(prefix) && name.endsWith(".tar.gz")
+    )
+    .map((name) => {
+      const full = path.join(backupRoot, name);
+      const st = fsSync.statSync(full);
+      return { name, full, mtime: st.mtimeMs };
+    })
+    .sort((a, b) => b.mtime - a.mtime);
+
+  const pruned: string[] = [];
+  for (const old of archives.slice(Math.max(1, retainCount))) {
+    await fs.rm(old.full, { force: true });
+    pruned.push(old.name);
+  }
+  return pruned;
+}
+
+async function reloadBindBestEffort(): Promise<void> {
+  try {
+    await exec("rndc", ["reload"]);
+  } catch {
+    await exec("systemctl", ["reload", "named"]).catch(() => undefined);
+  }
+}
+
+export type RunDomainBackupOptions = {
+  domain: string;
+  backupRoot: string;
+  retainCount: number;
+  includeSites: boolean;
+  includeDns: boolean;
+  includeMail: boolean;
+  dryRun?: boolean;
+};
+
+export type RestoreDomainBackupOptions = {
+  archivePath: string;
+  allowedRoot?: string;
+  domain?: string;
+  restoreSites?: boolean;
+  restoreDns?: boolean;
+  restoreMail?: boolean;
+  dryRun?: boolean;
+};
+
+/**
+ * Backup a single domain: site tree + DNS zone + mail vhost.
+ */
+export async function runDomainBackup(
+  options: RunDomainBackupOptions
+): Promise<RunBackupResult> {
+  const domain = assertSafeDomainName(options.domain);
+  const backupRoot = options.backupRoot || "/var/backups/naviyra";
+  await fs.mkdir(backupRoot, { recursive: true });
+
+  const label = safeDomainLabel(domain);
+  const workDir = path.join(backupRoot, `.work-domain-${label}-${stamp()}`);
+  const included: string[] = [];
+  const archiveName = `naviyra-domain-${label}-${stamp()}.tar.gz`;
+  const archivePath = path.join(backupRoot, archiveName);
+
+  if (options.dryRun) {
+    return {
+      archivePath,
+      sizeBytes: 0,
+      included: ["(dry-run)"],
+      pruned: [],
+    };
+  }
+
+  await fs.mkdir(workDir, { recursive: true });
+
+  try {
+    if (options.includeSites) {
+      const sitesPath = domainSitesPath(domain);
+      if (await pathExists(sitesPath)) {
+        const dest = path.join(workDir, "sites", domain);
+        await fs.mkdir(path.dirname(dest), { recursive: true });
+        if (isWindows) {
+          await fs.cp(sitesPath, dest, { recursive: true });
+        } else {
+          try {
+            await exec("cp", ["-a", sitesPath, dest]);
+          } catch {
+            await fs.cp(sitesPath, dest, { recursive: true });
+          }
+        }
+        included.push("sites");
+      }
+    }
+
+    if (options.includeDns) {
+      const zoneFileName = `db.${domain}`;
+      const namedBlockName = `${domain}.conf`;
+      const zonesDir = path.join(DNS_ROOT, "zones");
+      const namedDir = path.join(DNS_ROOT, "named");
+      const zoneSrc = path.join(zonesDir, zoneFileName);
+      const namedSrc = path.join(namedDir, namedBlockName);
+      let copiedDns = false;
+
+      if (await pathExists(zoneSrc)) {
+        const destZones = path.join(workDir, "dns", "zones");
+        await fs.mkdir(destZones, { recursive: true });
+        await fs.copyFile(zoneSrc, path.join(destZones, zoneFileName));
+        copiedDns = true;
+      }
+      if (await pathExists(namedSrc)) {
+        const destNamed = path.join(workDir, "dns", "named");
+        await fs.mkdir(destNamed, { recursive: true });
+        await fs.copyFile(namedSrc, path.join(destNamed, namedBlockName));
+        copiedDns = true;
+      }
+
+      const manifestPath = path.join(DNS_ROOT, "zones.json");
+      if (await pathExists(manifestPath)) {
+        try {
+          const full = JSON.parse(
+            await fs.readFile(manifestPath, "utf8")
+          ) as Record<string, unknown>;
+          if (full[domain]) {
+            const filtered = { [domain]: full[domain] };
+            await fs.mkdir(path.join(workDir, "dns"), { recursive: true });
+            await fs.writeFile(
+              path.join(workDir, "dns", "zones.json"),
+              JSON.stringify(filtered, null, 2),
+              "utf8"
+            );
+            copiedDns = true;
+          }
+        } catch {
+          /* ignore bad manifest */
+        }
+      }
+
+      const bindZones = process.env.BIND_ZONES_DIR?.trim();
+      if (bindZones) {
+        const bindSrc = path.join(bindZones, zoneFileName);
+        if (await pathExists(bindSrc)) {
+          const dest = path.join(workDir, "bind-zones");
+          await fs.mkdir(dest, { recursive: true });
+          await fs.copyFile(bindSrc, path.join(dest, zoneFileName));
+          included.push("bind-zones");
+          copiedDns = true;
+        }
+      }
+
+      if (copiedDns) included.push("dns");
+    }
+
+    if (options.includeMail && !isWindows) {
+      const mailSrc = path.join(mailVhostsDir(), domain);
+      if (await pathExists(mailSrc)) {
+        const dest = path.join(workDir, "mail", domain);
+        await fs.mkdir(path.dirname(dest), { recursive: true });
+        try {
+          await exec("cp", ["-a", mailSrc, dest]);
+          included.push("mail");
+        } catch {
+          /* skip if permission denied */
+        }
+      }
+    }
+
+    if (included.length === 0) {
+      throw new Error(
+        `Nothing to back up for ${domain} — site/DNS/mail not found or disabled`
+      );
+    }
+
+    await fs.writeFile(
+      path.join(workDir, "manifest.json"),
+      JSON.stringify(
+        { type: "domain", domain, included, createdAt: new Date().toISOString() },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    await exec("tar", ["-czf", archivePath, "-C", workDir, "."]);
+
+    const stat = await fs.stat(archivePath);
+    const pruned = await pruneDomainBackups(
+      backupRoot,
+      domain,
+      Math.max(1, options.retainCount || 7)
+    );
+
+    return {
+      archivePath,
+      sizeBytes: stat.size,
+      included,
+      pruned,
+    };
+  } finally {
+    await fs.rm(workDir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Restore a single-domain archive created by runDomainBackup.
+ */
+export async function restoreDomainBackup(
+  options: RestoreDomainBackupOptions
+): Promise<RestoreBackupResult> {
+  const archivePath = assertArchiveUnderAllowedRoot(
+    options.archivePath,
+    options.allowedRoot
+  );
+  if (!(await pathExists(archivePath))) {
+    throw new Error(`Archive not found: ${archivePath}`);
+  }
+
+  if (options.dryRun) {
+    return { restored: ["(dry-run)"], panelRestartScheduled: false };
+  }
+
+  const extractDir = path.join(
+    path.dirname(archivePath),
+    `.restore-domain-${stamp()}`
+  );
+  await fs.mkdir(extractDir, { recursive: true });
+  const restored: string[] = [];
+
+  try {
+    await exec("tar", ["-xzf", archivePath, "-C", extractDir]);
+
+    let domain =
+      options.domain?.trim().toLowerCase() ||
+      "";
+    try {
+      const manifestRaw = await fs.readFile(
+        path.join(extractDir, "manifest.json"),
+        "utf8"
+      );
+      const manifest = JSON.parse(manifestRaw) as {
+        type?: string;
+        domain?: string;
+      };
+      if (manifest.domain) domain = manifest.domain.trim().toLowerCase();
+    } catch {
+      /* fall through */
+    }
+
+    if (!domain) {
+      // Infer from sites/<domain> or mail/<domain>
+      const sitesRoot = path.join(extractDir, "sites");
+      if (await pathExists(sitesRoot)) {
+        const kids = await fs.readdir(sitesRoot);
+        if (kids.length === 1) domain = kids[0]!;
+      }
+    }
+    if (!domain) {
+      throw new Error("Domain archive missing domain name (manifest.json)");
+    }
+    domain = assertSafeDomainName(domain);
+
+    const wantSites = options.restoreSites === true;
+    const wantDns = options.restoreDns === true;
+    const wantMail = options.restoreMail === true;
+
+    if (wantSites && (await pathExists(path.join(extractDir, "sites", domain)))) {
+      const sitesDest = domainSitesPath(domain);
+      await fs.mkdir(path.dirname(sitesDest), { recursive: true });
+      if (isWindows) {
+        await fs.cp(path.join(extractDir, "sites", domain), sitesDest, {
+          recursive: true,
+          force: true,
+        });
+      } else {
+        await fs.mkdir(sitesDest, { recursive: true });
+        await exec("cp", [
+          "-a",
+          `${path.join(extractDir, "sites", domain)}/.`,
+          sitesDest,
+        ]);
+      }
+      restored.push("sites");
+    }
+
+    if (wantDns) {
+      const zoneFileName = `db.${domain}`;
+      const namedBlockName = `${domain}.conf`;
+      const zoneSrc = path.join(extractDir, "dns", "zones", zoneFileName);
+      const namedSrc = path.join(extractDir, "dns", "named", namedBlockName);
+      let didDns = false;
+
+      if (await pathExists(zoneSrc)) {
+        const zonesDir = path.join(DNS_ROOT, "zones");
+        await fs.mkdir(zonesDir, { recursive: true });
+        await fs.copyFile(zoneSrc, path.join(zonesDir, zoneFileName));
+        didDns = true;
+      }
+      if (await pathExists(namedSrc)) {
+        const namedDir = path.join(DNS_ROOT, "named");
+        await fs.mkdir(namedDir, { recursive: true });
+        await fs.copyFile(namedSrc, path.join(namedDir, namedBlockName));
+        didDns = true;
+      }
+
+      const filteredManifest = path.join(extractDir, "dns", "zones.json");
+      if (await pathExists(filteredManifest)) {
+        const manifestPath = path.join(DNS_ROOT, "zones.json");
+        let manifest: Record<string, unknown> = {};
+        if (await pathExists(manifestPath)) {
+          try {
+            manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
+          } catch {
+            manifest = {};
+          }
+        }
+        try {
+          const patch = JSON.parse(
+            await fs.readFile(filteredManifest, "utf8")
+          ) as Record<string, unknown>;
+          Object.assign(manifest, patch);
+          await fs.mkdir(DNS_ROOT, { recursive: true });
+          await fs.writeFile(
+            manifestPath,
+            JSON.stringify(manifest, null, 2),
+            "utf8"
+          );
+          didDns = true;
+        } catch {
+          /* ignore */
+        }
+      }
+
+      const bindZones = process.env.BIND_ZONES_DIR?.trim();
+      const bindSrc = path.join(extractDir, "bind-zones", zoneFileName);
+      if (bindZones && (await pathExists(bindSrc))) {
+        await fs.mkdir(bindZones, { recursive: true });
+        await fs.copyFile(bindSrc, path.join(bindZones, zoneFileName));
+        restored.push("bind-zones");
+        didDns = true;
+        if (!isWindows) await reloadBindBestEffort();
+      } else if (didDns && !isWindows) {
+        await reloadBindBestEffort();
+      }
+
+      if (didDns) restored.push("dns");
+    }
+
+    if (
+      wantMail &&
+      !isWindows &&
+      (await pathExists(path.join(extractDir, "mail", domain)))
+    ) {
+      const mailDir = path.join(mailVhostsDir(), domain);
+      await fs.mkdir(path.dirname(mailDir), { recursive: true });
+      await fs.mkdir(mailDir, { recursive: true });
+      await exec("cp", [
+        "-a",
+        `${path.join(extractDir, "mail", domain)}/.`,
+        mailDir,
+      ]);
+      restored.push("mail");
+    }
+
+    if (restored.length === 0) {
+      throw new Error(
+        "Nothing restored — archive may be empty or selected parts missing"
+      );
+    }
+
+    return { restored, panelRestartScheduled: false };
+  } finally {
+    await fs.rm(extractDir, { recursive: true, force: true });
+  }
+}
+
 export function onCalendarForSchedule(schedule: BackupSchedulePreset): string {
   return ON_CALENDAR[schedule] ?? ON_CALENDAR.DAILY_03;
 }

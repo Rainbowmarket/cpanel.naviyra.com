@@ -74,10 +74,28 @@ export type AgentAction =
       includeMail: boolean;
     }
   | {
+      action: "run_domain_backup";
+      domain: string;
+      backupRoot: string;
+      retainCount: number;
+      includeSites: boolean;
+      includeDns: boolean;
+      includeMail: boolean;
+    }
+  | {
       action: "restore_backup";
       archivePath: string;
       allowedRoot?: string;
       restorePanelDb?: boolean;
+      restoreSites?: boolean;
+      restoreDns?: boolean;
+      restoreMail?: boolean;
+    }
+  | {
+      action: "restore_domain_backup";
+      archivePath: string;
+      allowedRoot?: string;
+      domain?: string;
       restoreSites?: boolean;
       restoreDns?: boolean;
       restoreMail?: boolean;
@@ -118,7 +136,9 @@ async function callAgentRemote<T = unknown>(
     payload.action === "upload_file" ||
     payload.action === "extract_zip" ||
     payload.action === "run_backup" ||
-    payload.action === "restore_backup";
+    payload.action === "run_domain_backup" ||
+    payload.action === "restore_backup" ||
+    payload.action === "restore_domain_backup";
   try {
     const response = await fetch(`${AGENT_URL}/execute`, {
       method: "POST",
@@ -129,7 +149,10 @@ async function callAgentRemote<T = unknown>(
       body: JSON.stringify(payload),
       cache: "no-store",
       signal: AbortSignal.timeout(
-        payload.action === "run_backup" || payload.action === "restore_backup"
+        payload.action === "run_backup" ||
+          payload.action === "run_domain_backup" ||
+          payload.action === "restore_backup" ||
+          payload.action === "restore_domain_backup"
           ? 600000
           : longRunning
             ? 120000

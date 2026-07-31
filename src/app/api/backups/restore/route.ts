@@ -6,10 +6,10 @@ import { restoreBackupRun } from "@/lib/services/backups";
 const schema = z
   .object({
     runId: z.string().min(1),
-    restorePanelDb: z.boolean(),
-    restoreSites: z.boolean(),
-    restoreDns: z.boolean(),
-    restoreMail: z.boolean(),
+    restorePanelDb: z.boolean().optional().default(false),
+    restoreSites: z.boolean().optional().default(false),
+    restoreDns: z.boolean().optional().default(false),
+    restoreMail: z.boolean().optional().default(false),
   })
   .refine(
     (v) => v.restorePanelDb || v.restoreSites || v.restoreDns || v.restoreMail,

@@ -60,7 +60,9 @@ import {
   configureBackupTimer,
   deleteBackup,
   restoreBackup,
+  restoreDomainBackup,
   runBackup,
+  runDomainBackup,
   type BackupSchedulePreset,
 } from "./backup";
 import type { VhostOptions } from "./nginx";
@@ -678,6 +680,19 @@ async function handleAction(payload: Action) {
       return { success: true, data: result };
     }
 
+    case "run_domain_backup": {
+      const result = await runDomainBackup({
+        domain: String(payload.domain),
+        backupRoot: String(payload.backupRoot || "/var/backups/naviyra"),
+        retainCount: Number(payload.retainCount ?? 7),
+        includeSites: payload.includeSites !== false,
+        includeDns: payload.includeDns !== false,
+        includeMail: payload.includeMail !== false,
+        dryRun: DRY_RUN,
+      });
+      return { success: true, data: result };
+    }
+
     case "restore_backup": {
       const result = await restoreBackup({
         archivePath: String(payload.archivePath),
@@ -685,6 +700,21 @@ async function handleAction(payload: Action) {
           ? String(payload.allowedRoot)
           : undefined,
         restorePanelDb: Boolean(payload.restorePanelDb),
+        restoreSites: Boolean(payload.restoreSites),
+        restoreDns: Boolean(payload.restoreDns),
+        restoreMail: Boolean(payload.restoreMail),
+        dryRun: DRY_RUN,
+      });
+      return { success: true, data: result };
+    }
+
+    case "restore_domain_backup": {
+      const result = await restoreDomainBackup({
+        archivePath: String(payload.archivePath),
+        allowedRoot: payload.allowedRoot
+          ? String(payload.allowedRoot)
+          : undefined,
+        domain: payload.domain ? String(payload.domain) : undefined,
         restoreSites: Boolean(payload.restoreSites),
         restoreDns: Boolean(payload.restoreDns),
         restoreMail: Boolean(payload.restoreMail),
