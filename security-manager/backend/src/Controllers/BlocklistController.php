@@ -22,10 +22,14 @@ final class BlocklistController
 
     public function index(): void
     {
+        $this->firewall->expireAutoBlocks($this->db);
         $rows = $this->db->query(
             'SELECT * FROM blocked_ips WHERE is_active = 1 ORDER BY blocked_at DESC'
         )->fetchAll();
-        Response::json(['blocked' => $rows]);
+        Response::json([
+            'blocked' => $rows,
+            'auto_block_ttl_hours' => max(1, \Naviyra\Security\Config::int('AUTO_BLOCK_TTL_HOURS', 48)),
+        ]);
     }
 
     public function store(): void

@@ -6,7 +6,7 @@ import {
   deleteBackupRun,
   getOrCreateBackupConfig,
   listBackupRuns,
-  runBackupNow,
+  runAllDomainBackupsNow,
   updateBackupConfig,
 } from "@/lib/services/backups";
 
@@ -30,7 +30,7 @@ export async function GET() {
     await requireAdminUser();
     const [config, runs] = await Promise.all([
       getOrCreateBackupConfig(),
-      listBackupRuns(25),
+      listBackupRuns(50),
     ]);
     return NextResponse.json({ config, runs });
   } catch (error) {
@@ -78,7 +78,8 @@ export async function POST(request: Request) {
   try {
     const via = await authorizeBackupRun(request);
     const source = via === "worker" ? "timer" : "manual";
-    const result = await runBackupNow(source);
+    // Scheduled + "run now" = one archive per domain (no full-panel backup)
+    const result = await runAllDomainBackupsNow(source);
     return NextResponse.json(result);
   } catch (error) {
     if (error instanceof Error && error.message === "Forbidden") {

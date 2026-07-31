@@ -1,13 +1,37 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireSessionUser } from "@/lib/auth";
-import { blockIp, listBlockedIps, unblockIp } from "@/lib/services/security";
+import { requireAgentApiKey } from "@/lib/secrets";
+import {
+  autoBlockTtlMs,
+  blockIp,
+  expireAutoBlocks,
+  listBlockedIps,
+  unblockIp,
+} from "@/lib/services/security";
+
+function workerToken(): string {
+  const explicit = process.env.BACKUP_WORKER_TOKEN?.trim();
+  if (explicit && explicit.length >= 16 && explicit !== "change-me") {
+    return explicit;
+  }
+  return requireAgentApiKey();
+}
+
+async function authorizeExpire(request: Request): Promise<void> {
+  const auth = request.headers.get("authorization") ?? "";
+  if (auth === `Bearer ${workerToken()}`) return;
+  await requireSessionUser();
+}
 
 export async function GET() {
   try {
     await requireSessionUser();
     const blocked = await listBlockedIps();
-    return NextResponse.json({ blocked });
+    return NextResponse.json({
+      blocked,
+      autoBlockTtlHours: autoBlockTtlMs() / (60 * 60 * 1000),
+    });
   } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -20,11 +44,26 @@ const blockSchema = z.object({
 
 export async function POST(request: Request) {
   try {
+    const body = await request.json().catch(() => ({}));
+
+    // Hourly timer / manual expire pass
+    if (
+      body?.action === "expire_auto" ||
+      request.headers.get("x-naviyra-expire") === "1"
+    ) {
+      await authorizeExpire(request);
+      const result = await expireAutoBlocks();
+      return NextResponse.json({ ok: true, ...result });
+    }
+
     await requireSessionUser();
-    const body = blockSchema.parse(await request.json());
-    await blockIp(body.ip, body.reason, "manual");
+    const parsed = blockSchema.parse(body);
+    await blockIp(parsed.ip, parsed.reason, "manual");
     return NextResponse.json({ ok: true }, { status: 201 });
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ error: error.flatten() }, { status: 400 });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to block IP" },
       { status: 400 }

@@ -17,11 +17,40 @@ final class FirewallService
 
     public function isBlocked(\PDO $db, string $ip): bool
     {
+        $this->expireAutoBlocks($db);
         $stmt = $db->prepare(
             'SELECT 1 FROM blocked_ips WHERE ip_address = ? AND is_active = 1 LIMIT 1'
         );
         $stmt->execute([$ip]);
         return (bool) $stmt->fetchColumn();
+    }
+
+    /**
+     * Auto-source blocks expire after AUTO_BLOCK_TTL_HOURS (default 48).
+     * Manual blocks are never auto-removed.
+     *
+     * @return list<string> Unblocked IPs
+     */
+    public function expireAutoBlocks(\PDO $db): array
+    {
+        $hours = max(1, Config::int('AUTO_BLOCK_TTL_HOURS', 48));
+        $stmt = $db->prepare(
+            "SELECT ip_address FROM blocked_ips
+             WHERE is_active = 1 AND source = 'auto'
+             AND blocked_at < DATE_SUB(NOW(), INTERVAL ? HOUR)"
+        );
+        $stmt->execute([$hours]);
+        $ips = $stmt->fetchAll(\PDO::FETCH_COLUMN);
+        $unblocked = [];
+        foreach ($ips as $ip) {
+            try {
+                $this->unblock($db, (string) $ip);
+                $unblocked[] = (string) $ip;
+            } catch (\Throwable) {
+                // continue other IPs
+            }
+        }
+        return $unblocked;
     }
 
     public function block(

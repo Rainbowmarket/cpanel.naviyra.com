@@ -11,6 +11,45 @@ import type { ThreatSeverity, ThreatType } from "@/generated/prisma/client";
 const LIVE_TTL_MS = 5 * 60 * 1000;
 const AUTO_BLOCK_THRESHOLD = Number(process.env.AUTO_BLOCK_THRESHOLD ?? 5);
 const AUTO_BLOCK_WINDOW_MS = Number(process.env.AUTO_BLOCK_WINDOW_MINUTES ?? 15) * 60 * 1000;
+/** Auto-blocks expire after this many hours (manual blocks never expire). */
+const AUTO_BLOCK_TTL_MS =
+  Number(process.env.AUTO_BLOCK_TTL_HOURS ?? 48) * 60 * 60 * 1000;
+
+export function autoBlockTtlMs(): number {
+  return AUTO_BLOCK_TTL_MS;
+}
+
+export function autoBlockExpiresAt(blockedAt: Date | string): Date {
+  const t = typeof blockedAt === "string" ? new Date(blockedAt) : blockedAt;
+  return new Date(t.getTime() + AUTO_BLOCK_TTL_MS);
+}
+
+/**
+ * Unblock auto-source IPs older than AUTO_BLOCK_TTL_HOURS (default 48h).
+ * Manual blocks are left alone.
+ */
+export async function expireAutoBlocks(): Promise<{ expired: number; ips: string[] }> {
+  const cutoff = new Date(Date.now() - AUTO_BLOCK_TTL_MS);
+  const rows = await prisma.blockedIp.findMany({
+    where: {
+      isActive: true,
+      source: "auto",
+      blockedAt: { lt: cutoff },
+    },
+    select: { ipAddress: true },
+  });
+
+  const ips: string[] = [];
+  for (const row of rows) {
+    try {
+      await unblockIp(row.ipAddress);
+      ips.push(row.ipAddress);
+    } catch (error) {
+      console.error("[security] expire auto-block failed", row.ipAddress, error);
+    }
+  }
+  return { expired: ips.length, ips };
+}
 
 function mapSeverity(s: ThreatFinding["severity"]): ThreatSeverity {
   const map = { low: "LOW", medium: "MEDIUM", high: "HIGH", critical: "CRITICAL" } as const;
@@ -31,6 +70,7 @@ function mapType(t: string): ThreatType {
 }
 
 export async function getSecurityOverview(userId: string, domainId?: string) {
+  await expireAutoBlocks();
   const domainFilter = domainId ? { domainId, domain: { userId } } : { domain: { userId } };
   const since = new Date();
   since.setHours(0, 0, 0, 0);
@@ -126,6 +166,7 @@ export async function listSecurityEvents(userId: string, domainId?: string, limi
 }
 
 export async function listBlockedIps() {
+  await expireAutoBlocks();
   return prisma.blockedIp.findMany({
     where: { isActive: true },
     orderBy: { blockedAt: "desc" },
@@ -150,6 +191,8 @@ export async function logVisit(input: {
     where: { ipAddress: input.ipAddress },
   });
   if (whitelisted) return { skipped: true, reason: "whitelisted" };
+
+  await expireAutoBlocks();
 
   const blocked = await prisma.blockedIp.findFirst({
     where: { ipAddress: input.ipAddress, isActive: true },

@@ -870,7 +870,7 @@ export async function configureBackupTimer(options: {
   const scriptPath = "/opt/naviyra-panel/scripts/backup-worker.sh";
 
   const service = `[Unit]
-Description=Naviyra Panel Backup Worker
+Description=Naviyra Panel Per-Domain Backup Worker
 After=network.target naviyra-panel.service
 
 [Service]

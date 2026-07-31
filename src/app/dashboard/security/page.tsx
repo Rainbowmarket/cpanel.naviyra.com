@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Activity,
   Ban,
@@ -168,7 +169,29 @@ function statusCodeClass(code: number | null | undefined) {
 }
 
 export default function SecurityPage() {
-  const [tab, setTab] = useState<Tab>("overview");
+  return (
+    <Suspense fallback={<p className="text-slate-400">Loading security...</p>}>
+      <SecurityPageInner />
+    </Suspense>
+  );
+}
+
+function SecurityPageInner() {
+  const searchParams = useSearchParams();
+  const initialTab = (() => {
+    const t = searchParams.get("tab");
+    if (
+      t === "visitors" ||
+      t === "threats" ||
+      t === "blocked" ||
+      t === "whitelist" ||
+      t === "overview"
+    ) {
+      return t;
+    }
+    return "overview";
+  })();
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [domains, setDomains] = useState<Domain[]>([]);
   const [domainId, setDomainId] = useState("");
   const [stats, setStats] = useState<Stats | null>(null);
@@ -176,6 +199,7 @@ export default function SecurityPage() {
   const [visitors, setVisitors] = useState<Visitor[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
   const [blocked, setBlocked] = useState<Blocked[]>([]);
+  const [autoBlockTtlHours, setAutoBlockTtlHours] = useState(48);
   const [whitelist, setWhitelist] = useState<WhitelistRow[]>([]);
   const [search, setSearch] = useState("");
   const [datePreset, setDatePreset] = useState<DatePreset>("today");
@@ -258,6 +282,9 @@ export default function SecurityPage() {
   const loadBlocked = useCallback(async () => {
     const data = await fetch("/api/security/blocklist").then((r) => r.json());
     setBlocked(data.blocked ?? []);
+    if (typeof data.autoBlockTtlHours === "number") {
+      setAutoBlockTtlHours(data.autoBlockTtlHours);
+    }
   }, []);
 
   const loadWhitelist = useCallback(async () => {
@@ -677,11 +704,20 @@ export default function SecurityPage() {
                 <th className="px-5 py-3">Source</th>
                 <th className="px-5 py-3">Via</th>
                 <th className="px-5 py-3">Blocked</th>
+                <th className="px-5 py-3">Expires</th>
                 <th className="px-5 py-3" />
               </tr>
             </thead>
             <tbody>
-              {blocked.map((b) => (
+              {blocked.map((b) => {
+                const isAuto = b.source.toLowerCase() === "auto";
+                const expires = isAuto
+                  ? new Date(
+                      new Date(b.blockedAt).getTime() +
+                        autoBlockTtlHours * 60 * 60 * 1000
+                    )
+                  : null;
+                return (
                 <tr
                   key={b.id}
                   className="border-t border-slate-800/60 hover:bg-slate-900/40"
@@ -692,6 +728,9 @@ export default function SecurityPage() {
                   <td className="px-5 py-3 text-slate-500">{b.blockedVia}</td>
                   <td className="px-5 py-3 text-slate-500">
                     {new Date(b.blockedAt).toLocaleString()}
+                  </td>
+                  <td className="px-5 py-3 text-slate-500">
+                    {expires ? expires.toLocaleString() : "Never (manual)"}
                   </td>
                   <td className="px-5 py-3">
                     <button
@@ -704,7 +743,8 @@ export default function SecurityPage() {
                     </button>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </TableShell>
         </div>

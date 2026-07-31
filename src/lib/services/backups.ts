@@ -38,6 +38,11 @@ export async function getOrCreateBackupConfig() {
   return prisma.backupWorkerConfig.create({
     data: {
       id: CONFIG_ID,
+      schedule: "DAILY_03",
+      includePanelDb: false,
+      includeSites: true,
+      includeDns: true,
+      includeMail: true,
       backupRoot:
         process.platform === "win32"
           ? "data/backups"
@@ -46,7 +51,7 @@ export async function getOrCreateBackupConfig() {
   });
 }
 
-export async function listBackupRuns(limit = 20) {
+export async function listBackupRuns(limit = 40) {
   return prisma.backupRun.findMany({
     orderBy: { startedAt: "desc" },
     take: limit,
@@ -64,9 +69,8 @@ export async function updateBackupConfig(input: BackupConfigUpdate) {
       ...(input.retainCount !== undefined
         ? { retainCount: Math.max(1, Math.min(60, input.retainCount)) }
         : {}),
-      ...(input.includePanelDb !== undefined
-        ? { includePanelDb: input.includePanelDb }
-        : {}),
+      // Scheduled worker is per-domain only — never include panel DB
+      includePanelDb: false,
       ...(input.includeSites !== undefined
         ? { includeSites: input.includeSites }
         : {}),
@@ -203,6 +207,7 @@ export async function runDomainBackupNow(
     includeSites?: boolean;
     includeDns?: boolean;
     includeMail?: boolean;
+    source?: string;
   }
 ) {
   const config = await getOrCreateBackupConfig();
@@ -214,6 +219,7 @@ export async function runDomainBackupNow(
   const includeSites = opts?.includeSites !== false;
   const includeDns = opts?.includeDns !== false;
   const includeMail = opts?.includeMail !== false;
+  const source = opts?.source?.trim() || "domain";
 
   if (!includeSites && !includeDns && !includeMail) {
     throw new Error("Select at least one component to back up");
@@ -222,7 +228,7 @@ export async function runDomainBackupNow(
   const run = await prisma.backupRun.create({
     data: {
       status: "RUNNING",
-      source: "domain",
+      source,
     },
   });
 
@@ -277,6 +283,79 @@ export async function runDomainBackupNow(
   });
 
   return { run: completed };
+}
+
+/** Scheduled / batch: one archive per domain (no full-panel backup). */
+export async function runAllDomainBackupsNow(
+  source: "manual" | "timer" = "manual"
+) {
+  const config = await getOrCreateBackupConfig();
+
+  if (source === "timer" && !config.enabled) {
+    return { skipped: true as const, reason: "Backup worker is disabled" };
+  }
+
+  const domains = await prisma.domain.findMany({
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+
+  if (domains.length === 0) {
+    return { skipped: true as const, reason: "No domains to back up" };
+  }
+
+  if (!config.includeSites && !config.includeDns && !config.includeMail) {
+    return {
+      skipped: true as const,
+      reason: "Enable at least one of: sites, DNS, or mail",
+    };
+  }
+
+  await prisma.backupWorkerConfig.update({
+    where: { id: CONFIG_ID },
+    data: {
+      lastStatus: "RUNNING" satisfies JobStatus,
+      lastError: null,
+    },
+  });
+
+  const runs: Awaited<ReturnType<typeof runDomainBackupNow>>["run"][] = [];
+  const errors: string[] = [];
+
+  for (const domain of domains) {
+    const { run } = await runDomainBackupNow(domain.id, {
+      includeSites: config.includeSites,
+      includeDns: config.includeDns,
+      includeMail: config.includeMail,
+      source,
+    });
+    runs.push(run);
+    if (run.status === "FAILED") {
+      errors.push(`${domain.name}: ${run.error ?? "failed"}`);
+    }
+  }
+
+  const completed = runs.filter((r) => r.status === "COMPLETED");
+  const lastOk = [...completed].reverse()[0];
+  const allFailed = completed.length === 0;
+
+  await prisma.backupWorkerConfig.update({
+    where: { id: CONFIG_ID },
+    data: {
+      lastRunAt: new Date(),
+      lastStatus: (allFailed ? "FAILED" : "COMPLETED") satisfies JobStatus,
+      lastError: errors.length > 0 ? errors.slice(0, 8).join("; ") : null,
+      lastArchive: lastOk?.archivePath ?? null,
+    },
+  });
+
+  return {
+    skipped: false as const,
+    domains: domains.length,
+    completed: completed.length,
+    failed: runs.length - completed.length,
+    runs,
+  };
 }
 
 function isDomainArchive(

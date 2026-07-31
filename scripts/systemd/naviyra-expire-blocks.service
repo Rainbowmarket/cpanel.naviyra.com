@@ -1,0 +1,11 @@
+[Unit]
+Description=Naviyra expire auto-blocked IPs (48h TTL)
+After=network.target naviyra-panel.service
+
+[Service]
+Type=oneshot
+User=root
+EnvironmentFile=-/opt/naviyra-panel/.env
+Environment=PANEL_PORT=3100
+ExecStart=/opt/naviyra-panel/scripts/expire-auto-blocks.sh
+Nice=10

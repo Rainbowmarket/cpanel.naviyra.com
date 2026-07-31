@@ -1,0 +1,10 @@
+[Unit]
+Description=Naviyra expire auto-blocked IPs hourly
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=3m
+
+[Install]
+WantedBy=timers.target

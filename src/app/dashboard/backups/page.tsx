@@ -257,9 +257,9 @@ export default function BackupsPage() {
       setMessage(data.reason ?? "Skipped");
     } else {
       setMessage(
-        data.run?.status === "COMPLETED"
-          ? `Backup completed: ${data.run.archivePath ?? "ok"}`
-          : `Backup ${data.run?.status ?? "finished"}`
+        `Domain backups finished: ${data.completed ?? 0} ok` +
+          (data.failed ? `, ${data.failed} failed` : "") +
+          (data.domains ? ` (${data.domains} domains)` : "")
       );
     }
     load();
@@ -406,7 +406,7 @@ export default function BackupsPage() {
     <div className="space-y-8">
       <PageHeader
         title="Backups"
-        description="Full-panel and per-domain backups — files, DNS, and mail."
+        description="Scheduled daily backups per domain (files, DNS, mail) — no full-panel archive."
       />
 
       <div className="grid gap-4 sm:grid-cols-3">
@@ -538,10 +538,11 @@ export default function BackupsPage() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-sm font-semibold text-white">
-              Full panel worker
+              Daily domain schedule
             </h2>
             <p className="mt-0.5 text-xs text-slate-500">
-              Scheduled full backups (all sites, panel DB, DNS, optional mail).
+              When enabled, the timer backs up each domain separately (not one
+              full-panel archive).
             </p>
           </div>
           <label className="flex items-center gap-2 text-sm text-slate-300">
@@ -553,7 +554,7 @@ export default function BackupsPage() {
               }
               className="rounded border-slate-600"
             />
-            Enable scheduled backups
+            Enable daily domain backups
           </label>
         </div>
 
@@ -572,7 +573,7 @@ export default function BackupsPage() {
           </div>
           <div>
             <label className="mb-1.5 block text-xs font-medium text-slate-400">
-              Keep last N archives
+              Keep last N archives per domain
             </label>
             <input
               type="number"
@@ -606,10 +607,9 @@ export default function BackupsPage() {
         <div className="grid gap-2 sm:grid-cols-2">
           {(
             [
-              ["includePanelDb", "Panel SQLite database"],
-              ["includeSites", "Website files (/var/www)"],
-              ["includeDns", "DNS zone data"],
-              ["includeMail", "Mail vhosts (optional)"],
+              ["includeSites", "Website files"],
+              ["includeDns", "DNS zone"],
+              ["includeMail", "Mail vhosts"],
             ] as const
           ).map(([key, label]) => (
             <label
@@ -653,7 +653,7 @@ export default function BackupsPage() {
             ) : (
               <Play className="h-4 w-4" />
             )}
-            Run full backup now
+            Run all domains now
           </button>
         </div>
       </form>

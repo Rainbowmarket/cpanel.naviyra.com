@@ -111,6 +111,10 @@ echo "== backup worker units =="
 chmod +x scripts/install-backup-worker.sh scripts/backup-worker.sh
 ./scripts/install-backup-worker.sh "$PANEL"
 
+echo "== expire auto-blocks timer =="
+chmod +x scripts/install-expire-auto-blocks.sh scripts/expire-auto-blocks.sh
+./scripts/install-expire-auto-blocks.sh "$PANEL"
+
 # Terminal WS include if panel nginx exists
 if [ -f /etc/nginx/sites-available/naviyra.uk ] || [ -f /etc/nginx/sites-enabled/naviyra-uk ]; then
   true
