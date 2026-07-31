@@ -176,8 +176,11 @@ chmod +x scripts/install-expire-auto-blocks.sh scripts/expire-auto-blocks.sh
 ./scripts/install-expire-auto-blocks.sh "$PANEL"
 
 echo "== mail.* webmail proxies =="
-chmod +x scripts/refresh-mail-proxies.sh
+chmod +x scripts/refresh-mail-proxies.sh scripts/provision-panel-mail.sh
 ./scripts/refresh-mail-proxies.sh "$PANEL" || true
+
+echo "== panel mail host from .env (PANEL_HOSTNAME / MAIL_*) =="
+./scripts/provision-panel-mail.sh "$PANEL" || true
 
 # Terminal WS include if panel nginx exists
 if [ -f /etc/nginx/sites-available/naviyra.uk ] || [ -f /etc/nginx/sites-enabled/naviyra-uk ]; then
@@ -189,4 +192,12 @@ systemctl restart naviyra-panel
 sleep 4
 systemctl is-active naviyra-panel
 curl -s -o /dev/null -w "panel_http=%{http_code}\n" http://127.0.0.1:3100/ || true
+
+echo "== ensure panel mail host + MAIL_FROM in DB =="
+set -a
+# shellcheck disable=SC1091
+source .env
+set +a
+npx tsx --tsconfig tsconfig.json scripts/ensure-panel-mail.ts || echo "ensure_panel_mail=warn"
+
 echo "DEPLOY_OK"

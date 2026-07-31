@@ -195,6 +195,8 @@ export async function createSubdomain(input: {
   appType?: AppType;
   /** When true, allow creating under the panel base domain even if owned by another admin. */
   allowPanelDomain?: boolean;
+  /** When true, allow reserved mail/webmail label on the panel apex (mail host setup). */
+  allowMailHost?: boolean;
 }) {
   const panelBase = getPanelBaseDomain();
   const domain = await prisma.domain.findFirst({
@@ -223,7 +225,9 @@ export async function createSubdomain(input: {
     label = name.slice(0, -(domain.name.length + 1));
   }
   assertValidSubdomainLabel(label);
-  assertAllowedPanelSubdomainLabel(label, domain.name);
+  assertAllowedPanelSubdomainLabel(label, domain.name, {
+    allowMailHost: input.allowMailHost,
+  });
 
   const existing = await prisma.subdomain.findFirst({
     where: { domainId: domain.id, name: label },

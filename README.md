@@ -419,7 +419,8 @@ Use this when you want two independent control panels (e.g. one for you, one for
 | `BIND_NAMED_DIR` | Per-domain named snippets (e.g. `/etc/bind/naviyra-zones.d`) |
 | `BIND_INCLUDE_FILE` | Master include listing those snippets (e.g. `/etc/bind/naviyra-zones.conf`) |
 | `BIND_RELOAD_CMD` | BIND reload command (default `rndc reload`) |
-| `MAIL_HOSTNAME` | Mail server hostname template (default `mail.{domain}`) |
+| `MAIL_HOSTNAME` | Mail server hostname template (default `mail.{domain}`). Deploy provisions `mail.{PANEL_HOSTNAME}` when public DNS points at `SERVER_PUBLIC_IP`. |
+| `MAIL_FROM` | System From address for password reset (must pass SPF for this server) |
 | `NAVIYRA_NO_BROWSER` | `true` = don't auto-open browser |
 
 ---

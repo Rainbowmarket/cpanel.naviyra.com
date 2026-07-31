@@ -27,12 +27,50 @@ export async function ensureMailDomain(domainId: string, userId: string) {
   });
 }
 
-export async function listMailAccounts(domainId: string, userId: string) {
-  const mailDomain = await prisma.mailDomain.findFirst({
-    where: { domainId, domain: { userId } },
-    include: { accounts: { orderBy: { createdAt: "desc" } }, aliases: true },
+export async function listMailAccounts(userId: string, domainId?: string | null) {
+  if (domainId) {
+    const mailDomain = await prisma.mailDomain.findFirst({
+      where: { domainId, domain: { userId } },
+      include: {
+        accounts: { orderBy: { createdAt: "desc" } },
+        aliases: true,
+        domain: { select: { id: true, name: true } },
+      },
+    });
+    if (!mailDomain) return { accounts: [], aliases: [] };
+    return {
+      accounts: mailDomain.accounts.map((a) => ({
+        ...a,
+        domainId: mailDomain.domain.id,
+        domainName: mailDomain.domain.name,
+      })),
+      aliases: mailDomain.aliases,
+    };
+  }
+
+  const accounts = await prisma.mailAccount.findMany({
+    where: { mailDomain: { domain: { userId } } },
+    orderBy: [{ email: "asc" }],
+    include: {
+      mailDomain: { include: { domain: { select: { id: true, name: true } } } },
+    },
   });
-  return mailDomain ?? { accounts: [], aliases: [] };
+
+  return {
+    accounts: accounts.map((a) => ({
+      id: a.id,
+      email: a.email,
+      quotaMb: a.quotaMb,
+      isActive: a.isActive,
+      createdAt: a.createdAt,
+      updatedAt: a.updatedAt,
+      mailDomainId: a.mailDomainId,
+      passwordHash: a.passwordHash,
+      domainId: a.mailDomain.domain.id,
+      domainName: a.mailDomain.domain.name,
+    })),
+    aliases: [],
+  };
 }
 
 /** DNS + mail subdomain + SSL for mail.{domain} (or MAIL_HOSTNAME label). */
@@ -51,7 +89,13 @@ export async function ensureMailHostSetup(domainId: string, userId: string) {
   });
 
   if (!subdomain) {
-    subdomain = await createSubdomain({ domainId, userId, name: mailLabel });
+    subdomain = await createSubdomain({
+      domainId,
+      userId,
+      name: mailLabel,
+      allowMailHost: true,
+      allowPanelDomain: true,
+    });
   }
 
   const existingCert = await prisma.sslCertificate.findFirst({
@@ -62,11 +106,17 @@ export async function ensureMailHostSetup(domainId: string, userId: string) {
   });
 
   if (!existingCert) {
-    await issueSubdomainSslCertificate({
-      subdomainId: subdomain.id,
-      userId,
-      autoRenew: true,
-    });
+    try {
+      await issueSubdomainSslCertificate({
+        subdomainId: subdomain.id,
+        userId,
+        autoRenew: true,
+      });
+    } catch (error) {
+      // Public DNS may lag (e.g. Cloudflare A record not yet set). Nginx HTTP
+      // proxy is still useful; SSL can be retried on next mailbox/deploy.
+      console.error("Mail host SSL issue failed:", error);
+    }
   }
 
   return {

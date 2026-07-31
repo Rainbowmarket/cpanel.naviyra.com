@@ -63,7 +63,17 @@ function panelUpstream(): string {
 }
 
 export function isMailHostname(hostname: string): boolean {
-  return /^mail\./i.test(hostname.trim());
+  const h = hostname.trim().toLowerCase();
+  if (!h) return false;
+  if (/^mail\./i.test(h)) return true;
+
+  const template = (process.env.MAIL_HOSTNAME ?? "mail.{domain}").trim().toLowerCase();
+  if (!template.includes("{domain}")) {
+    return h === template.replace(/\.$/, "");
+  }
+  const prefix = template.split("{domain}")[0]?.replace(/\.$/, "") ?? "mail";
+  if (prefix) return h.startsWith(`${prefix}.`);
+  return false;
 }
 
 function proxyPassBlock(): string {

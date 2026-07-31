@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import { KeyRound, Mail, ExternalLink, Power, Trash2 } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { Modal, modalInputClass, modalLabelClass } from "@/components/ui/modal";
@@ -13,11 +13,14 @@ type MailAccount = {
   email: string;
   quotaMb: number;
   isActive: boolean;
+  domainId?: string;
+  domainName?: string;
 };
 
 export default function MailPage() {
   const [domains, setDomains] = useState<Domain[]>([]);
-  const [domainId, setDomainId] = useState("");
+  const [filterDomainId, setFilterDomainId] = useState("");
+  const [createDomainId, setCreateDomainId] = useState("");
   const [accounts, setAccounts] = useState<MailAccount[]>([]);
   const [localPart, setLocalPart] = useState("");
   const [password, setPassword] = useState("");
@@ -27,45 +30,50 @@ export default function MailPage() {
   const [search, setSearch] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
 
-  async function loadAccounts(id: string) {
-    const res = await fetch(`/api/mail?domainId=${id}`);
+  const loadAccounts = useCallback(async () => {
+    const res = await fetch("/api/mail");
     const data = await res.json();
     setAccounts(data.accounts ?? []);
-  }
+  }, []);
 
   useEffect(() => {
     fetch("/api/domains")
       .then((r) => r.json())
       .then((d) => {
-        setDomains(d.domains ?? []);
-        if (d.domains?.[0]) setDomainId(d.domains[0].id);
+        const list = (d.domains ?? []) as Domain[];
+        setDomains(list);
+        if (list[0]) setCreateDomainId(list[0].id);
       });
-  }, []);
+    loadAccounts();
+  }, [loadAccounts]);
 
+  // Ensure mail host DNS/SSL for every domain once loaded
   useEffect(() => {
-    if (domainId) loadAccounts(domainId);
-  }, [domainId]);
-
-  useEffect(() => {
-    if (!domainId) return;
-    fetch("/api/mail/host-setup", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ domainId }),
-    }).catch(() => {});
-  }, [domainId]);
+    for (const d of domains) {
+      fetch("/api/mail/host-setup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domainId: d.id }),
+      }).catch(() => {});
+    }
+  }, [domains]);
 
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
+    if (!createDomainId) return;
     await fetch("/api/mail", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ domainId, localPart, password }),
+      body: JSON.stringify({
+        domainId: createDomainId,
+        localPart,
+        password,
+      }),
     });
     setLocalPart("");
     setPassword("");
     setCreateOpen(false);
-    loadAccounts(domainId);
+    await loadAccounts();
   }
 
   async function handleDelete(id: string, email: string) {
@@ -73,7 +81,7 @@ export default function MailPage() {
     setLoading(id);
     await fetch(`/api/mail?id=${id}`, { method: "DELETE" });
     setLoading(null);
-    loadAccounts(domainId);
+    await loadAccounts();
   }
 
   async function handleResetPassword(id: string) {
@@ -90,7 +98,7 @@ export default function MailPage() {
     setLoading(null);
     setResettingId(null);
     setNewPassword("");
-    loadAccounts(domainId);
+    await loadAccounts();
   }
 
   async function handleToggleActive(id: string, isActive: boolean, email: string) {
@@ -103,7 +111,7 @@ export default function MailPage() {
       body: JSON.stringify({ action: "toggle_active", isActive: !isActive }),
     });
     setLoading(null);
-    loadAccounts(domainId);
+    await loadAccounts();
   }
 
   function openMailbox(accountId: string) {
@@ -114,27 +122,49 @@ export default function MailPage() {
     );
   }
 
-  const filteredAccounts = accounts.filter((a) =>
-    matchesSearch(
+  function openCreate() {
+    if (!createDomainId && domains[0]) setCreateDomainId(domains[0].id);
+    setCreateOpen(true);
+  }
+
+  const filteredAccounts = accounts.filter((a) => {
+    if (filterDomainId && a.domainId !== filterDomainId) return false;
+    return matchesSearch(
       search,
       a.email,
+      a.domainName,
       a.isActive ? "active" : "deactivated",
       a.quotaMb
-    )
-  );
+    );
+  });
 
   return (
     <div className="space-y-8">
       <PageHeader
         title="Mail Server"
-        description="Manage email accounts per domain."
+        description="Manage email accounts for all domains."
         actionLabel="Create Mailbox"
-        onAction={() => setCreateOpen(true)}
+        onAction={openCreate}
         actionIcon={<Mail className="h-4 w-4" />}
         searchValue={search}
         onSearchChange={setSearch}
         searchPlaceholder="Search mailboxes..."
       />
+
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="text-xs font-medium text-slate-400">Domain</label>
+        <div className="w-full max-w-xs">
+          <Select
+            value={filterDomainId}
+            onChange={setFilterDomainId}
+            options={[
+              { value: "", label: "All domains" },
+              ...domains.map((d) => ({ value: d.id, label: d.name })),
+            ]}
+            placeholder="All domains"
+          />
+        </div>
+      </div>
 
       <Modal
         open={createOpen}
@@ -146,8 +176,8 @@ export default function MailPage() {
           <div>
             <label className={modalLabelClass}>Domain</label>
             <Select
-              value={domainId}
-              onChange={setDomainId}
+              value={createDomainId}
+              onChange={setCreateDomainId}
               options={domains.map((d) => ({ value: d.id, label: d.name }))}
               placeholder="Choose domain..."
             />
@@ -200,6 +230,11 @@ export default function MailPage() {
                   >
                     {a.isActive ? "Active" : "Deactivated"}
                   </span>
+                  {a.domainName ? (
+                    <span className="rounded-full bg-slate-800 px-2.5 py-0.5 text-xs text-slate-300 ring-1 ring-slate-700">
+                      {a.domainName}
+                    </span>
+                  ) : null}
                 </div>
                 <p className="mt-1 text-sm text-slate-400">{a.quotaMb} MB quota</p>
               </div>
@@ -285,7 +320,7 @@ export default function MailPage() {
           </p>
         ) : filteredAccounts.length === 0 ? (
           <p className="rounded-xl border border-slate-800 bg-slate-950/50 px-5 py-10 text-center text-slate-500">
-            No mailboxes match your search.
+            No mailboxes match your filters.
           </p>
         ) : null}
       </div>

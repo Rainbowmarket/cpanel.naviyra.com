@@ -9,11 +9,16 @@ function panelPublicUrl(): string {
   return "http://localhost:3100";
 }
 
-function systemFromAddress(): string {
+/** From address for password reset / system mail (MAIL_FROM or noreply@{PANEL_HOSTNAME}). */
+export function getSystemMailFromAddress(): string {
   const configured = process.env.MAIL_FROM?.trim();
   if (configured) return configured;
   const base = getPanelBaseDomain();
   return base ? `noreply@${base}` : "noreply@localhost";
+}
+
+function systemFromAddress(): string {
+  return getSystemMailFromAddress();
 }
 
 function buildRawMessage(opts: {

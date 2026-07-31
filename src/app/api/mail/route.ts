@@ -13,10 +13,7 @@ export async function GET(request: Request) {
   try {
     const user = await requireSessionUser();
     const domainId = new URL(request.url).searchParams.get("domainId");
-    if (!domainId) {
-      return NextResponse.json({ error: "domainId required" }, { status: 400 });
-    }
-    const mail = await listMailAccounts(domainId, user.id);
+    const mail = await listMailAccounts(user.id, domainId);
     return NextResponse.json(mail);
   } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
