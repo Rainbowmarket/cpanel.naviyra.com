@@ -343,6 +343,9 @@ export async function deleteSubdomain(
     include: { domain: { include: { server: true } } },
   });
 
+  const domainId = subdomain.domainId;
+  const subdomainName = subdomain.name;
+
   await removeSiteAppUnit("subdomain", subdomain.id, userId).catch(() => undefined);
 
   await callAgent(
@@ -356,11 +359,15 @@ export async function deleteSubdomain(
     subdomain.domain.server.agentKey || getAgentApiKey()
   );
 
+  // Delete DB row before DNS sync — syncDnsZone re-upserts A records for
+  // every remaining subdomain; if this row still exists, the record comes back.
+  await prisma.subdomain.delete({ where: { id: subdomain.id } });
+
   try {
-    await removeSubdomainDnsRecord(subdomain.domainId, subdomain.name);
+    await removeSubdomainDnsRecord(domainId, subdomainName);
   } catch (error) {
     console.error("Subdomain DNS record removal failed:", error);
   }
 
-  return prisma.subdomain.delete({ where: { id: subdomain.id } });
+  return { id: subdomainId, domainId, name: subdomainName };
 }

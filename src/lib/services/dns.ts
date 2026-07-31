@@ -5,6 +5,7 @@ import {
   buildZoneFile,
   defaultDomainRecords,
   mailDnsRecords,
+  mailHostLabel,
   type DnsRecordInput,
 } from "@/lib/dns/zone";
 
@@ -123,6 +124,14 @@ async function refreshAutoManagedRecords(
 ) {
   await upsertSubdomainRecord(zoneId, "@", ipAddress);
   await upsertSubdomainRecord(zoneId, "www", ipAddress);
+
+  // Glue A records for in-zone nameservers (required for BIND to load the zone)
+  for (const nsHost of [getDnsNs1(), getDnsNs2()]) {
+    const label = mailHostLabel(nsHost.toLowerCase(), domainName.toLowerCase());
+    if (label && label !== "@") {
+      await upsertSubdomainRecord(zoneId, label, ipAddress);
+    }
+  }
 
   const mailHost = getMailHostname(domainName);
   for (const record of mailDnsRecords(domainName, ipAddress, mailHost)) {
@@ -397,8 +406,18 @@ export async function removeSubdomainDnsRecord(domainId: string, subdomainName: 
   const domain = await loadDomainWithZone(domainId);
   if (!domain.dnsZone) return;
 
+  const name = normalizeRecordName(subdomainName, domain.name);
+
   await prisma.dnsRecord.deleteMany({
-    where: { zoneId: domain.dnsZone.id, name: subdomainName, type: "A" },
+    where: {
+      zoneId: domain.dnsZone.id,
+      type: "A",
+      OR: [
+        { name },
+        { name: subdomainName },
+        { name: `${name}.${domain.name}` },
+      ],
+    },
   });
 
   return syncDnsZone(domainId);
