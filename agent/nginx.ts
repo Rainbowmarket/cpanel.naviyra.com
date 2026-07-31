@@ -466,65 +466,24 @@ export async function removeNginxSite(siteName: string, dryRun: boolean) {
   }
 }
 
-function panelPublicUrl(): string {
-  const configured = process.env.PANEL_PUBLIC_URL?.trim();
-  if (configured) return configured.replace(/\/$/, "");
-  const ip = process.env.SERVER_PUBLIC_IP?.trim() || "127.0.0.1";
-  const port = process.env.PANEL_PORT?.trim() || "3100";
-  return `http://${ip}:${port}`;
-}
-
 function buildMailPortalIndex(mailHost: string): string {
   const domainName = mailHost.replace(/^mail\./i, "");
-  const panelUrl = panelPublicUrl();
-  const webmail = `${panelUrl}/dashboard/mail`;
   return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Mail · ${domainName}</title>
+  <meta http-equiv="refresh" content="0;url=/webmail" />
+  <title>Webmail · ${domainName}</title>
   <style>
     :root { color-scheme: dark; }
-    body { margin:0; font-family: system-ui,sans-serif; background:#0f172a; color:#e2e8f0; }
-    .wrap { max-width:720px; margin:0 auto; padding:2.5rem 1.25rem 4rem; }
-    h1 { font-size:1.75rem; margin:0 0 .35rem; }
-    .sub { color:#94a3b8; margin:0 0 1.75rem; }
-    .card { background:#111827; border:1px solid #1e293b; border-radius:14px; padding:1.25rem 1.35rem; margin:0 0 1rem; }
-    .card h2 { margin:0 0 .75rem; font-size:1rem; color:#34d399; letter-spacing:.04em; text-transform:uppercase; }
-    table { width:100%; border-collapse:collapse; font-size:.95rem; }
-    td { padding:.4rem 0; vertical-align:top; }
-    td:first-child { color:#94a3b8; width:42%; }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color:#f8fafc; }
-    a.btn { display:inline-block; margin-top:.25rem; background:#059669; color:#fff; text-decoration:none;
-      padding:.7rem 1.1rem; border-radius:10px; font-weight:600; }
-    a.btn:hover { background:#10b981; }
-    .note { font-size:.9rem; color:#94a3b8; line-height:1.5; }
+    body { margin:0; font-family: system-ui,sans-serif; background:#0f172a; color:#e2e8f0;
+      display:flex; min-height:100vh; align-items:center; justify-content:center; }
+    a { color:#34d399; }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <h1>${mailHost}</h1>
-    <p class="sub">Naviyra mail host for <span class="mono">${domainName}</span></p>
-    <div class="card">
-      <h2>Webmail</h2>
-      <p class="note">This hostname is for IMAP/SMTP apps. Open webmail in the Naviyra Panel — there is no separate Roundcube login here.</p>
-      <p><a class="btn" href="${webmail}">Open webmail in panel</a></p>
-      <p class="note" style="margin-top:.85rem">Panel: <span class="mono">${panelUrl}</span> → Mail</p>
-    </div>
-    <div class="card">
-      <h2>Mobile / desktop setup</h2>
-      <table>
-        <tr><td>Username</td><td class="mono">full email address</td></tr>
-        <tr><td>Password</td><td>mailbox password from the panel</td></tr>
-        <tr><td>IMAP host</td><td class="mono">${mailHost}</td></tr>
-        <tr><td>IMAP port</td><td class="mono">993</td> (SSL/TLS)</td></tr>
-        <tr><td>SMTP host</td><td class="mono">${mailHost}</td></tr>
-        <tr><td>SMTP port</td><td class="mono">587</td> STARTTLS or <span class="mono">465</span> SSL/TLS</td></tr>
-        <tr><td>POP3 port</td><td class="mono">995</td> (SSL/TLS, optional)</td></tr>
-      </table>
-    </div>
-  </div>
+  <p>Opening webmail… <a href="/webmail">Continue</a></p>
 </body>
 </html>
 `;

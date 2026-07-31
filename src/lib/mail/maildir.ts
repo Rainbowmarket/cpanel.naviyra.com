@@ -6,6 +6,7 @@ import path from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { simpleParser } from "mailparser";
 import type { MailFolder, MailMessage } from "./types";
 
 const exec = promisify(execFile);
@@ -104,40 +105,107 @@ function parseHeaders(raw: string): Record<string, string> {
   return headers;
 }
 
-function extractTextBody(raw: string): string {
+const ORIGINAL_FOLDER_HEADER = "X-Naviyra-Original-Folder";
+
+function isMailFolder(value: string | undefined): value is MailFolder {
+  return Boolean(
+    value &&
+      ["INBOX", "Drafts", "Sent", "Trash", "Archive", "Junk"].includes(value)
+  );
+}
+
+/** Set or replace a top-level header in an RFC822 message. */
+export function setRfc822Header(raw: string, name: string, value: string): string {
+  const sep = raw.search(/\r?\n\r?\n/);
+  const headerBlock = sep >= 0 ? raw.slice(0, sep) : raw;
+  const body = sep >= 0 ? raw.slice(sep) : "\r\n\r\n";
+  const re = new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:.*(?:\\r?\\n[ \\t].*)*\\r?\\n?`, "im");
+  let nextHeaders = headerBlock.replace(re, "");
+  if (!nextHeaders.endsWith("\n")) nextHeaders += "\r\n";
+  nextHeaders += `${name}: ${value}\r\n`;
+  return nextHeaders + body.replace(/^\r?\n\r?\n/, "\r\n\r\n");
+}
+
+export function removeRfc822Header(raw: string, name: string): string {
+  const sep = raw.search(/\r?\n\r?\n/);
+  const headerBlock = sep >= 0 ? raw.slice(0, sep) : raw;
+  const body = sep >= 0 ? raw.slice(sep) : "\r\n\r\n";
+  const re = new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:.*(?:\\r?\\n[ \\t].*)*\\r?\\n?`, "im");
+  const nextHeaders = headerBlock.replace(re, "");
+  return nextHeaders + body.replace(/^\r?\n\r?\n/, "\r\n\r\n");
+}
+
+function decodeQuotedPrintable(input: string): string {
+  const softStripped = input.replace(/=\r?\n/g, "");
+  const bytes: number[] = [];
+  for (let i = 0; i < softStripped.length; i++) {
+    if (softStripped[i] === "=" && /^[0-9A-Fa-f]{2}/.test(softStripped.slice(i + 1, i + 3))) {
+      bytes.push(parseInt(softStripped.slice(i + 1, i + 3), 16));
+      i += 2;
+    } else {
+      bytes.push(softStripped.charCodeAt(i));
+    }
+  }
+  return Buffer.from(bytes).toString("utf8");
+}
+
+function htmlToPlainText(html: string): string {
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n\n")
+    .replace(/<\/div>/gi, "\n")
+    .replace(/<\/tr>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/** Fallback when mailparser fails — preserves boundary case and UTF-8 QP. */
+function extractTextBodyFallback(raw: string): string {
   const parts = raw.split(/\r?\n\r?\n/);
   if (parts.length < 2) return "";
   const headers = parseHeaders(raw);
   const body = parts.slice(1).join("\n\n");
-  const ct = (headers["content-type"] ?? "text/plain").toLowerCase();
+  const ctRaw = headers["content-type"] ?? "text/plain";
+  const ct = ctRaw.toLowerCase();
 
   if (ct.includes("multipart/")) {
-    const boundaryMatch = ct.match(/boundary="?([^";]+)"?/i);
+    // Boundary values are case-sensitive — extract from original header.
+    const boundaryMatch = ctRaw.match(/boundary\s*=\s*"?([^";\s]+)"?/i);
     if (boundaryMatch) {
       const boundary = boundaryMatch[1]!;
       const chunks = body.split(`--${boundary}`);
+      let htmlFallback = "";
       for (const chunk of chunks) {
-        if (!chunk || chunk.startsWith("--")) continue;
+        if (!chunk || chunk.trim() === "--" || chunk.startsWith("--")) continue;
         const chunkHeaders = parseHeaders(chunk);
         const chunkCt = (chunkHeaders["content-type"] ?? "").toLowerCase();
-        if (chunkCt.includes("text/plain")) {
-          const idx = chunk.search(/\r?\n\r?\n/);
-          let text = idx >= 0 ? chunk.slice(idx).trim() : chunk;
-          const te = (chunkHeaders["content-transfer-encoding"] ?? "").toLowerCase();
-          if (te === "base64") {
-            try {
-              text = Buffer.from(text.replace(/\s+/g, ""), "base64").toString("utf8");
-            } catch {
-              /* keep */
-            }
-          } else if (te === "quoted-printable") {
-            text = text.replace(/=\r?\n/g, "").replace(/=([0-9A-Fa-f]{2})/g, (_, h) =>
-              String.fromCharCode(parseInt(h, 16))
-            );
+        const idx = chunk.search(/\r?\n\r?\n/);
+        let text = idx >= 0 ? chunk.slice(idx).replace(/^\r?\n/, "").trim() : chunk.trim();
+        const te = (chunkHeaders["content-transfer-encoding"] ?? "").toLowerCase();
+        if (te === "base64") {
+          try {
+            text = Buffer.from(text.replace(/\s+/g, ""), "base64").toString("utf8");
+          } catch {
+            /* keep */
           }
-          return text.trim();
+        } else if (te === "quoted-printable") {
+          text = decodeQuotedPrintable(text);
+        }
+        if (chunkCt.includes("text/plain")) return text.trim();
+        if (chunkCt.includes("text/html") && !htmlFallback) {
+          htmlFallback = htmlToPlainText(text);
         }
       }
+      if (htmlFallback) return htmlFallback;
     }
   }
 
@@ -150,27 +218,44 @@ function extractTextBody(raw: string): string {
       /* keep */
     }
   } else if (te === "quoted-printable") {
-    text = text.replace(/=\r?\n/g, "").replace(/=([0-9A-Fa-f]{2})/g, (_, h) =>
-      String.fromCharCode(parseInt(h, 16))
-    );
+    text = decodeQuotedPrintable(text);
   }
+  if (ct.includes("text/html")) return htmlToPlainText(text);
   return text.trim();
 }
 
-function fileToMessage(
+async function extractTextBody(raw: string): Promise<string> {
+  try {
+    const parsed = await simpleParser(Buffer.from(raw));
+    if (parsed.text?.trim()) return parsed.text.trim();
+    if (typeof parsed.html === "string" && parsed.html.trim()) {
+      return htmlToPlainText(parsed.html);
+    }
+  } catch {
+    /* fall through */
+  }
+  return extractTextBodyFallback(raw);
+}
+
+async function fileToMessage(
   email: string,
   folder: MailFolder,
   fileName: string,
   raw: string,
   inNew: boolean
-): MailMessage {
+): Promise<MailMessage> {
   const headers = parseHeaders(raw);
   const id = createHash("sha1").update(`${email}:${folder}:${fileName}`).digest("hex").slice(0, 24);
-  const from = decodeMimeWord(headers.from ?? "(unknown)");
+  const from = decodeMimeWord(headers.from ?? "(unknown)")
+    .replace(/<{2,}/g, "<")
+    .replace(/>{2,}/g, ">");
   const subject = decodeMimeWord(headers.subject ?? "(no subject)");
   const dateHeader = headers.date;
   const date = dateHeader ? new Date(dateHeader).toISOString() : new Date().toISOString();
   const seen = /:2,[^:]*S/.test(fileName) || !inNew;
+
+  const originalRaw = headers["x-naviyra-original-folder"];
+  const originalFolder = isMailFolder(originalRaw) ? originalRaw : undefined;
 
   return {
     id,
@@ -178,10 +263,12 @@ function fileToMessage(
     from: parseAddressList(from)[0] ? from : from,
     to: parseAddressList(headers.to),
     cc: parseAddressList(headers.cc),
+    bcc: parseAddressList(headers.bcc),
     subject,
-    body: extractTextBody(raw),
+    body: await extractTextBody(raw),
     date: Number.isNaN(Date.parse(date)) ? new Date().toISOString() : date,
     read: seen,
+    originalFolder,
     _maildirFile: fileName,
     _maildirNew: inNew,
   } as MailMessage & { _maildirFile?: string; _maildirNew?: boolean };
@@ -213,7 +300,7 @@ export async function listMaildirMessages(
       if (file.startsWith(".")) continue;
       try {
         const raw = await fs.readFile(path.join(dir, file), "utf8");
-        messages.push(fileToMessage(email, folder, file, raw, sub === "new"));
+        messages.push(await fileToMessage(email, folder, file, raw, sub === "new"));
       } catch {
         /* skip unreadable */
       }
@@ -307,14 +394,34 @@ export async function moveMaildirMessage(
   const toBase = maildirFolderPath(email, toFolder);
   const fromSub = msg._maildirNew ? "new" : "cur";
   const fromPath = path.join(fromBase, fromSub, msg._maildirFile);
-  const raw = await fs.readFile(fromPath, "utf8");
+  let raw = await fs.readFile(fromPath, "utf8");
+
+  // Remember source folder when moving into Trash/Junk so Restore can return it.
+  if (
+    (toFolder === "Trash" || toFolder === "Junk") &&
+    fromFolder !== "Trash" &&
+    fromFolder !== "Junk"
+  ) {
+    const keep = msg.originalFolder ?? fromFolder;
+    raw = setRfc822Header(raw, ORIGINAL_FOLDER_HEADER, keep);
+  }
+
+  // Clear marker when leaving Trash/Junk via restore.
+  if (
+    (fromFolder === "Trash" || fromFolder === "Junk") &&
+    toFolder !== "Trash" &&
+    toFolder !== "Junk"
+  ) {
+    raw = removeRfc822Header(raw, ORIGINAL_FOLDER_HEADER);
+  }
+
   const destName = msg._maildirFile.includes(":2,")
     ? msg._maildirFile
     : `${msg._maildirFile}:2,`;
   const toPath = path.join(toBase, "cur", destName);
   await fs.writeFile(toPath, raw, "utf8");
   await fs.rm(fromPath, { force: true });
-  return { ...msg, folder: toFolder, _maildirFile: destName, _maildirNew: false };
+  return fileToMessage(email, toFolder, destName, raw, false);
 }
 
 export async function writeMaildirMessage(
@@ -339,13 +446,15 @@ export async function writeMaildirMessage(
       /* ignore */
     }
   }
-  return fileToMessage(email, folder, fileName, rawRfc822, !read);
+  return await fileToMessage(email, folder, fileName, rawRfc822, !read);
 }
+
 
 export function buildRfc822(input: {
   from: string;
   to: string[];
   cc?: string[];
+  bcc?: string[];
   subject: string;
   body: string;
 }): string {
@@ -354,6 +463,7 @@ export function buildRfc822(input: {
     `From: ${input.from}`,
     `To: ${input.to.join(", ")}`,
     ...(input.cc?.length ? [`Cc: ${input.cc.join(", ")}`] : []),
+    ...(input.bcc?.length ? [`Bcc: ${input.bcc.join(", ")}`] : []),
     `Subject: ${input.subject}`,
     `Date: ${date}`,
     "MIME-Version: 1.0",

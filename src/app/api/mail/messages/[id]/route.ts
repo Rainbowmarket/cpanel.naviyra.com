@@ -3,8 +3,10 @@ import { z } from "zod";
 import {
   deleteWebmailMessage,
   getWebmailMessage,
+  markWebmailMessageRead,
   moveWebmailMessage,
   parseMailFolder,
+  restoreWebmailMessage,
 } from "@/lib/services/webmail";
 import { MAIL_FOLDERS } from "@/lib/mail/types";
 
@@ -46,12 +48,38 @@ const patchSchema = z.discriminatedUnion("action", [
     folder: z.enum(MAIL_FOLDERS),
     targetFolder: z.enum(MAIL_FOLDERS),
   }),
+  z.object({
+    action: z.literal("mark_read"),
+    accountId: z.string(),
+    folder: z.enum(MAIL_FOLDERS),
+    read: z.boolean().default(true),
+  }),
+  z.object({
+    action: z.literal("restore"),
+    accountId: z.string(),
+    folder: z.enum(MAIL_FOLDERS),
+  }),
 ]);
 
 export async function PATCH(request: Request, context: RouteContext) {
   try {
     const { id } = await context.params;
     const body = patchSchema.parse(await request.json());
+
+    if (body.action === "mark_read") {
+      const result = await markWebmailMessageRead(
+        body.accountId,
+        body.folder,
+        id,
+        body.read
+      );
+      return NextResponse.json(result);
+    }
+
+    if (body.action === "restore") {
+      const result = await restoreWebmailMessage(body.accountId, body.folder, id);
+      return NextResponse.json(result);
+    }
 
     const result = await moveWebmailMessage(
       body.accountId,

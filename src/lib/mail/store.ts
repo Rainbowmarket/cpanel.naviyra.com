@@ -12,6 +12,7 @@ import {
   getMaildirMessage,
   listMaildirMessages,
   maildirExists,
+  maildirHome,
   markMaildirRead,
   moveMaildirMessage,
   writeMaildirMessage,
@@ -174,9 +175,50 @@ export async function moveMessage(
   if (!message) return null;
 
   await deleteMessage(email, fromFolder, id);
-  const moved = { ...message, folder: toFolder };
+
+  let originalFolder = message.originalFolder;
+  if (
+    (toFolder === "Trash" || toFolder === "Junk") &&
+    fromFolder !== "Trash" &&
+    fromFolder !== "Junk"
+  ) {
+    originalFolder = message.originalFolder ?? fromFolder;
+  }
+  if (
+    (fromFolder === "Trash" || fromFolder === "Junk") &&
+    toFolder !== "Trash" &&
+    toFolder !== "Junk"
+  ) {
+    originalFolder = undefined;
+  }
+
+  const moved: MailMessage = {
+    ...message,
+    folder: toFolder,
+    originalFolder,
+  };
   await saveMessage(email, moved);
   return moved;
+}
+
+/** Resolve restore target for a Trash/Junk message. */
+export function resolveRestoreFolder(
+  message: MailMessage,
+  accountEmail: string
+): MailFolder {
+  if (
+    message.originalFolder &&
+    message.originalFolder !== "Trash" &&
+    message.originalFolder !== "Junk"
+  ) {
+    return message.originalFolder;
+  }
+  // Fallback for older trash items without a marker: Sent if we sent it.
+  const from = message.from.match(/<([^>]+)>/)?.[1] ?? message.from;
+  if (from.trim().toLowerCase() === accountEmail.trim().toLowerCase()) {
+    return "Sent";
+  }
+  return "INBOX";
 }
 
 export async function markMessageRead(
@@ -254,6 +296,7 @@ export async function sendMessage(input: {
   fromEmail: string;
   to: string[];
   cc?: string[];
+  bcc?: string[];
   subject: string;
   body: string;
   draft?: boolean;
@@ -262,9 +305,10 @@ export async function sendMessage(input: {
   const now = new Date().toISOString();
   const to = input.to.map((e) => e.trim().toLowerCase()).filter(Boolean);
   const cc = (input.cc ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean);
+  const bcc = (input.bcc ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean);
 
-  if (!input.draft && to.length === 0) {
-    throw new Error("Add at least one recipient in To");
+  if (!input.draft && to.length === 0 && cc.length === 0 && bcc.length === 0) {
+    throw new Error("Add at least one recipient");
   }
 
   if (input.draft) {
@@ -277,6 +321,7 @@ export async function sendMessage(input: {
       from: input.fromEmail,
       to,
       cc,
+      bcc,
       subject: input.subject,
       body: input.body,
       date: now,
@@ -293,6 +338,7 @@ export async function sendMessage(input: {
     from: input.fromEmail,
     to,
     cc,
+    bcc,
     subject: input.subject,
     body: input.body,
   });
@@ -300,6 +346,7 @@ export async function sendMessage(input: {
   // Deliver through Postfix for real SMTP (local + remote)
   await sendViaPostfix(raw, input.fromEmail);
 
+  // Sent copy keeps Bcc so the sender can see who was blind-copied.
   if (await maildirExists(input.fromEmail)) {
     return stripMeta(await writeMaildirMessage(input.fromEmail, "Sent", raw, true));
   }
@@ -310,6 +357,7 @@ export async function sendMessage(input: {
     from: input.fromEmail,
     to,
     cc,
+    bcc,
     subject: input.subject,
     body: input.body,
     date: now,
@@ -320,13 +368,32 @@ export async function sendMessage(input: {
 }
 
 export async function seedWelcomeMessage(email: string): Promise<void> {
+  const markerRoot =
+    (await maildirExists(email)) ? maildirHome(email) : mailboxDir(email);
+  const markerPath = path.join(markerRoot, ".naviyra-welcome");
+
+  try {
+    await fs.access(markerPath);
+    return; // Already offered once — do not recreate after delete
+  } catch {
+    /* no marker yet */
+  }
+
   if (await maildirExists(email)) {
     const inboxCount = await countMaildirFolder(email, "INBOX");
-    if (inboxCount > 0) return;
+    if (inboxCount > 0) {
+      // Inbox already has mail; never inject welcome later
+      await fs.mkdir(markerRoot, { recursive: true });
+      await fs.writeFile(markerPath, new Date().toISOString(), "utf8");
+      return;
+    }
   } else {
     await ensureMailboxDirs(email);
     const existing = await listMessages(email, "INBOX");
-    if (existing.length > 0) return;
+    if (existing.length > 0) {
+      await fs.writeFile(markerPath, new Date().toISOString(), "utf8");
+      return;
+    }
   }
 
   const domainName = email.includes("@") ? email.split("@")[1]! : "localhost";
@@ -344,6 +411,9 @@ export async function seedWelcomeMessage(email: string): Promise<void> {
     date: new Date().toISOString(),
     read: false,
   });
+
+  await fs.mkdir(markerRoot, { recursive: true });
+  await fs.writeFile(markerPath, new Date().toISOString(), "utf8");
 }
 
 export async function removeMailboxData(email: string): Promise<void> {

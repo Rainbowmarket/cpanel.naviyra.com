@@ -80,6 +80,66 @@ p.write_text("\n".join(out) + "\n")
 print("secrets:", ", ".join(updates) if updates else "unchanged")
 PY
 
+# Keep Server.agentKey in SQLite aligned with live AGENT_API_KEY (file manager / agent calls)
+python3 - <<'PY'
+import re, sqlite3
+from pathlib import Path
+from datetime import datetime, timezone
+env = Path(".env").read_text()
+m = re.search(r"^AGENT_API_KEY=(.*)$", env, re.M)
+key = (m.group(1).strip().strip('"') if m else "")
+db = Path("data/naviyra.db")
+if not key or not db.exists():
+    print("server_agent_keys_synced=skipped")
+    raise SystemExit(0)
+con = sqlite3.connect(db)
+now = datetime.now(timezone.utc).isoformat()
+# Drop unused Server rows so agentKey UNIQUE does not block sync
+orphans = con.execute(
+    """
+    DELETE FROM Server
+    WHERE id NOT IN (SELECT DISTINCT serverId FROM Domain WHERE serverId IS NOT NULL)
+    """
+).rowcount
+# Prefer the server that already owns domains (oldest if several)
+row = con.execute(
+    """
+    SELECT s.id FROM Server s
+    JOIN Domain d ON d.serverId = s.id
+    GROUP BY s.id
+    ORDER BY MIN(s.createdAt) ASC
+    LIMIT 1
+    """
+).fetchone()
+if not row:
+    row = con.execute("SELECT id FROM Server ORDER BY createdAt ASC LIMIT 1").fetchone()
+updated = 0
+if row:
+    primary = row[0]
+    # Temporarily clear other keys so UNIQUE allows assigning env key to primary
+    others = con.execute("SELECT id FROM Server WHERE id != ?", (primary,)).fetchall()
+    for (oid,) in others:
+        placeholder = f"unused-{oid}"
+        con.execute(
+            "UPDATE Server SET agentKey=?, updatedAt=? WHERE id=?",
+            (placeholder, now, oid),
+        )
+    updated = con.execute(
+        "UPDATE Server SET agentKey=?, updatedAt=? WHERE id=?",
+        (key, now, primary),
+    ).rowcount
+    # Point every domain at the primary server
+    moved = con.execute(
+        "UPDATE Domain SET serverId=? WHERE serverId != ?",
+        (primary, primary),
+    ).rowcount
+else:
+    moved = 0
+con.commit()
+con.close()
+print(f"server_agent_keys_synced={updated} orphans_deleted={orphans} domains_moved={moved}")
+PY
+
 # BIND reload must be quoted for systemd EnvironmentFile
 if grep -q '^BIND_RELOAD_CMD=' .env; then
   sed -i 's|^BIND_RELOAD_CMD=.*|BIND_RELOAD_CMD="rndc reload"|' .env
@@ -114,6 +174,10 @@ chmod +x scripts/install-backup-worker.sh scripts/backup-worker.sh
 echo "== expire auto-blocks timer =="
 chmod +x scripts/install-expire-auto-blocks.sh scripts/expire-auto-blocks.sh
 ./scripts/install-expire-auto-blocks.sh "$PANEL"
+
+echo "== mail.* webmail proxies =="
+chmod +x scripts/refresh-mail-proxies.sh
+./scripts/refresh-mail-proxies.sh "$PANEL" || true
 
 # Terminal WS include if panel nginx exists
 if [ -f /etc/nginx/sites-available/naviyra.uk ] || [ -f /etc/nginx/sites-enabled/naviyra-uk ]; then

@@ -124,8 +124,16 @@ export type AgentResponse<T = unknown> = {
 const AGENT_URL = process.env.AGENT_URL ?? "http://127.0.0.1:4000";
 
 function getApiKey(serverAgentKey?: string): string {
-  if (serverAgentKey?.trim()) return serverAgentKey.trim();
-  return requireAgentApiKey();
+  // Always use the live process env key. Server.agentKey in SQLite can go
+  // stale after AGENT_API_KEY rotation and would 401 the local agent.
+  const envKey = requireAgentApiKey();
+  const fromServer = serverAgentKey?.trim();
+  if (fromServer && fromServer !== envKey) {
+    console.warn(
+      "[agent] Ignoring stale Server.agentKey; using AGENT_API_KEY from environment"
+    );
+  }
+  return envKey;
 }
 
 async function callAgentRemote<T = unknown>(

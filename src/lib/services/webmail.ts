@@ -10,6 +10,7 @@ import {
   markMessageRead,
   moveMessage,
   removeMailboxData,
+  resolveRestoreFolder,
   seedWelcomeMessage,
   sendMessage,
 } from "@/lib/mail/store";
@@ -82,6 +83,7 @@ export async function composeWebmailMessage(
   input: {
     to: string[];
     cc?: string[];
+    bcc?: string[];
     subject: string;
     body: string;
     draft?: boolean;
@@ -104,6 +106,36 @@ export async function moveWebmailMessage(
 ) {
   const account = await getWebmailAccount(accountId);
   const message = await moveMessage(account.email, folder, targetFolder, messageId);
+  if (!message) throw new Error("Message not found");
+  return { account, message };
+}
+
+/** Restore from Trash/Junk to the folder the message came from (Sent, Inbox, …). */
+export async function restoreWebmailMessage(
+  accountId: string,
+  folder: MailFolder,
+  messageId: string
+) {
+  if (folder !== "Trash" && folder !== "Junk") {
+    throw new Error("Restore is only available from Trash or Junk");
+  }
+  const account = await getWebmailAccount(accountId);
+  const current = await getMessage(account.email, folder, messageId);
+  if (!current) throw new Error("Message not found");
+  const target = resolveRestoreFolder(current, account.email);
+  const message = await moveMessage(account.email, folder, target, messageId);
+  if (!message) throw new Error("Message not found");
+  return { account, message, restoredTo: target };
+}
+
+export async function markWebmailMessageRead(
+  accountId: string,
+  folder: MailFolder,
+  messageId: string,
+  read = true
+) {
+  const account = await getWebmailAccount(accountId);
+  const message = await markMessageRead(account.email, folder, messageId, read);
   if (!message) throw new Error("Message not found");
   return { account, message };
 }

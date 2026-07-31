@@ -15,10 +15,13 @@ export type MailMessage = {
   from: string;
   to: string[];
   cc: string[];
+  bcc?: string[];
   subject: string;
   body: string;
   date: string;
   read: boolean;
+  /** Folder before Trash/Junk — used by Restore. */
+  originalFolder?: MailFolder;
   /** Internal Maildir metadata (not shown in UI). */
   _maildirFile?: string;
   _maildirNew?: boolean;
