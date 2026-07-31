@@ -45,8 +45,23 @@ if [ -z "$PANEL_DOMAIN" ]; then
   exit 0
 fi
 
-TEMPLATE="${MAIL_HOSTNAME:-mail.{domain}}"
-MAIL_HOST="${TEMPLATE//\{domain\}/$PANEL_DOMAIN}"
+# Prefer MAIL_HOSTNAME from env; never let bash brace-expand {domain}
+TEMPLATE="${MAIL_HOSTNAME:-mail.\{domain\}}"
+# If someone set a fixed host (legacy), use it as-is when it already contains the panel domain
+if [[ "$TEMPLATE" == *"{domain}"* ]]; then
+  MAIL_HOST="${TEMPLATE//\{domain\}/${PANEL_DOMAIN}}"
+elif [[ "$TEMPLATE" == *'${domain}'* ]]; then
+  MAIL_HOST="${TEMPLATE//'${domain}'/${PANEL_DOMAIN}}"
+else
+  MAIL_HOST="$TEMPLATE"
+fi
+# Safety: strip accidental trailing } from bad prior expansions
+MAIL_HOST="${MAIL_HOST%\}}"
+if [[ "$MAIL_HOST" != *.* ]]; then
+  MAIL_HOST="mail.${PANEL_DOMAIN}"
+fi
+# Final normalize via sed (handles odd quoting from sourced .env)
+MAIL_HOST="$(printf '%s' "$MAIL_HOST" | sed "s/{domain}/${PANEL_DOMAIN}/g")"
 PANEL_PORT="${PANEL_PORT:-3100}"
 AGENT_PORT="${AGENT_PORT:-4100}"
 EXPECTED_IP="${SERVER_PUBLIC_IP:-}"
