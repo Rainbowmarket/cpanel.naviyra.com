@@ -6,6 +6,7 @@ import {
   AlertCircle,
   FolderOpen,
   Lock,
+  Mail,
   Pencil,
   RefreshCw,
   Server,
@@ -43,6 +44,12 @@ type Subdomain = {
     lastError?: string | null;
   }>;
 };
+
+/** mail.* / webmail.* hosts proxy to panel webmail — not normal websites. */
+function isMailHostSubdomain(s: Subdomain): boolean {
+  const label = s.name.split(".")[0]?.toLowerCase() ?? "";
+  return label === "mail" || label === "webmail";
+}
 
 function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
@@ -455,6 +462,7 @@ export default function SubdomainsPage() {
         {filteredSubdomains.map((s) => {
           const ssl = s.sslCerts[0];
           const fqdn = `${s.name}.${s.domain.name}`;
+          const mailHost = isMailHostSubdomain(s);
 
           return (
           <div
@@ -466,19 +474,30 @@ export default function SubdomainsPage() {
                 <div className="flex flex-wrap items-center gap-3">
                   <p className="font-medium text-white">
                     <a
-                      href={`https://${fqdn}`}
+                      href={mailHost ? `https://${fqdn}/webmail` : `https://${fqdn}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="hover:text-emerald-400 hover:underline"
-                      title={`Open https://${fqdn}`}
+                      title={
+                        mailHost
+                          ? `Open webmail https://${fqdn}/webmail`
+                          : `Open https://${fqdn}`
+                      }
                     >
                       {fqdn}
                     </a>
                   </p>
                   <StatusBadge status={s.status} />
-                  <span className="rounded-md bg-slate-800 px-2 py-0.5 text-xs text-slate-300">
-                    {s.appType ?? "PHP"}
-                  </span>
+                  {mailHost ? (
+                    <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-300 ring-1 ring-emerald-500/30">
+                      <Mail className="h-3 w-3" />
+                      Webmail host
+                    </span>
+                  ) : (
+                    <span className="rounded-md bg-slate-800 px-2 py-0.5 text-xs text-slate-300">
+                      {s.appType ?? "PHP"}
+                    </span>
+                  )}
                   {ssl ? (
                     <span
                       className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${sslStatusColor(ssl.status)}`}
@@ -491,7 +510,11 @@ export default function SubdomainsPage() {
                     </span>
                   )}
                 </div>
-                {editingId === s.id ? (
+                {mailHost ? (
+                  <p className="mt-2 text-xs text-slate-400">
+                    Proxies to panel webmail — not a website document root.
+                  </p>
+                ) : editingId === s.id ? (
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     <input
                       value={editPath}
@@ -528,6 +551,43 @@ export default function SubdomainsPage() {
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
+                {mailHost ? (
+                  <>
+                    <a
+                      href={`https://${fqdn}/webmail`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1.5 rounded-lg border border-emerald-500/30 px-3 py-1.5 text-xs text-emerald-400 hover:bg-emerald-500/10"
+                    >
+                      <Mail className="h-3.5 w-3.5" />
+                      Open webmail
+                    </a>
+                    {ssl?.status === "ACTIVE" ? (
+                      <button
+                        type="button"
+                        onClick={() => handleRenewSsl(ssl.id, s.id)}
+                        disabled={sslLoading === s.id}
+                        className="flex items-center gap-1.5 rounded-lg border border-emerald-500/30 px-3 py-1.5 text-xs text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-50"
+                      >
+                        <RefreshCw
+                          className={`h-3.5 w-3.5 ${sslLoading === s.id ? "animate-spin" : ""}`}
+                        />
+                        Renew SSL
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleIssueSsl(s.id)}
+                        disabled={sslLoading === s.id || s.status !== "ACTIVE"}
+                        className="flex items-center gap-1.5 rounded-lg border border-emerald-500/30 px-3 py-1.5 text-xs text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-50"
+                      >
+                        <Lock className="h-3.5 w-3.5" />
+                        {ssl ? "Re-issue SSL" : "Issue SSL"}
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <>
                 <button
                   type="button"
                   onClick={() => setRuntimeSub(s)}
@@ -602,6 +662,8 @@ export default function SubdomainsPage() {
                   <Trash2 className="h-3.5 w-3.5" />
                   Delete
                 </button>
+                  </>
+                )}
               </div>
             </div>
           </div>

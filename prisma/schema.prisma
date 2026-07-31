@@ -208,13 +208,15 @@ model MailDomain {
 }
 
 model MailAccount {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  passwordHash String
-  quotaMb      Int      @default(1024)
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id               String    @id @default(cuid())
+  email            String    @unique
+  passwordHash     String
+  quotaMb          Int       @default(1024)
+  isActive         Boolean   @default(true)
+  failedLoginCount Int       @default(0)
+  lockedAt         DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   mailDomainId String
   mailDomain   MailDomain @relation(fields: [mailDomainId], references: [id], onDelete: Cascade)

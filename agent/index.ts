@@ -249,6 +249,24 @@ async function handleAction(payload: Action) {
       return { success: true };
     }
 
+    case "ensure_mail_proxy": {
+      const hostname = String(payload.hostname ?? "").trim().toLowerCase();
+      if (!hostname || !isMailHostname(hostname)) {
+        return { success: false, error: "hostname must be a mail.* host" };
+      }
+      if (!isWindows) {
+        const certDir = `/etc/letsencrypt/live/${hostname}`;
+        const hasCert =
+          fsSync.existsSync(path.join(certDir, "fullchain.pem")) &&
+          fsSync.existsSync(path.join(certDir, "privkey.pem"));
+        const conf = hasCert
+          ? buildMailProxyHttpsVhost([hostname], certDir)
+          : buildMailProxyHttpVhost([hostname]);
+        await writeAndEnableNginxSite(hostname, conf, DRY_RUN);
+      }
+      return { success: true, data: { hostname } };
+    }
+
     case "issue_ssl":
     case "renew_ssl": {
       const domain = String(payload.domain);
@@ -616,13 +634,21 @@ async function handleAction(payload: Action) {
         const hasCert =
           fsSync.existsSync(path.join(certDir, "fullchain.pem")) &&
           fsSync.existsSync(path.join(certDir, "privkey.pem"));
-        const vhostOpts = await resolveVhostOptions(phpEnabled, {
-          appType,
-          upstreamPort,
-        });
-        const conf = hasCert
-          ? buildHttpsVhost([siteName], documentRoot, certDir, vhostOpts)
-          : buildHttpVhost([siteName], documentRoot, vhostOpts);
+        let conf: string;
+        if (isMailHostname(siteName)) {
+          // Never replace mail.* webmail reverse-proxy with a document-root vhost
+          conf = hasCert
+            ? buildMailProxyHttpsVhost([siteName], certDir)
+            : buildMailProxyHttpVhost([siteName]);
+        } else {
+          const vhostOpts = await resolveVhostOptions(phpEnabled, {
+            appType,
+            upstreamPort,
+          });
+          conf = hasCert
+            ? buildHttpsVhost([siteName], documentRoot, certDir, vhostOpts)
+            : buildHttpVhost([siteName], documentRoot, vhostOpts);
+        }
         await writeAndEnableNginxSite(siteName, conf, DRY_RUN);
       } else {
         await writeVhostConfig(siteName, documentRoot, phpEnabled, {

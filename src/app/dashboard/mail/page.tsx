@@ -13,6 +13,7 @@ type MailAccount = {
   email: string;
   quotaMb: number;
   isActive: boolean;
+  lockedAt?: string | null;
   domainId?: string;
   domainName?: string;
 };
@@ -225,10 +226,16 @@ export default function MailPage() {
                     className={`rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${
                       a.isActive
                         ? "bg-emerald-500/15 text-emerald-300 ring-emerald-500/30"
-                        : "bg-slate-500/15 text-slate-400 ring-slate-500/30"
+                        : a.lockedAt
+                          ? "bg-amber-500/15 text-amber-300 ring-amber-500/30"
+                          : "bg-slate-500/15 text-slate-400 ring-slate-500/30"
                     }`}
                   >
-                    {a.isActive ? "Active" : "Deactivated"}
+                    {a.isActive
+                      ? "Active"
+                      : a.lockedAt
+                        ? "Locked (failed logins)"
+                        : "Deactivated"}
                   </span>
                   {a.domainName ? (
                     <span className="rounded-full bg-slate-800 px-2.5 py-0.5 text-xs text-slate-300 ring-1 ring-slate-700">
@@ -272,7 +279,7 @@ export default function MailPage() {
                   }`}
                 >
                   <Power className="h-3.5 w-3.5" />
-                  {a.isActive ? "Deactivate" : "Activate"}
+                  {a.isActive ? "Deactivate" : a.lockedAt ? "Unlock / Activate" : "Activate"}
                 </button>
                 <button
                   type="button"

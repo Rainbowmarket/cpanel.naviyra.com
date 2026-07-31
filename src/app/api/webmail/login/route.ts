@@ -15,18 +15,22 @@ const loginSchema = z.object({
 export async function POST(request: Request) {
   try {
     const body = loginSchema.parse(await request.json());
-    const account = await authenticateMailbox(body.email, body.password);
-    if (!account) {
+    const result = await authenticateMailbox(body.email, body.password);
+    if (!result.ok) {
       return NextResponse.json(
-        { error: "Invalid email or password" },
-        { status: 401 }
+        {
+          error: result.message,
+          code: result.code,
+          attemptsLeft: result.attemptsLeft,
+        },
+        { status: result.code === "disabled" ? 403 : 401 }
       );
     }
 
-    await createMailSession(account.id);
+    await createMailSession(result.id);
     return NextResponse.json({
-      accountId: account.id,
-      email: account.email,
+      accountId: result.id,
+      email: result.email,
     });
   } catch (error) {
     if (error instanceof z.ZodError) {

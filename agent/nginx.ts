@@ -478,12 +478,16 @@ export async function removeNginxSite(siteName: string, dryRun: boolean) {
 
 function buildMailPortalIndex(mailHost: string): string {
   const domainName = mailHost.replace(/^mail\./i, "");
+  const panel =
+    process.env.PANEL_PUBLIC_URL?.trim().replace(/\/$/, "") ||
+    (domainName ? `https://${domainName}` : "");
+  const webmailUrl = panel ? `${panel}/webmail` : "/webmail";
   return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta http-equiv="refresh" content="0;url=/webmail" />
+  <meta http-equiv="refresh" content="0;url=${webmailUrl}" />
   <title>Webmail · ${domainName}</title>
   <style>
     :root { color-scheme: dark; }
@@ -493,7 +497,7 @@ function buildMailPortalIndex(mailHost: string): string {
   </style>
 </head>
 <body>
-  <p>Opening webmail… <a href="/webmail">Continue</a></p>
+  <p>Opening webmail… <a href="${webmailUrl}">Continue</a></p>
 </body>
 </html>
 `;

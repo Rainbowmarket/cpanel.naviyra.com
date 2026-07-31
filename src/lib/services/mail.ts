@@ -62,6 +62,8 @@ export async function listMailAccounts(userId: string, domainId?: string | null)
       email: a.email,
       quotaMb: a.quotaMb,
       isActive: a.isActive,
+      failedLoginCount: a.failedLoginCount,
+      lockedAt: a.lockedAt,
       createdAt: a.createdAt,
       updatedAt: a.updatedAt,
       mailDomainId: a.mailDomainId,
@@ -79,6 +81,7 @@ export async function ensureMailHostSetup(domainId: string, userId: string) {
 
   const domain = await prisma.domain.findFirstOrThrow({
     where: { id: domainId, userId },
+    include: { server: true },
   });
 
   const mailLabel = mailHostLabel(getMailHostname(domain.name), domain.name);
@@ -117,6 +120,17 @@ export async function ensureMailHostSetup(domainId: string, userId: string) {
       // proxy is still useful; SSL can be retried on next mailbox/deploy.
       console.error("Mail host SSL issue failed:", error);
     }
+  }
+
+  // Always re-assert mail.* reverse-proxy (Runtime/SSL paths can overwrite it)
+  try {
+    const mailHost = getMailHostname(domain.name);
+    await callAgent(
+      { action: "ensure_mail_proxy", hostname: mailHost },
+      domain.server?.agentKey || getAgentApiKey()
+    );
+  } catch (error) {
+    console.error("ensure_mail_proxy failed:", error);
   }
 
   return {
@@ -214,7 +228,7 @@ export async function resetMailPassword(
 
   return prisma.mailAccount.update({
     where: { id: account.id },
-    data: { passwordHash },
+    data: { passwordHash, failedLoginCount: 0, lockedAt: null },
   });
 }
 
@@ -236,6 +250,11 @@ export async function setMailAccountActive(
 
   return prisma.mailAccount.update({
     where: { id: account.id },
-    data: { isActive },
+    data: {
+      isActive,
+      ...(isActive
+        ? { failedLoginCount: 0, lockedAt: null }
+        : {}),
+    },
   });
 }

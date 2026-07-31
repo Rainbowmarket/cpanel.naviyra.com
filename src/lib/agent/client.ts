@@ -7,6 +7,7 @@ export type AgentAction =
   | { action: "delete_domain"; domain: string }
   | { action: "create_subdomain"; domain: string; subdomain: string; documentRoot: string; phpEnabled?: boolean; appType?: string; upstreamPort?: number | null }
   | { action: "delete_subdomain"; domain: string; subdomain: string; documentRoot?: string; deleteFiles?: boolean }
+  | { action: "ensure_mail_proxy"; hostname: string }
   | { action: "issue_ssl"; domain: string; subdomains?: string[]; documentRoot?: string; phpEnabled?: boolean; appType?: string; upstreamPort?: number | null }
   | { action: "renew_ssl"; domain: string; documentRoot?: string; phpEnabled?: boolean; appType?: string; upstreamPort?: number | null }
   | { action: "create_mail_account"; email: string; password: string; quotaMb?: number }
