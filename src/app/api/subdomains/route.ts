@@ -4,7 +4,9 @@ import { requireSessionUser } from "@/lib/auth";
 import {
   createSubdomain,
   deleteSubdomain,
+  listAllSubdomains,
   listSubdomains,
+  resolveCustomSubdomainFqdn,
   retrySubdomain,
   updateSubdomainPath,
 } from "@/lib/services/subdomains";
@@ -13,34 +15,65 @@ export async function GET(request: Request) {
   try {
     const user = await requireSessionUser();
     const domainId = new URL(request.url).searchParams.get("domainId");
-    if (!domainId) {
-      return NextResponse.json({ error: "domainId required" }, { status: 400 });
-    }
-    const subdomains = await listSubdomains(domainId, user.id);
+    const subdomains = domainId
+      ? await listSubdomains(domainId, user.id, { role: user.role })
+      : await listAllSubdomains(user.id, { role: user.role });
     return NextResponse.json({ subdomains });
   } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 }
 
-const createSchema = z.object({
-  domainId: z.string(),
-  name: z.string().min(1),
-  documentRoot: z.string().optional(),
-  appType: z.enum(["STATIC", "PHP", "PYTHON", "GO"]).optional(),
-});
+const createSchema = z
+  .object({
+    domainId: z.string().optional(),
+    name: z.string().min(1).optional(),
+    fqdn: z.string().min(1).optional(),
+    documentRoot: z.string().optional(),
+    appType: z.enum(["STATIC", "PHP", "PYTHON", "GO"]).optional(),
+  })
+  .refine((b) => Boolean(b.fqdn) || (Boolean(b.domainId) && Boolean(b.name)), {
+    message: "Provide fqdn or domainId+name",
+  });
 
 export async function POST(request: Request) {
   try {
     const user = await requireSessionUser();
     const body = createSchema.parse(await request.json());
-    const subdomain = await createSubdomain({ ...body, userId: user.id });
+
+    let domainId = body.domainId;
+    let name = body.name;
+
+    if (body.fqdn) {
+      const resolved = await resolveCustomSubdomainFqdn(
+        body.fqdn,
+        user.id,
+        user.role
+      );
+      domainId = resolved.domainId;
+      name = resolved.name;
+    }
+
+    const subdomain = await createSubdomain({
+      domainId: domainId!,
+      name: name!,
+      documentRoot: body.documentRoot,
+      appType: body.appType,
+      userId: user.id,
+      allowPanelDomain: user.role === "ADMIN",
+    });
     return NextResponse.json({ subdomain }, { status: 201 });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: error.flatten() }, { status: 400 });
     }
-    return NextResponse.json({ error: "Failed to create subdomain" }, { status: 500 });
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Failed to create subdomain",
+      },
+      { status: 500 }
+    );
   }
 }
 

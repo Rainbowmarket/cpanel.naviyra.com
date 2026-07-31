@@ -29,7 +29,7 @@ updates = {
     "BIND_ZONES_DIR": "/etc/bind/zones",
     "BIND_NAMED_DIR": "/etc/bind/naviyra-zones.d",
     "BIND_INCLUDE_FILE": "/etc/bind/naviyra-zones.conf",
-    "BIND_RELOAD_CMD": "rndc reload",
+    "BIND_RELOAD_CMD": '"rndc reload"',
     "DEFAULT_SERVER_HOSTNAME": "${SERVER_HOST}",
     "LETSENCRYPT_EMAIL": "${LETSENCRYPT_EMAIL:-admin@${BASE_DOMAIN}}",
 }

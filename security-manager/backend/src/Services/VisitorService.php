@@ -9,12 +9,20 @@ use PDO;
 
 final class VisitorService
 {
+    private GeoService $geo;
+    private ThreatDetector $detector;
+    private FirewallService $firewall;
+
     public function __construct(
         private PDO $db,
-        private GeoService $geo = new GeoService(),
-        private ThreatDetector $detector = new ThreatDetector(),
-        private FirewallService $firewall = new FirewallService(),
-    ) {}
+        ?GeoService $geo = null,
+        ?ThreatDetector $detector = null,
+        ?FirewallService $firewall = null,
+    ) {
+        $this->geo = $geo ?? new GeoService();
+        $this->detector = $detector ?? new ThreatDetector();
+        $this->firewall = $firewall ?? new FirewallService();
+    }
 
     public function resolveDomainId(string $host): ?int
     {
@@ -44,6 +52,9 @@ final class VisitorService
     public function logVisit(array $data): array
     {
         $ip = $data['ip'] ?? ($_SERVER['REMOTE_ADDR'] ?? '0.0.0.0');
+        if (filter_var($ip, FILTER_VALIDATE_IP) === false) {
+            return ['skipped' => true, 'reason' => 'invalid_ip'];
+        }
         if ($this->firewall->isWhitelisted($this->db, $ip)) {
             return ['skipped' => true, 'reason' => 'whitelisted'];
         }

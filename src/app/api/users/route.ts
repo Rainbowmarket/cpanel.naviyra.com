@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAdminUser } from "@/lib/auth";
-import { createUser, deleteUser, listUsers } from "@/lib/services/users";
+import {
+  createUser,
+  deleteUser,
+  listUsers,
+  resetUserPassword,
+} from "@/lib/services/users";
 
 export async function GET() {
   try {
@@ -42,6 +47,28 @@ export async function POST(request: Request) {
       }
     }
     return NextResponse.json({ error: "Failed to create user" }, { status: 500 });
+  }
+}
+
+const resetPasswordSchema = z.object({
+  id: z.string().min(1),
+  password: z.string().min(8),
+});
+
+export async function PATCH(request: Request) {
+  try {
+    await requireAdminUser();
+    const body = resetPasswordSchema.parse(await request.json());
+    await resetUserPassword(body.id, body.password);
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ error: error.flatten() }, { status: 400 });
+    }
+    if (error instanceof Error && error.message === "Forbidden") {
+      return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+    }
+    return NextResponse.json({ error: "Failed to reset password" }, { status: 500 });
   }
 }
 

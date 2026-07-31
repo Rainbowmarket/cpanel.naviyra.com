@@ -1,8 +1,18 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { createSession, hashPassword, verifyPassword } from "@/lib/auth";
+import {
+  applySessionCookie,
+  hashPassword,
+  verifyPassword,
+} from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { bootstrapMainServer } from "@/lib/services/bootstrap";
+import {
+  assertLoginAllowed,
+  clearLoginFailures,
+  getClientIp,
+  recordLoginFailure,
+} from "@/lib/rate-limit";
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -10,25 +20,49 @@ const loginSchema = z.object({
 });
 
 export async function POST(request: Request) {
+  const ip = getClientIp(request);
   try {
     const body = loginSchema.parse(await request.json());
+
+    try {
+      assertLoginAllowed(ip, body.email);
+    } catch (error) {
+      return NextResponse.json(
+        {
+          error:
+            error instanceof Error
+              ? error.message
+              : "Too many failed attempts",
+        },
+        { status: 429 }
+      );
+    }
+
     const user = await prisma.user.findUnique({ where: { email: body.email } });
 
     if (!user || !(await verifyPassword(body.password, user.passwordHash))) {
+      recordLoginFailure(ip, body.email);
       return NextResponse.json(
         { error: "Invalid email or password" },
         { status: 401 }
       );
     }
 
-    await createSession(user.id);
-    return NextResponse.json({
-      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+    clearLoginFailures(ip, body.email);
+    const response = NextResponse.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+      },
     });
+    return applySessionCookie(response, user.id, user.sessionVersion);
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: error.flatten() }, { status: 400 });
     }
+    console.error("[auth/login]", error);
     return NextResponse.json({ error: "Login failed" }, { status: 500 });
   }
 }
@@ -60,6 +94,13 @@ export async function PUT(request: Request) {
       },
     });
 
+    const userPayload = {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+    };
+
     let bootstrap: Awaited<ReturnType<typeof bootstrapMainServer>> | null = null;
     try {
       bootstrap = await bootstrapMainServer({
@@ -68,15 +109,9 @@ export async function PUT(request: Request) {
       });
     } catch (error) {
       console.error("Main server bootstrap failed:", error);
-      await createSession(user.id);
-      return NextResponse.json(
+      const response = NextResponse.json(
         {
-          user: {
-            id: user.id,
-            email: user.email,
-            name: user.name,
-            role: user.role,
-          },
+          user: userPayload,
           warning:
             error instanceof Error
               ? error.message
@@ -84,18 +119,20 @@ export async function PUT(request: Request) {
         },
         { status: 201 }
       );
+      return applySessionCookie(response, user.id, user.sessionVersion);
     }
 
-    await createSession(user.id);
-    return NextResponse.json({
-      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+    const response = NextResponse.json({
+      user: userPayload,
       server: bootstrap.server,
       domain: bootstrap.domain,
     });
+    return applySessionCookie(response, user.id, user.sessionVersion);
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: error.flatten() }, { status: 400 });
     }
+    console.error("[auth/setup]", error);
     return NextResponse.json({ error: "Setup failed" }, { status: 500 });
   }
 }

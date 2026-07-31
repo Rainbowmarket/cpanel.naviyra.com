@@ -5,6 +5,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../src/Config.php';
 require_once __DIR__ . '/../src/Database.php';
 require_once __DIR__ . '/../src/Response.php';
+require_once __DIR__ . '/../src/ClientIp.php';
 require_once __DIR__ . '/../src/Jwt.php';
 require_once __DIR__ . '/../src/Router.php';
 require_once __DIR__ . '/../src/Middleware/AuthMiddleware.php';
@@ -40,9 +41,20 @@ if (!is_file($envPath)) {
 }
 Config::load($envPath);
 
-header('Access-Control-Allow-Origin: ' . (Config::get('CORS_ORIGIN', '*') ?? '*'));
 header('Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Ingest-Key');
+
+// CORS: never default to *. Set CORS_ORIGIN explicitly (e.g. https://panel.example.com).
+$corsOrigin = trim((string) (Config::get('CORS_ORIGIN', '') ?? ''));
+if ($corsOrigin !== '' && $corsOrigin !== '*') {
+    header('Access-Control-Allow-Origin: ' . $corsOrigin);
+    header('Vary: Origin');
+    header('Access-Control-Allow-Credentials: true');
+} elseif ($corsOrigin === '*') {
+    // Explicit * is allowed only for fully public read-only demos — no credentials.
+    header('Access-Control-Allow-Origin: *');
+}
+// Empty CORS_ORIGIN → same-origin only (no ACAO header)
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(204);
     exit;

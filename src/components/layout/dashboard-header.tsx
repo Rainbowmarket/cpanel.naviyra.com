@@ -14,9 +14,10 @@ const routeLabels: Record<string, string> = {
   "/dashboard/ftp": "FTP",
   "/dashboard/ssl": "SSL",
   "/dashboard/dns": "DNS",
-  "/dashboard/security": "Security Manager",
+  "/dashboard/security": "Security",
   "/dashboard/terminal": "Terminal",
   "/dashboard/users": "Users",
+  "/dashboard/backups": "Backups",
   "/dashboard/files": "Files",
   "/file-manager": "File Manager",
 };

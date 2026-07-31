@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { verifyPassword } from "@/lib/auth";
+import { shouldUseSecureCookies } from "@/lib/cookie-secure";
 
 const MAIL_SESSION_COOKIE = "naviyra_mail_session";
 const MAIL_SESSION_MAX_AGE = 60 * 60 * 24 * 7; // 7 days
@@ -11,7 +12,7 @@ export type MailSession = {
 };
 
 function cookieSecure(): boolean {
-  return process.env.COOKIE_SECURE === "true";
+  return shouldUseSecureCookies();
 }
 
 export async function createMailSession(accountId: string): Promise<void> {

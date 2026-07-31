@@ -1,14 +1,78 @@
 import { prisma } from "@/lib/prisma";
 import { callAgent } from "@/lib/agent/client";
 import { getAgentApiKey, getDefaultDocumentRoot } from "@/lib/paths";
+import { getPanelBaseDomain } from "@/lib/base-domain";
 import { isPanelHostname, panelHostnameError } from "@/lib/panel-host";
 import { deleteDnsZoneForDomain, syncDnsZone } from "@/lib/services/dns";
 import { phpEnabledForAppType, removeSiteAppUnit } from "@/lib/services/apps";
 import type { AppType, DomainStatus } from "@/generated/prisma/client";
 
-export async function listDomains(userId: string) {
+/**
+ * Ensure the panel apex (e.g. naviyra.uk) exists as a Domain row so admins can
+ * host subdomains like block.naviyra.uk. Does not provision an apex vhost
+ * (that would conflict with the panel itself).
+ */
+export async function ensurePanelBaseDomain(userId: string) {
+  const name = getPanelBaseDomain();
+  if (!name) return null;
+
+  const existing = await prisma.domain.findUnique({
+    where: { name },
+    include: { server: true },
+  });
+  if (existing) {
+    if (existing.status !== "ACTIVE") {
+      return prisma.domain.update({
+        where: { id: existing.id },
+        data: { status: "ACTIVE", lastError: null },
+        include: { server: true },
+      });
+    }
+    return existing;
+  }
+
+  const server = await prisma.server.findFirst({
+    where: { isActive: true },
+    orderBy: { createdAt: "asc" },
+  });
+  if (!server) {
+    throw new Error("No active server configured");
+  }
+
+  return prisma.domain.create({
+    data: {
+      name,
+      documentRoot: getDefaultDocumentRoot(name),
+      phpEnabled: false,
+      appType: "STATIC",
+      userId,
+      serverId: server.id,
+      status: "ACTIVE",
+    },
+    include: { server: true },
+  });
+}
+
+export async function listDomains(
+  userId: string,
+  opts?: { ensurePanel?: boolean; role?: "ADMIN" | "RESELLER" | "USER" }
+) {
+  if (opts?.ensurePanel) {
+    try {
+      await ensurePanelBaseDomain(userId);
+    } catch (error) {
+      console.error("ensurePanelBaseDomain failed:", error);
+    }
+  }
+
+  const panelBase = getPanelBaseDomain();
+  const where =
+    opts?.role === "ADMIN" && panelBase
+      ? { OR: [{ userId }, { name: panelBase }] }
+      : { userId };
+
   return prisma.domain.findMany({
-    where: { userId },
+    where,
     include: {
       server: { select: { name: true, hostname: true } },
       subdomains: true,

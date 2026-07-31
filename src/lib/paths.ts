@@ -1,5 +1,6 @@
 import path from "node:path";
 import { getPanelBaseDomain } from "@/lib/base-domain";
+import { requireAgentApiKey } from "@/lib/secrets";
 
 /** Cross-platform website root for a domain. */
 export function getDefaultDocumentRoot(domain: string): string {
@@ -27,7 +28,7 @@ export function getDefaultSubdomainRoot(
 }
 
 export function getAgentApiKey(): string {
-  return process.env.AGENT_API_KEY ?? "naviyra-local-agent-key";
+  return requireAgentApiKey();
 }
 
 export function getDnsRoot(): string {
@@ -83,7 +84,18 @@ export function getBindIncludeFile(): string | undefined {
 }
 
 export function getBindReloadCmd(): string {
-  return process.env.BIND_RELOAD_CMD ?? "rndc reload";
+  return normalizeBindReloadCmd(process.env.BIND_RELOAD_CMD);
+}
+
+/**
+ * systemd EnvironmentFile truncates unquoted values at spaces, so
+ * BIND_RELOAD_CMD=rndc reload becomes just "rndc". Normalize that.
+ */
+export function normalizeBindReloadCmd(raw: string | undefined | null): string {
+  const value = (raw ?? "").trim().replace(/^["']|["']$/g, "");
+  if (!value || value === "rndc") return "rndc reload";
+  if (value === "systemctl") return "systemctl reload named";
+  return value;
 }
 
 /** Mail server hostname for DNS. Use `{domain}` for per-domain host (default `mail.{domain}`). */

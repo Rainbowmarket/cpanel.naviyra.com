@@ -1,4 +1,5 @@
 import { executeLocalAgent, isAgentUnreachable } from "./local";
+import { requireAgentApiKey } from "@/lib/secrets";
 
 export type AgentAction =
   | { action: "ping" }
@@ -62,7 +63,37 @@ export type AgentAction =
   | { action: "app_stop"; siteId: string }
   | { action: "app_restart"; siteId: string }
   | { action: "app_status"; siteId: string }
-  | { action: "app_remove"; siteId: string };
+  | { action: "app_remove"; siteId: string }
+  | {
+      action: "run_backup";
+      backupRoot: string;
+      retainCount: number;
+      includePanelDb: boolean;
+      includeSites: boolean;
+      includeDns: boolean;
+      includeMail: boolean;
+    }
+  | {
+      action: "restore_backup";
+      archivePath: string;
+      allowedRoot?: string;
+      restorePanelDb?: boolean;
+      restoreSites?: boolean;
+      restoreDns?: boolean;
+      restoreMail?: boolean;
+    }
+  | {
+      action: "delete_backup";
+      archivePath: string;
+      allowedRoot?: string;
+    }
+  | {
+      action: "configure_backup_timer";
+      enabled: boolean;
+      schedule: string;
+      panelPort?: number;
+      workerToken?: string;
+    };
 
 export type AgentResponse<T = unknown> = {
   success: boolean;
@@ -75,7 +106,8 @@ export type AgentResponse<T = unknown> = {
 const AGENT_URL = process.env.AGENT_URL ?? "http://127.0.0.1:4000";
 
 function getApiKey(serverAgentKey?: string): string {
-  return serverAgentKey || process.env.AGENT_API_KEY || "naviyra-local-agent-key";
+  if (serverAgentKey?.trim()) return serverAgentKey.trim();
+  return requireAgentApiKey();
 }
 
 async function callAgentRemote<T = unknown>(
@@ -83,7 +115,10 @@ async function callAgentRemote<T = unknown>(
   serverAgentKey?: string
 ): Promise<AgentResponse<T>> {
   const longRunning =
-    payload.action === "upload_file" || payload.action === "extract_zip";
+    payload.action === "upload_file" ||
+    payload.action === "extract_zip" ||
+    payload.action === "run_backup" ||
+    payload.action === "restore_backup";
   try {
     const response = await fetch(`${AGENT_URL}/execute`, {
       method: "POST",
@@ -93,7 +128,13 @@ async function callAgentRemote<T = unknown>(
       },
       body: JSON.stringify(payload),
       cache: "no-store",
-      signal: AbortSignal.timeout(longRunning ? 120000 : 10000),
+      signal: AbortSignal.timeout(
+        payload.action === "run_backup" || payload.action === "restore_backup"
+          ? 600000
+          : longRunning
+            ? 120000
+            : 10000
+      ),
     });
 
     if (!response.ok) {

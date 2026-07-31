@@ -12,6 +12,7 @@ import {
   API_KEY,
   CONFIG_ROOT,
   DNS_ROOT,
+  getAgentBindHost,
   getBindIncludeFile,
   getBindNamedDir,
   getBindReloadCmd,
@@ -55,6 +56,13 @@ import {
   stopAppUnit,
   writeAppUnit,
 } from "./apps";
+import {
+  configureBackupTimer,
+  deleteBackup,
+  restoreBackup,
+  runBackup,
+  type BackupSchedulePreset,
+} from "./backup";
 import type { VhostOptions } from "./nginx";
 const exec = promisify(execFile);
 const PORT = Number(process.env.AGENT_PORT ?? 4000);
@@ -657,6 +665,66 @@ async function handleAction(payload: Action) {
       return { success: true, data: { siteId } };
     }
 
+    case "run_backup": {
+      const result = await runBackup({
+        backupRoot: String(payload.backupRoot || "/var/backups/naviyra"),
+        retainCount: Number(payload.retainCount ?? 7),
+        includePanelDb: payload.includePanelDb !== false,
+        includeSites: payload.includeSites !== false,
+        includeDns: payload.includeDns !== false,
+        includeMail: Boolean(payload.includeMail),
+        dryRun: DRY_RUN,
+      });
+      return { success: true, data: result };
+    }
+
+    case "restore_backup": {
+      const result = await restoreBackup({
+        archivePath: String(payload.archivePath),
+        allowedRoot: payload.allowedRoot
+          ? String(payload.allowedRoot)
+          : undefined,
+        restorePanelDb: Boolean(payload.restorePanelDb),
+        restoreSites: Boolean(payload.restoreSites),
+        restoreDns: Boolean(payload.restoreDns),
+        restoreMail: Boolean(payload.restoreMail),
+        dryRun: DRY_RUN,
+      });
+      return { success: true, data: result };
+    }
+
+    case "delete_backup": {
+      const result = await deleteBackup({
+        archivePath: String(payload.archivePath),
+        allowedRoot: payload.allowedRoot
+          ? String(payload.allowedRoot)
+          : undefined,
+        dryRun: DRY_RUN,
+      });
+      return { success: true, data: result };
+    }
+
+    case "configure_backup_timer": {
+      const schedule = String(
+        payload.schedule || "DAILY_03"
+      ) as BackupSchedulePreset;
+      const result = await configureBackupTimer({
+        enabled: Boolean(payload.enabled),
+        schedule,
+        panelPort: Number(
+          payload.panelPort || process.env.PANEL_PORT || 3100
+        ),
+        workerToken: String(
+          payload.workerToken ||
+            process.env.BACKUP_WORKER_TOKEN ||
+            process.env.AGENT_API_KEY ||
+            API_KEY
+        ),
+        dryRun: DRY_RUN,
+      });
+      return { success: true, data: result };
+    }
+
     default:
       return { success: false, error: `Unknown action: ${payload.action}` };
   }
@@ -695,11 +763,12 @@ const server = http.createServer(async (req, res) => {
 
 attachTerminalWs(server, { dryRun: DRY_RUN });
 
-server.listen(PORT, async () => {
+const BIND_HOST = getAgentBindHost();
+server.listen(PORT, BIND_HOST, async () => {
   await fs.mkdir(SITES_ROOT, { recursive: true });
   const admin = hasAdminPermission();
   console.log(
-    `Naviyra agent listening on :${PORT} (dryRun=${DRY_RUN}, admin=${admin}, sites=${SITES_ROOT})`
+    `Naviyra agent listening on ${BIND_HOST}:${PORT} (dryRun=${DRY_RUN}, admin=${admin}, sites=${SITES_ROOT})`
   );
   if (!DRY_RUN && !admin && !isWindows) {
     console.warn("WARNING: Live mode needs root. Use: sudo ./start-admin.sh");

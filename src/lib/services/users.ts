@@ -61,3 +61,24 @@ export async function deleteUser(userId: string, currentUserId: string) {
 
   return prisma.user.delete({ where: { id: userId } });
 }
+
+/** Admin sets a new password for any panel user. */
+export async function resetUserPassword(userId: string, newPassword: string) {
+  const passwordHash = await hashPassword(newPassword);
+
+  await prisma.$transaction([
+    prisma.user.update({
+      where: { id: userId },
+      data: {
+        passwordHash,
+        sessionVersion: { increment: 1 },
+      },
+    }),
+    // Invalidate any pending email reset links
+    prisma.passwordResetToken.deleteMany({
+      where: { userId, usedAt: null },
+    }),
+  ]);
+
+  return { ok: true as const };
+}

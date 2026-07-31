@@ -178,7 +178,7 @@ SERVER_PUBLIC_IP=136.243.196.166
 BIND_ZONES_DIR=/etc/bind/zones
 BIND_NAMED_DIR=/etc/bind/naviyra-zones.d
 BIND_INCLUDE_FILE=/etc/bind/naviyra-zones.conf
-BIND_RELOAD_CMD=rndc reload
+BIND_RELOAD_CMD="rndc reload"
 ```
 
 At your **domain registrar** (not Cloudflare DNS UI alone), set glue/host records for `ns1`/`ns2` to the server IP, then change `naviyra.uk` nameservers from Cloudflare (`donald`/`ashley`) to `ns1.naviyra.uk` and `ns2.naviyra.uk`. Until that change propagates, Cloudflare still answers for `naviyra.uk` itself; hosted customer domains that point NS at ns1/ns2 already query this server on port 53.
@@ -278,6 +278,60 @@ location /terminal-ws/ {
 Adjust `4100` to match `AGENT_PORT`. Reload nginx after editing.
 
 Session command/output lines are stored in SQLite (`TerminalSession` / `TerminalSessionLog`) for audit.
+
+---
+
+## Backup Worker (systemd timer)
+
+Admin → **Backups**. Scheduled archives (panel DB, `/var/www`, DNS, optional mail) via a **systemd timer** that POSTs to `/api/backups`.
+
+### Install units (once on the server)
+
+```bash
+sudo chmod +x scripts/install-backup-worker.sh scripts/backup-worker.sh
+sudo ./scripts/install-backup-worker.sh /opt/naviyra-panel
+```
+
+Optional `.env`:
+
+```env
+BACKUP_WORKER_TOKEN=change-me   # defaults to AGENT_API_KEY
+```
+
+### Use from the panel
+
+1. Open **Admin → Backups**
+2. Choose schedule, retain count, and what to include
+3. Enable scheduled backups → **Save & sync timer**
+4. Or click **Run now**
+
+Useful systemd commands:
+
+```bash
+systemctl list-timers naviyra-backup.timer
+systemctl start naviyra-backup.service
+journalctl -u naviyra-backup.service -n 50
+```
+
+### Restore
+
+In **Admin → Backups**, open a completed run and click **Restore**.
+
+That overwrites selected data from the archive (sites, DNS, panel DB). A safety copy of the live DB is written first (`*.pre-restore-*`). Restoring the DB schedules a panel restart.
+
+Manual CLI (same archive layout):
+
+```bash
+cd /tmp && mkdir restore && tar -xzf /var/backups/naviyra/naviyra-backup-XXXX.tar.gz -C restore
+# sites
+cp -a restore/sites/. /var/www/
+# panel DB (then restart)
+cp -a /opt/naviyra-panel/data/naviyra.db /opt/naviyra-panel/data/naviyra.db.bak
+cp restore/panel-db/naviyra.db /opt/naviyra-panel/data/naviyra.db
+systemctl restart naviyra-panel
+```
+
+Archives default to `/var/backups/naviyra/naviyra-backup-*.tar.gz`.
 
 ---
 

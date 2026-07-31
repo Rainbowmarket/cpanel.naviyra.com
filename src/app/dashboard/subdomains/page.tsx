@@ -62,6 +62,7 @@ function StatusBadge({ status }: { status: string }) {
 
 export default function SubdomainsPage() {
   const [domains, setDomains] = useState<Domain[]>([]);
+  const [panelBaseDomain, setPanelBaseDomain] = useState<string | null>(null);
   const [subdomains, setSubdomains] = useState<Subdomain[]>([]);
   const [domainId, setDomainId] = useState("");
   const [name, setName] = useState("");
@@ -76,55 +77,99 @@ export default function SubdomainsPage() {
   const [sslError, setSslError] = useState("");
   const [search, setSearch] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
+  const [createMode, setCreateMode] = useState<"standard" | "custom">("standard");
+  const [customFqdn, setCustomFqdn] = useState("");
   const [appType, setAppType] = useState<AppType>("STATIC");
   const [runtimeSub, setRuntimeSub] = useState<Subdomain | null>(null);
+
+  const parentDomain = domains.find((d) => d.id === domainId)?.name;
+
+  function resolveCreatePayload():
+    | {
+        domainId?: string;
+        name?: string;
+        fqdn?: string;
+        documentRoot?: string;
+        appType: AppType;
+      }
+    | { error: string } {
+    if (createMode === "custom") {
+      const fqdn =
+        customFqdn.trim().toLowerCase().replace(/^https?:\/\//, "").split("/")[0] ??
+        "";
+      if (!fqdn.includes(".")) {
+        return { error: "Enter a full hostname like blog.example.com" };
+      }
+      return {
+        fqdn,
+        documentRoot: useCustomDir && customDir ? customDir : undefined,
+        appType,
+      };
+    }
+    if (!domainId || !name.trim()) {
+      return { error: "Domain and subdomain name are required" };
+    }
+    return {
+      domainId,
+      name: name.trim(),
+      documentRoot: useCustomDir && customDir ? customDir : undefined,
+      appType,
+    };
+  }
 
   async function loadDomains() {
     const res = await fetch("/api/domains");
     const data = await res.json();
     const list = data.domains ?? [];
     setDomains(list);
+    setPanelBaseDomain(
+      typeof data.panelBaseDomain === "string" ? data.panelBaseDomain : null
+    );
     if (list[0] && !domainId) setDomainId(list[0].id);
   }
 
-  async function loadSubdomains(id: string) {
-    const res = await fetch(`/api/subdomains?domainId=${id}`);
+  async function loadAllSubdomains() {
+    const res = await fetch("/api/subdomains");
     const data = await res.json();
     setSubdomains(data.subdomains ?? []);
   }
 
   useEffect(() => {
     loadDomains();
+    loadAllSubdomains();
   }, []);
-
-  useEffect(() => {
-    if (domainId) loadSubdomains(domainId);
-  }, [domainId]);
 
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
     setError("");
+    const payload = resolveCreatePayload();
+    if ("error" in payload) {
+      setError(payload.error);
+      return;
+    }
     const res = await fetch("/api/subdomains", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        domainId,
-        name,
-        documentRoot: useCustomDir && customDir ? customDir : undefined,
-        appType,
-      }),
+      body: JSON.stringify(payload),
     });
     const data = await res.json();
     if (!res.ok) {
-      setError(data.error ?? "Failed to create subdomain");
+      setError(
+        typeof data.error === "string"
+          ? data.error
+          : "Failed to create subdomain"
+      );
       return;
     }
     setName("");
+    setCustomFqdn("");
     setCustomDir("");
     setUseCustomDir(false);
+    setCreateMode("standard");
     setAppType("STATIC");
     setCreateOpen(false);
-    loadSubdomains(domainId);
+    await loadDomains();
+    loadAllSubdomains();
   }
 
   async function handleRetry(id: string) {
@@ -135,7 +180,7 @@ export default function SubdomainsPage() {
       body: JSON.stringify({}),
     });
     setRetrying(null);
-    loadSubdomains(domainId);
+    loadAllSubdomains();
   }
 
   async function handleDelete(id: string, documentRoot: string) {
@@ -149,7 +194,7 @@ export default function SubdomainsPage() {
       `/api/subdomains?id=${id}&deleteFiles=${deleteFiles ? "true" : "false"}`,
       { method: "DELETE" }
     );
-    loadSubdomains(domainId);
+    loadAllSubdomains();
   }
 
   function startEditPath(subdomain: Subdomain) {
@@ -172,7 +217,7 @@ export default function SubdomainsPage() {
     }
     setSavingPath(null);
     setEditingId(null);
-    loadSubdomains(domainId);
+    loadAllSubdomains();
   }
 
   function cancelEditPath() {
@@ -195,7 +240,7 @@ export default function SubdomainsPage() {
       setSslError(data.certificate.lastError ?? "SSL issuance failed");
     }
     setSslLoading(null);
-    loadSubdomains(domainId);
+    loadAllSubdomains();
   }
 
   async function handleRenewSsl(certId: string, subdomainId: string) {
@@ -203,7 +248,7 @@ export default function SubdomainsPage() {
     setSslLoading(subdomainId);
     await fetch(`/api/ssl?id=${certId}`, { method: "PATCH" });
     setSslLoading(null);
-    loadSubdomains(domainId);
+    loadAllSubdomains();
   }
 
   function sslStatusColor(status: string) {
@@ -218,8 +263,6 @@ export default function SubdomainsPage() {
         return "bg-slate-500/15 text-slate-300 ring-slate-500/30";
     }
   }
-
-  const parentDomain = domains.find((d) => d.id === domainId)?.name;
 
   const filteredSubdomains = subdomains.filter((s) => {
     const fqdn = `${s.name}.${s.domain.name}`;
@@ -241,7 +284,7 @@ export default function SubdomainsPage() {
     <div className="space-y-8">
       <PageHeader
         title="Subdomains"
-        description="Create subdomains under your domains."
+        description="Create and manage subdomains across all of your domains."
         actionLabel="Add Subdomain"
         onAction={() => setCreateOpen(true)}
         actionIcon={<Server className="h-4 w-4" />}
@@ -257,28 +300,89 @@ export default function SubdomainsPage() {
           setError("");
         }}
         title="Add Subdomain"
-        description="Create a subdomain under an existing domain."
+        description="Create a standard or custom subdomain under your domains."
       >
         <form onSubmit={handleCreate} className="space-y-4">
-          <div>
-            <label className={modalLabelClass}>Domain</label>
-            <Select
-              value={domainId}
-              onChange={setDomainId}
-              options={domains.map((d) => ({ value: d.id, label: d.name }))}
-              placeholder="Choose domain..."
-            />
+          <div className="flex gap-2 rounded-lg border border-slate-800 bg-slate-900/50 p-1">
+            <button
+              type="button"
+              onClick={() => setCreateMode("standard")}
+              className={`flex-1 rounded-md px-3 py-2 text-xs font-medium ${
+                createMode === "standard"
+                  ? "bg-emerald-600 text-white"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              Standard
+            </button>
+            <button
+              type="button"
+              onClick={() => setCreateMode("custom")}
+              className={`flex-1 rounded-md px-3 py-2 text-xs font-medium ${
+                createMode === "custom"
+                  ? "bg-emerald-600 text-white"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              Custom subdomain
+            </button>
           </div>
-          <div>
-            <label className={modalLabelClass}>Subdomain name</label>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="blog"
-              className={modalInputClass}
-              required
-            />
-          </div>
+
+          {createMode === "standard" ? (
+            <>
+              <div>
+                <label className={modalLabelClass}>Domain</label>
+                <Select
+                  value={domainId}
+                  onChange={setDomainId}
+                  options={domains.map((d) => ({ value: d.id, label: d.name }))}
+                  placeholder="Choose domain..."
+                />
+              </div>
+              <div>
+                <label className={modalLabelClass}>Subdomain name</label>
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="blog"
+                  className={modalInputClass}
+                  required={createMode === "standard"}
+                />
+                {parentDomain && name.trim() ? (
+                  <p className="mt-1.5 text-xs text-slate-500">
+                    Will create{" "}
+                    <span className="font-mono text-emerald-400/90">
+                      {name.trim().toLowerCase()}.{parentDomain}
+                    </span>
+                  </p>
+                ) : null}
+              </div>
+            </>
+          ) : (
+            <div>
+              <label className={modalLabelClass}>Full hostname</label>
+              <input
+                value={customFqdn}
+                onChange={(e) => setCustomFqdn(e.target.value)}
+                placeholder="api.shop.example.com"
+                className={modalInputClass}
+                required={createMode === "custom"}
+              />
+              <p className="mt-1.5 text-xs text-slate-500">
+                Enter the full address. Parent domain is detected automatically.
+                Nested labels work (e.g.{" "}
+                <span className="font-mono">api.v1.example.com</span>).
+                {panelBaseDomain ? (
+                  <>
+                    {" "}
+                    Panel domain works too (e.g.{" "}
+                    <span className="font-mono">block.{panelBaseDomain}</span>).
+                  </>
+                ) : null}
+              </p>
+            </div>
+          )}
+
           <label className="flex items-center gap-2 text-sm text-slate-400">
             <input
               type="checkbox"
@@ -286,23 +390,25 @@ export default function SubdomainsPage() {
               onChange={(e) => setUseCustomDir(e.target.checked)}
               className="rounded border-slate-600"
             />
-            Use custom directory path
+            Use custom document root
           </label>
           {useCustomDir && (
             <input
               value={customDir}
               onChange={(e) => setCustomDir(e.target.value)}
-              placeholder="D:\sites\naviyra.uk\blog\public_html"
+              placeholder="/var/www/example.com/subdomains/blog/public_html"
               className={`${modalInputClass} font-mono text-sm`}
             />
           )}
           <AppTypeSelectField value={appType} onChange={setAppType} />
-          <p className="text-xs text-slate-500">
-            Default folder:{" "}
-            <span className="font-mono text-slate-400">
-              sites/{"{domain}"}/subdomains/{"{name}"}/public_html
-            </span>
-          </p>
+          {!useCustomDir ? (
+            <p className="text-xs text-slate-500">
+              Default folder:{" "}
+              <span className="font-mono text-slate-400">
+                /var/www/{"{domain}"}/subdomains/{"{name}"}/public_html
+              </span>
+            </p>
+          ) : null}
           {error && (
             <p className="flex items-center gap-2 text-sm text-red-400">
               <AlertCircle className="h-4 w-4" />
@@ -333,7 +439,7 @@ export default function SubdomainsPage() {
             upstreamPort={runtimeSub.upstreamPort}
             appStatus={runtimeSub.appStatus}
             appEnv={runtimeSub.appEnv}
-            onUpdated={() => loadSubdomains(domainId)}
+            onUpdated={() => loadAllSubdomains()}
           />
         ) : null}
       </Modal>
@@ -358,7 +464,17 @@ export default function SubdomainsPage() {
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-3">
-                  <p className="font-medium text-white">{fqdn}</p>
+                  <p className="font-medium text-white">
+                    <a
+                      href={`https://${fqdn}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="hover:text-emerald-400 hover:underline"
+                      title={`Open https://${fqdn}`}
+                    >
+                      {fqdn}
+                    </a>
+                  </p>
                   <StatusBadge status={s.status} />
                   <span className="rounded-md bg-slate-800 px-2 py-0.5 text-xs text-slate-300">
                     {s.appType ?? "PHP"}

@@ -1,14 +1,26 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireSessionUser } from "@/lib/auth";
-import { createDomain, deleteDomain, listDomains, retryDomain } from "@/lib/services/domains";
+import { getPanelBaseDomain } from "@/lib/base-domain";
+import {
+  createDomain,
+  deleteDomain,
+  listDomains,
+  retryDomain,
+} from "@/lib/services/domains";
 import { prisma } from "@/lib/prisma";
 
 export async function GET() {
   try {
     const user = await requireSessionUser();
-    const domains = await listDomains(user.id);
-    return NextResponse.json({ domains });
+    const domains = await listDomains(user.id, {
+      ensurePanel: user.role === "ADMIN",
+      role: user.role,
+    });
+    return NextResponse.json({
+      domains,
+      panelBaseDomain: getPanelBaseDomain(),
+    });
   } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

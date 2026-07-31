@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { shouldUseSecureCookies } from "@/lib/cookie-secure";
 
 /** Strip scheme/path/www → apex hostname. */
 export function normalizeApexDomain(input: string): string {
@@ -98,7 +99,9 @@ export function upsertEnvKeys(updates: Record<string, string>): void {
 export function persistPanelBaseDomainFromLogin(domainInput: string): string {
   const domain = normalizeApexDomain(domainInput);
   const panelPort = process.env.PANEL_PORT?.trim() || "3100";
-  const useHttps = process.env.COOKIE_SECURE === "true";
+  const useHttps = shouldUseSecureCookies() || /^https:\/\//i.test(
+    process.env.PANEL_PUBLIC_URL?.trim() || ""
+  );
   const cleanPublicUrl = useHttps
     ? `https://${domain}`
     : `http://${domain}:${panelPort}`;

@@ -101,8 +101,27 @@ async function runReload(bindReloadCmd: string | undefined, dryRun: boolean) {
   const { execFile } = await import("node:child_process");
   const { promisify } = await import("node:util");
   const exec = promisify(execFile);
-  const [cmd, ...args] = bindReloadCmd.split(/\s+/);
-  await exec(cmd, args);
+
+  const normalized = bindReloadCmd.trim().replace(/^["']|["']$/g, "");
+  const command =
+    !normalized || normalized === "rndc"
+      ? "rndc reload"
+      : normalized === "systemctl"
+        ? "systemctl reload named"
+        : normalized;
+
+  const [cmd, ...args] = command.split(/\s+/).filter(Boolean);
+  if (!cmd) return;
+
+  try {
+    await exec(cmd, args);
+  } catch (error) {
+    if (cmd === "rndc") {
+      await exec("systemctl", ["reload", "named"]);
+      return;
+    }
+    throw error;
+  }
 }
 
 async function refreshBindIncludeFile(

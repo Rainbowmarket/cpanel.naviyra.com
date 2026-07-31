@@ -24,7 +24,13 @@ const PANEL_URL = (process.env.PANEL_URL || "http://127.0.0.1:3100").replace(
 const KEY =
   process.env.SECURITY_INGEST_KEY ||
   process.env.AGENT_API_KEY ||
-  "naviyra-local-agent-key";
+  "";
+if (!KEY || KEY === "naviyra-local-agent-key") {
+  console.error(
+    "Set SECURITY_INGEST_KEY or a strong AGENT_API_KEY (not the published default)."
+  );
+  process.exit(1);
+}
 const STATE_FILE =
   process.env.STATE_FILE ||
   path.join(process.cwd(), "data", "nginx-visitor-offset.json");

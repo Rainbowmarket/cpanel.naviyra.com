@@ -1,23 +1,26 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { requireIngestKey } from "@/lib/secrets";
 import { logVisit } from "@/lib/services/security";
 
 function ingestKeyOk(request: Request): boolean {
-  const configured = process.env.SECURITY_INGEST_KEY?.trim();
-  if (!configured) {
-    // Fall back to agent key so one secret works out of the box
-    const agent = process.env.AGENT_API_KEY?.trim() || "naviyra-local-agent-key";
-    const header = request.headers.get("authorization") ?? "";
-    const key = header.replace(/^Bearer\s+/i, "").trim();
-    return key === agent;
+  let expected: string;
+  try {
+    const configured = process.env.SECURITY_INGEST_KEY?.trim();
+    expected =
+      configured && configured.length >= 16
+        ? configured
+        : requireIngestKey();
+  } catch {
+    return false;
   }
   const header = request.headers.get("authorization") ?? "";
   const key =
     header.replace(/^Bearer\s+/i, "").trim() ||
     request.headers.get("x-ingest-key")?.trim() ||
     "";
-  return key === configured;
+  return key.length > 0 && key === expected;
 }
 
 const ingestSchema = z.object({

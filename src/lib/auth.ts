@@ -1,9 +1,21 @@
 import bcrypt from "bcryptjs";
 import { cookies } from "next/headers";
+import type { NextResponse } from "next/server";
 import { prisma } from "./prisma";
+import { fromB64url, hmacSign, hmacVerify, b64url } from "./crypto-hmac";
+import { shouldUseSecureCookies } from "./cookie-secure";
+import { requireSessionSecret } from "./secrets";
 
 const SESSION_COOKIE = "naviyra_session";
 const SESSION_MAX_AGE = 60 * 60 * 24 * 7; // 7 days
+
+type SessionCookieOptions = {
+  httpOnly: true;
+  secure: boolean;
+  sameSite: "lax";
+  maxAge: number;
+  path: "/";
+};
 
 export async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, 12);
@@ -23,20 +35,79 @@ export type SessionUser = {
   role: "ADMIN" | "RESELLER" | "USER";
 };
 
-/** Secure cookies only when COOKIE_SECURE=true (HTTPS). Default false so HTTP IP access works. */
+type SessionClaims = {
+  uid: string;
+  sv: number;
+  exp: number;
+};
+
+/** Secure flag: auto when HTTPS panel URL / production; override with COOKIE_SECURE. */
 function sessionCookieSecure(): boolean {
-  return process.env.COOKIE_SECURE === "true";
+  return shouldUseSecureCookies();
 }
 
-export async function createSession(userId: string): Promise<void> {
+function encodeSession(claims: SessionClaims): string {
+  const payload = b64url(JSON.stringify(claims));
+  const sig = hmacSign(payload, requireSessionSecret());
+  return `${payload}.${sig}`;
+}
+
+function decodeSession(token: string): SessionClaims | null {
+  const parts = token.split(".");
+  if (parts.length !== 2) return null;
+  const [payload, sig] = parts;
+  if (!hmacVerify(payload, sig, requireSessionSecret())) return null;
+  try {
+    const claims = JSON.parse(
+      fromB64url(payload).toString("utf8")
+    ) as SessionClaims;
+    if (!claims.uid || typeof claims.sv !== "number" || !claims.exp) {
+      return null;
+    }
+    if (Date.now() / 1000 > claims.exp) return null;
+    return claims;
+  } catch {
+    return null;
+  }
+}
+
+function buildSessionCookie(
+  userId: string,
+  sessionVersion = 0
+): { name: string; value: string; options: SessionCookieOptions } {
+  const exp = Math.floor(Date.now() / 1000) + SESSION_MAX_AGE;
+  const value = encodeSession({ uid: userId, sv: sessionVersion, exp });
+  return {
+    name: SESSION_COOKIE,
+    value,
+    options: {
+      httpOnly: true,
+      secure: sessionCookieSecure(),
+      sameSite: "lax",
+      maxAge: SESSION_MAX_AGE,
+      path: "/",
+    },
+  };
+}
+
+/** Prefer this in Route Handlers — set cookie on the response object. */
+export function applySessionCookie(
+  response: NextResponse,
+  userId: string,
+  sessionVersion = 0
+): NextResponse {
+  const cookie = buildSessionCookie(userId, sessionVersion);
+  response.cookies.set(cookie.name, cookie.value, cookie.options);
+  return response;
+}
+
+export async function createSession(
+  userId: string,
+  sessionVersion = 0
+): Promise<void> {
   const cookieStore = await cookies();
-  cookieStore.set(SESSION_COOKIE, userId, {
-    httpOnly: true,
-    secure: sessionCookieSecure(),
-    sameSite: "lax",
-    maxAge: SESSION_MAX_AGE,
-    path: "/",
-  });
+  const cookie = buildSessionCookie(userId, sessionVersion);
+  cookieStore.set(cookie.name, cookie.value, cookie.options);
 }
 
 export async function destroySession(): Promise<void> {
@@ -44,17 +115,55 @@ export async function destroySession(): Promise<void> {
   cookieStore.delete(SESSION_COOKIE);
 }
 
+export function clearSessionCookie(response: NextResponse): NextResponse {
+  response.cookies.set(SESSION_COOKIE, "", {
+    httpOnly: true,
+    secure: sessionCookieSecure(),
+    sameSite: "lax",
+    maxAge: 0,
+    path: "/",
+  });
+  return response;
+}
+
+/** Bump sessionVersion so all existing signed cookies become invalid. */
+export async function invalidateUserSessions(userId: string): Promise<void> {
+  await prisma.user.update({
+    where: { id: userId },
+    data: { sessionVersion: { increment: 1 } },
+  });
+}
+
 export async function getSessionUser(): Promise<SessionUser | null> {
   const cookieStore = await cookies();
-  const userId = cookieStore.get(SESSION_COOKIE)?.value;
-  if (!userId) return null;
+  const raw = cookieStore.get(SESSION_COOKIE)?.value;
+  if (!raw) return null;
+
+  // Legacy: raw cuid cookie (pre-signed). Reject — force re-login.
+  if (!raw.includes(".")) return null;
+
+  const claims = decodeSession(raw);
+  if (!claims) return null;
 
   const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { id: true, email: true, name: true, role: true },
+    where: { id: claims.uid },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      role: true,
+      sessionVersion: true,
+    },
   });
+  if (!user) return null;
+  if (user.sessionVersion !== claims.sv) return null;
 
-  return user;
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+  };
 }
 
 export async function requireSessionUser(): Promise<SessionUser> {

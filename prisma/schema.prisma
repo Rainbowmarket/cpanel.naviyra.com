@@ -99,17 +99,32 @@ enum AppStatus {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  name         String
-  passwordHash String
-  role         UserRole @default(USER)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id             String   @id @default(cuid())
+  email          String   @unique
+  name           String
+  passwordHash   String
+  role           UserRole @default(USER)
+  sessionVersion Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   domains          Domain[]
   jobs             Job[]
   terminalSessions TerminalSession[]
+  passwordResets   PasswordResetToken[]
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model Server {
@@ -403,4 +418,43 @@ model TerminalSessionLog {
   session   TerminalSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([sessionId, at])
+}
+
+enum BackupSchedule {
+  EVERY_6H
+  DAILY_02
+  DAILY_03
+  WEEKLY_SUN
+}
+
+model BackupWorkerConfig {
+  id             String         @id @default("default")
+  enabled        Boolean        @default(false)
+  schedule       BackupSchedule @default(DAILY_03)
+  retainCount    Int            @default(7)
+  includePanelDb Boolean        @default(true)
+  includeSites   Boolean        @default(true)
+  includeDns     Boolean        @default(true)
+  includeMail    Boolean        @default(false)
+  backupRoot     String         @default("/var/backups/naviyra")
+  timerInstalled Boolean        @default(false)
+  lastRunAt      DateTime?
+  lastStatus     JobStatus?
+  lastError      String?
+  lastArchive    String?
+  updatedAt      DateTime       @updatedAt
+}
+
+model BackupRun {
+  id          String    @id @default(cuid())
+  status      JobStatus @default(QUEUED)
+  source      String    @default("manual")
+  startedAt   DateTime  @default(now())
+  finishedAt  DateTime?
+  archivePath String?
+  sizeBytes   Int?
+  error       String?
+  summary     String?
+
+  @@index([startedAt])
 }

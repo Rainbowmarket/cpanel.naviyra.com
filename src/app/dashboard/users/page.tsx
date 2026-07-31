@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Trash2, UserPlus } from "lucide-react";
+import { KeyRound, Trash2, UserPlus } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { Modal, modalInputClass, modalLabelClass } from "@/components/ui/modal";
 import { ModalActions, PageHeader } from "@/components/ui/page-header";
@@ -42,6 +42,11 @@ export default function UsersPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
+  const [resetUser, setResetUser] = useState<PanelUser | null>(null);
+  const [resetPassword, setResetPassword] = useState("");
+  const [resetConfirm, setResetConfirm] = useState("");
+  const [resetError, setResetError] = useState("");
+  const [resetSubmitting, setResetSubmitting] = useState(false);
 
   async function load() {
     const res = await fetch("/api/users");
@@ -97,6 +102,53 @@ export default function UsersPage() {
     load();
   }
 
+  function openReset(user: PanelUser) {
+    setResetUser(user);
+    setResetPassword("");
+    setResetConfirm("");
+    setResetError("");
+  }
+
+  function closeReset() {
+    setResetUser(null);
+    setResetPassword("");
+    setResetConfirm("");
+    setResetError("");
+  }
+
+  async function handleResetPassword(e: FormEvent) {
+    e.preventDefault();
+    if (!resetUser) return;
+    setResetError("");
+
+    if (resetPassword.length < 8) {
+      setResetError("Password must be at least 8 characters");
+      return;
+    }
+    if (resetPassword !== resetConfirm) {
+      setResetError("Passwords do not match");
+      return;
+    }
+
+    setResetSubmitting(true);
+    const res = await fetch("/api/users", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: resetUser.id, password: resetPassword }),
+    });
+    const data = await res.json();
+    setResetSubmitting(false);
+
+    if (!res.ok) {
+      setResetError(
+        typeof data.error === "string" ? data.error : "Failed to reset password"
+      );
+      return;
+    }
+
+    closeReset();
+  }
+
   const filteredUsers = users.filter((u) =>
     matchesSearch(search, u.name, u.email, u.role, u._count.domains)
   );
@@ -117,6 +169,56 @@ export default function UsersPage() {
         onSearchChange={setSearch}
         searchPlaceholder="Search users..."
       />
+
+      <Modal
+        open={Boolean(resetUser)}
+        onClose={closeReset}
+        title="Reset Password"
+        description={
+          resetUser
+            ? `Set a new login password for ${resetUser.name} (${resetUser.email}).`
+            : undefined
+        }
+      >
+        <form onSubmit={handleResetPassword} className="space-y-4">
+          <div>
+            <label className={modalLabelClass}>New password</label>
+            <input
+              type="password"
+              value={resetPassword}
+              onChange={(e) => setResetPassword(e.target.value)}
+              placeholder="Min 8 characters"
+              className={modalInputClass}
+              required
+              minLength={8}
+              autoComplete="new-password"
+            />
+          </div>
+          <div>
+            <label className={modalLabelClass}>Confirm password</label>
+            <input
+              type="password"
+              value={resetConfirm}
+              onChange={(e) => setResetConfirm(e.target.value)}
+              placeholder="Repeat new password"
+              className={modalInputClass}
+              required
+              minLength={8}
+              autoComplete="new-password"
+            />
+          </div>
+          {resetError && (
+            <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+              {resetError}
+            </p>
+          )}
+          <ModalActions
+            onCancel={closeReset}
+            submitLabel="Reset Password"
+            submitting={resetSubmitting}
+          />
+        </form>
+      </Modal>
 
       <Modal
         open={createOpen}
@@ -204,15 +306,25 @@ export default function UsersPage() {
                 {u._count.domains} domain{u._count.domains === 1 ? "" : "s"}
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => handleDelete(u.id, u.email)}
-              disabled={deletingId === u.id}
-              className="flex items-center gap-1.5 rounded-lg border border-red-500/30 px-3 py-1.5 text-xs text-red-400 hover:bg-red-500/10 disabled:opacity-50"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              Delete
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => openReset(u)}
+                className="flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
+              >
+                <KeyRound className="h-3.5 w-3.5" />
+                Reset Password
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDelete(u.id, u.email)}
+                disabled={deletingId === u.id}
+                className="flex items-center gap-1.5 rounded-lg border border-red-500/30 px-3 py-1.5 text-xs text-red-400 hover:bg-red-500/10 disabled:opacity-50"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete
+              </button>
+            </div>
           </div>
         ))}
         {users.length === 0 ? (

@@ -263,7 +263,17 @@ export default function DomainsPage() {
               const ssl = d.sslCerts[0];
               return (
                 <tr key={d.id} className="border-t border-slate-800/80 hover:bg-slate-900/30">
-                  <td className="px-5 py-4 font-medium text-white">{d.name}</td>
+                  <td className="px-5 py-4 font-medium text-white">
+                    <a
+                      href={`https://${d.name}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="hover:text-emerald-400 hover:underline"
+                      title={`Open https://${d.name}`}
+                    >
+                      {d.name}
+                    </a>
+                  </td>
                   <td className="px-5 py-4 text-slate-300">
                     <span className="rounded-md bg-slate-800 px-2 py-0.5 text-xs">
                       {d.appType ?? "PHP"}

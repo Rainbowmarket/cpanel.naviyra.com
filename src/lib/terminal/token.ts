@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { requireAgentApiKey } from "@/lib/secrets";
 
 export type TerminalTokenClaims = {
   sid: string;
@@ -9,7 +10,8 @@ export type TerminalTokenClaims = {
 };
 
 function getSecret(secret?: string): string {
-  return secret || process.env.AGENT_API_KEY || "naviyra-local-agent-key";
+  if (secret?.trim()) return secret.trim();
+  return requireAgentApiKey();
 }
 
 function b64url(input: Buffer | string): string {
@@ -57,7 +59,9 @@ export function verifyTerminalToken(
   ) {
     throw new Error("Invalid terminal token signature");
   }
-  const claims = JSON.parse(fromB64url(payload).toString("utf8")) as TerminalTokenClaims;
+  const claims = JSON.parse(
+    fromB64url(payload).toString("utf8")
+  ) as TerminalTokenClaims;
   if (!claims.sid || !claims.uid || !claims.cwd || !claims.mode || !claims.exp) {
     throw new Error("Invalid terminal token claims");
   }

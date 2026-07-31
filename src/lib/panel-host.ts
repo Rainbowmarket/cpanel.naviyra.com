@@ -15,6 +15,26 @@ export function getPanelHostnames(): Set<string> {
   return hosts;
 }
 
+/** First-level labels that must not be created under the panel base domain. */
+const RESERVED_PANEL_SUBDOMAIN_LABELS = new Set([
+  "www",
+  "mail",
+  "webmail",
+  "cpanel",
+  "panel",
+  "ns1",
+  "ns2",
+  "chat",
+  "ftp",
+  "sftp",
+  "smtp",
+  "imap",
+  "pop",
+  "pop3",
+  "server1",
+  "s1",
+]);
+
 export function isPanelHostname(hostname: string): boolean {
   const h = normalizeApexDomain(hostname);
   if (!h) return false;
@@ -30,4 +50,20 @@ export function panelHostnameError(hostname: string): string {
     (base ? ` (${base})` : "") +
     ". Use a different domain for customer websites."
   );
+}
+
+/**
+ * Block creating subdomains that would collide with panel / infra hosts
+ * (e.g. www.naviyra.uk, ns1.naviyra.uk, chat.naviyra.uk).
+ */
+export function assertAllowedPanelSubdomainLabel(label: string, parentDomain: string) {
+  const base = getPanelBaseDomain();
+  if (!base || parentDomain.toLowerCase() !== base) return;
+
+  const first = label.split(".")[0]?.toLowerCase() ?? "";
+  if (RESERVED_PANEL_SUBDOMAIN_LABELS.has(first)) {
+    throw new Error(
+      `"${first}.${base}" is reserved for panel infrastructure. Choose a different name.`
+    );
+  }
 }

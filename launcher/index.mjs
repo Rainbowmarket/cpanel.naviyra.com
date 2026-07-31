@@ -424,8 +424,9 @@ async function startApp() {
     cwd: path.join(ROOT, "agent"),
     env: {
       AGENT_PORT: String(AGENT_PORT),
-      AGENT_API_KEY: process.env.AGENT_API_KEY ?? "naviyra-local-agent-key",
+      AGENT_API_KEY: process.env.AGENT_API_KEY || "",
       AGENT_DRY_RUN: dryRun ? "true" : "false",
+      AGENT_BIND_HOST: process.env.AGENT_BIND_HOST || "127.0.0.1",
     },
   });
 

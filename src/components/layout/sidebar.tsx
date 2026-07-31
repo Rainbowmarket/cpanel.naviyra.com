@@ -15,6 +15,7 @@ import {
   Network,
   Shield,
   Terminal,
+  Archive,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -43,7 +44,7 @@ const navGroups = [
     label: "Tools",
     items: [
       { href: "/file-manager", label: "File Manager", icon: FolderOpen },
-      { href: "/dashboard/security", label: "Security Manager", icon: Shield },
+      { href: "/dashboard/security", label: "Security", icon: Shield },
       { href: "/dashboard/terminal", label: "Terminal", icon: Terminal },
     ],
   },
@@ -51,7 +52,10 @@ const navGroups = [
 
 const adminNavGroup = {
   label: "Admin",
-  items: [{ href: "/dashboard/users", label: "Users", icon: Users }],
+  items: [
+    { href: "/dashboard/users", label: "Users", icon: Users },
+    { href: "/dashboard/backups", label: "Backups", icon: Archive },
+  ],
 };
 
 export function Sidebar({ role }: { role?: string }) {
