@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useMemo, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense } from "react";
+import { BrandLogo } from "@/components/ui/brand-logo";
 
 function ResetForm() {
   const router = useRouter();
@@ -48,10 +48,13 @@ function ResetForm() {
 
   return (
     <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-8 shadow-xl">
-      <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
-        Naviyra Panel
-      </p>
-      <h1 className="mt-2 text-2xl font-bold text-white">Set new password</h1>
+      <div className="flex items-center gap-3">
+        <BrandLogo size={40} priority />
+        <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
+          Naviyra Panel
+        </p>
+      </div>
+      <h1 className="mt-4 text-2xl font-bold text-white">Set new password</h1>
       <p className="mt-1 text-sm text-slate-400">
         Choose a new password for your account.
       </p>

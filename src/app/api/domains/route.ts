@@ -20,6 +20,7 @@ export async function GET() {
     return NextResponse.json({
       domains,
       panelBaseDomain: getPanelBaseDomain(),
+      role: user.role,
     });
   } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -59,7 +60,7 @@ export async function DELETE(request: Request) {
     if (!id) {
       return NextResponse.json({ error: "Missing id" }, { status: 400 });
     }
-    await deleteDomain(id, user.id);
+    await deleteDomain(id, { id: user.id, role: user.role });
     return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ error: "Failed to delete domain" }, { status: 500 });
@@ -73,7 +74,7 @@ export async function PATCH(request: Request) {
     if (!id) {
       return NextResponse.json({ error: "Missing id" }, { status: 400 });
     }
-    const domain = await retryDomain(id, user.id);
+    const domain = await retryDomain(id, { id: user.id, role: user.role });
     return NextResponse.json({ domain });
   } catch (error) {
     if (error instanceof Error && error.message === "Unauthorized") {

@@ -3,9 +3,12 @@ import { prisma } from "@/lib/prisma";
 import { callAgent } from "@/lib/agent/client";
 import { isPathUnderRoot, resolvePathWithinRoot } from "@/lib/file-manager-path";
 import {
+  type AccessActor,
+  domainAccessWhere,
   isMailSubdomainName,
   listHostingTargets,
   parseHostingTargetId,
+  toAccessActor,
 } from "@/lib/hosting-targets";
 
 export type FileManagerListItem = {
@@ -29,12 +32,16 @@ export function assertPathAllowed(filePath: string, documentRoot: string) {
   }
 }
 
-export async function getTargetContext(target: string, userId: string) {
+export async function getTargetContext(
+  target: string,
+  actor: AccessActor | string
+) {
   const normalized = parseHostingTargetId(target);
+  const access = domainAccessWhere(actor);
 
   if (normalized.kind === "subdomain") {
     const subdomain = await prisma.subdomain.findFirstOrThrow({
-      where: { id: normalized.id, domain: { userId } },
+      where: { id: normalized.id, domain: access },
       include: { domain: { include: { server: true } } },
     });
     if (isMailSubdomainName(subdomain.name, subdomain.domain.name)) {
@@ -51,7 +58,7 @@ export async function getTargetContext(target: string, userId: string) {
   }
 
   const domain = await prisma.domain.findFirstOrThrow({
-    where: { id: normalized.id, userId },
+    where: { id: normalized.id, ...access },
     include: { server: true },
   });
   return {
@@ -63,19 +70,25 @@ export async function getTargetContext(target: string, userId: string) {
 }
 
 /** @deprecated alias */
-export async function getDomainContext(domainId: string, userId: string) {
-  return getTargetContext(domainId, userId);
+export async function getDomainContext(
+  domainId: string,
+  actor: AccessActor | string
+) {
+  return getTargetContext(domainId, actor);
 }
 
-export async function listFileManagerTargets(userId: string) {
+export async function listFileManagerTargets(actor: AccessActor | string) {
   // mail.* / webmail.* are panel proxies, not site document roots
-  const targets = await listHostingTargets(userId, {
+  const targets = await listHostingTargets(actor, {
     excludeMailSubdomains: true,
   });
+  const asAdmin = toAccessActor(actor).role === "ADMIN";
   return targets.map((t) => ({
     id: t.id,
     label: t.label,
     documentRoot: t.documentRoot,
+    ownerEmail: asAdmin ? t.ownerEmail ?? null : null,
+    ownerName: asAdmin ? t.ownerName ?? null : null,
   }));
 }
 
@@ -90,11 +103,14 @@ async function agentCall<T>(
   return result.data as T;
 }
 
-export async function fileManagerSession(target: string, userId: string) {
-  const ctx = await getTargetContext(target, userId);
+export async function fileManagerSession(
+  target: string,
+  actor: AccessActor | string
+) {
+  const ctx = await getTargetContext(target, actor);
   return {
     success: true,
-    user: userId,
+    user: toAccessActor(actor).id,
     permissions: ["read", "edit", "upload", "download", "delete", "admin"],
     breadcrumbHome: ctx.documentRoot,
     allowedPaths: ctx.allowedPaths,
@@ -103,10 +119,10 @@ export async function fileManagerSession(target: string, userId: string) {
 
 export async function fileManagerList(
   target: string,
-  userId: string,
+  actor: AccessActor | string,
   dirPath: string
 ) {
-  const ctx = await getTargetContext(target, userId);
+  const ctx = await getTargetContext(target, actor);
   const resolved = resolvePathWithinRoot(dirPath, ctx.documentRoot);
 
   const data = await agentCall<{ entries: Array<{ name: string; type: string; size?: number; modifiedAt?: string }> }>(
@@ -157,11 +173,11 @@ function resolveUnderRoot(inputPath: string, documentRoot: string): string {
 
 export async function fileManagerRead(
   target: string,
-  userId: string,
+  actor: AccessActor | string,
   dirPath: string,
   fileName: string
 ) {
-  const ctx = await getTargetContext(target, userId);
+  const ctx = await getTargetContext(target, actor);
   const dirReal = resolveUnderRoot(dirPath, ctx.documentRoot);
   assertPathAllowed(dirReal, ctx.documentRoot);
   const filePath = path.join(dirReal, path.basename(fileName));
@@ -183,11 +199,11 @@ export async function fileManagerRead(
 
 export async function fileManagerWrite(
   target: string,
-  userId: string,
+  actor: AccessActor | string,
   filePath: string,
   content: string
 ) {
-  const ctx = await getTargetContext(target, userId);
+  const ctx = await getTargetContext(target, actor);
   const raw = filePath.trim();
   const finalPath = path.isAbsolute(raw)
     ? path.resolve(raw)
@@ -199,12 +215,12 @@ export async function fileManagerWrite(
 
 export async function fileManagerCreate(
   target: string,
-  userId: string,
+  actor: AccessActor | string,
   dirPath: string,
   name: string,
   kind: "createFolder" | "createFile"
 ) {
-  const ctx = await getTargetContext(target, userId);
+  const ctx = await getTargetContext(target, actor);
   const dirReal = resolveUnderRoot(dirPath, ctx.documentRoot);
   assertPathAllowed(dirReal, ctx.documentRoot);
   const itemPath = path.join(dirReal, path.basename(name));
@@ -220,11 +236,11 @@ export async function fileManagerCreate(
 
 export async function fileManagerDelete(
   target: string,
-  userId: string,
+  actor: AccessActor | string,
   targetPath: string,
   isFile: boolean
 ) {
-  const ctx = await getTargetContext(target, userId);
+  const ctx = await getTargetContext(target, actor);
   const resolved = resolveUnderRoot(targetPath, ctx.documentRoot);
   assertPathAllowed(resolved, ctx.documentRoot);
   await agentCall(ctx.agentKey, {
@@ -236,11 +252,11 @@ export async function fileManagerDelete(
 
 export async function fileManagerAction(
   target: string,
-  userId: string,
+  actor: AccessActor | string,
   action: "rename" | "move" | "copy",
   params: { source: string; name?: string; dest?: string }
 ) {
-  const ctx = await getTargetContext(target, userId);
+  const ctx = await getTargetContext(target, actor);
   const source = resolveUnderRoot(params.source, ctx.documentRoot);
   assertPathAllowed(source, ctx.documentRoot);
 
@@ -266,12 +282,12 @@ export async function fileManagerAction(
 
 export async function fileManagerUpload(
   target: string,
-  userId: string,
+  actor: AccessActor | string,
   dirPath: string,
   fileName: string,
   contentBase64: string
 ) {
-  const ctx = await getTargetContext(target, userId);
+  const ctx = await getTargetContext(target, actor);
   const dirReal = resolveUnderRoot(dirPath, ctx.documentRoot);
   assertPathAllowed(dirReal, ctx.documentRoot);
   const filePath = path.join(dirReal, path.basename(fileName));
@@ -295,12 +311,12 @@ export async function fileManagerUpload(
 
 export async function fileManagerExtractZip(
   target: string,
-  userId: string,
+  actor: AccessActor | string,
   dirPath: string,
   fileName: string,
   removeZip = false
 ) {
-  const ctx = await getTargetContext(target, userId);
+  const ctx = await getTargetContext(target, actor);
   const dirReal = resolveUnderRoot(dirPath, ctx.documentRoot);
   assertPathAllowed(dirReal, ctx.documentRoot);
   const filePath = path.join(dirReal, path.basename(fileName));
@@ -322,11 +338,11 @@ export async function fileManagerExtractZip(
 
 export async function fileManagerDownloadPath(
   target: string,
-  userId: string,
+  actor: AccessActor | string,
   dirPath: string,
   fileName: string
 ) {
-  const ctx = await getTargetContext(target, userId);
+  const ctx = await getTargetContext(target, actor);
   const dirReal = resolveUnderRoot(dirPath, ctx.documentRoot);
   assertPathAllowed(dirReal, ctx.documentRoot);
   const filePath = path.join(dirReal, path.basename(fileName));

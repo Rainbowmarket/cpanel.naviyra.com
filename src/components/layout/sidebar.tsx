@@ -17,6 +17,7 @@ import {
   Terminal,
   Archive,
 } from "lucide-react";
+import { BrandLogo } from "@/components/ui/brand-logo";
 import { cn } from "@/lib/utils";
 
 const navGroups = [
@@ -43,7 +44,7 @@ const navGroups = [
   {
     label: "Tools",
     items: [
-      { href: "/file-manager", label: "File Manager", icon: FolderOpen },
+      { href: "/dashboard/files", label: "File Manager", icon: FolderOpen },
       { href: "/dashboard/security", label: "Security", icon: Shield },
       { href: "/dashboard/terminal", label: "Terminal", icon: Terminal },
     ],
@@ -66,9 +67,7 @@ export function Sidebar({ role }: { role?: string }) {
     <aside className="flex h-full w-72 shrink-0 flex-col overflow-hidden border-r border-slate-800/80 bg-gradient-to-b from-slate-950 to-slate-900">
       <div className="flex h-[4.5rem] shrink-0 items-center border-b border-slate-800/80 px-5">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/20 ring-1 ring-emerald-500/30">
-            <Globe className="h-4 w-4 text-emerald-400" />
-          </div>
+          <BrandLogo size={36} className="ring-1 ring-white/10" priority />
           <div className="leading-tight">
             <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-400">
               Naviyra

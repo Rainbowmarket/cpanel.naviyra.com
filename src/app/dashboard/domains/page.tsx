@@ -26,6 +26,7 @@ type Domain = {
   appEnv?: string | null;
   lastError?: string | null;
   server: { name: string; hostname: string };
+  user?: { id: string; name: string; email: string };
   sslCerts: Array<{
     id: string;
     status: string;
@@ -65,6 +66,7 @@ export default function DomainsPage() {
   const router = useRouter();
   const [domains, setDomains] = useState<Domain[]>([]);
   const [servers, setServers] = useState<ServerOption[]>([]);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [name, setName] = useState("");
   const [serverId, setServerId] = useState("");
   const [appType, setAppType] = useState<AppType>("STATIC");
@@ -84,6 +86,7 @@ export default function DomainsPage() {
     const domainsData = await domainsRes.json();
     const serversData = await serversRes.json();
     setDomains(domainsData.domains ?? []);
+    setIsAdmin(domainsData.role === "ADMIN");
     setServers(serversData.servers ?? []);
     if (serversData.servers?.[0]) setServerId(serversData.servers[0].id);
     setLoading(false);
@@ -252,6 +255,9 @@ export default function DomainsPage() {
           <thead className="bg-slate-900/80 text-slate-400">
             <tr>
               <th className="px-5 py-3.5 font-medium">Domain</th>
+              {isAdmin ? (
+                <th className="px-5 py-3.5 font-medium">Owner</th>
+              ) : null}
               <th className="px-5 py-3.5 font-medium">App</th>
               <th className="px-5 py-3.5 font-medium">Status</th>
               <th className="px-5 py-3.5 font-medium">Document Root</th>
@@ -274,6 +280,14 @@ export default function DomainsPage() {
                       {d.name}
                     </a>
                   </td>
+                  {isAdmin ? (
+                    <td className="px-5 py-4 text-xs text-slate-400">
+                      <p className="truncate text-slate-300">
+                        {d.user?.name ?? "—"}
+                      </p>
+                      <p className="truncate">{d.user?.email ?? ""}</p>
+                    </td>
+                  ) : null}
                   <td className="px-5 py-4 text-slate-300">
                     <span className="rounded-md bg-slate-800 px-2 py-0.5 text-xs">
                       {d.appType ?? "PHP"}
@@ -323,13 +337,15 @@ export default function DomainsPage() {
                           {ssl ? "Re-issue SSL" : "Issue SSL"}
                         </button>
                       )}
-                      <Link
+                      <a
                         href={`/file-manager?target=d:${d.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
                         className="flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-emerald-400 hover:bg-slate-800"
                       >
                         <FolderOpen className="h-3.5 w-3.5" />
                         Open files
-                      </Link>
+                      </a>
                       {d.status === "ERROR" && (
                         <button
                           type="button"

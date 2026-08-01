@@ -18,7 +18,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "Invalid request" }, { status: 400 });
     }
 
-    const message = await fileManagerAction(normalizedTarget, user.id, action, {
+    const message = await fileManagerAction(normalizedTarget, { id: user.id, role: user.role }, action, {
       source,
       name,
       dest,

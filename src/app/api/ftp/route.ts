@@ -27,7 +27,11 @@ export async function POST(request: Request) {
   try {
     const user = await requireSessionUser();
     const body = createSchema.parse(await request.json());
-    const account = await createFtpAccount({ ...body, userId: user.id });
+    const account = await createFtpAccount({
+      ...body,
+      userId: user.id,
+      role: user.role,
+    });
     return NextResponse.json({ account }, { status: 201 });
   } catch (error) {
     if (error instanceof z.ZodError) {

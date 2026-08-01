@@ -65,16 +65,13 @@ export async function listDomains(
     }
   }
 
-  const panelBase = getPanelBaseDomain();
-  const where =
-    opts?.role === "ADMIN" && panelBase
-      ? { OR: [{ userId }, { name: panelBase }] }
-      : { userId };
+  const where = opts?.role === "ADMIN" ? {} : { userId };
 
   return prisma.domain.findMany({
     where,
     include: {
       server: { select: { name: true, hostname: true } },
+      user: { select: { id: true, name: true, email: true } },
       subdomains: true,
       sslCerts: {
         where: { subdomainId: null },
@@ -172,9 +169,15 @@ export async function createDomain(input: {
   return provisionDomain(domain);
 }
 
-export async function retryDomain(domainId: string, userId: string) {
+export async function retryDomain(
+  domainId: string,
+  actor: { id: string; role: "ADMIN" | "RESELLER" | "USER" }
+) {
   const domain = await prisma.domain.findFirstOrThrow({
-    where: { id: domainId, userId },
+    where: {
+      id: domainId,
+      ...(actor.role === "ADMIN" ? {} : { userId: actor.id }),
+    },
     include: { server: true },
   });
 
@@ -199,9 +202,15 @@ export async function retryDomain(domainId: string, userId: string) {
   return provisionDomain({ ...domain, documentRoot });
 }
 
-export async function deleteDomain(domainId: string, userId: string) {
+export async function deleteDomain(
+  domainId: string,
+  actor: { id: string; role: "ADMIN" | "RESELLER" | "USER" }
+) {
   const domain = await prisma.domain.findFirstOrThrow({
-    where: { id: domainId, userId },
+    where: {
+      id: domainId,
+      ...(actor.role === "ADMIN" ? {} : { userId: actor.id }),
+    },
     include: { server: true, subdomains: true },
   });
 
@@ -209,10 +218,11 @@ export async function deleteDomain(domainId: string, userId: string) {
     throw new Error(panelHostnameError(domain.name));
   }
 
+  const ownerId = domain.userId;
   for (const sub of domain.subdomains) {
-    await removeSiteAppUnit("subdomain", sub.id, userId).catch(() => undefined);
+    await removeSiteAppUnit("subdomain", sub.id, ownerId).catch(() => undefined);
   }
-  await removeSiteAppUnit("domain", domain.id, userId).catch(() => undefined);
+  await removeSiteAppUnit("domain", domain.id, ownerId).catch(() => undefined);
 
   await callAgent(
     { action: "delete_domain", domain: domain.name },

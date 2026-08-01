@@ -16,8 +16,7 @@ export async function GET(request: Request) {
     }
 
     const message = await fileManagerDelete(
-      target,
-      user.id,
+      target, { id: user.id, role: user.role },
       targetPath,
       action === "deleteFile"
     );

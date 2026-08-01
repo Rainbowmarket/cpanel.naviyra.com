@@ -27,9 +27,11 @@ export async function createTerminalSession(
     if (!targetId) {
       throw new Error("Select a domain or subdomain for the terminal");
     }
-    const target = await resolveHostingTarget(targetId, user.id, {
-      excludeMailSubdomains: true,
-    });
+    const target = await resolveHostingTarget(
+      targetId,
+      { id: user.id, role: user.role },
+      { excludeMailSubdomains: true }
+    );
     mode = user.role === "ADMIN" ? "full" : "jail";
     dbMode = mode === "full" ? "FULL" : "JAIL";
     cwd = target.documentRoot;

@@ -17,7 +17,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "Invalid request" }, { status: 400 });
     }
 
-    const message = await fileManagerExtractZip(target, user.id, dirPath, fileName, removeZip);
+    const message = await fileManagerExtractZip(target, { id: user.id, role: user.role }, dirPath, fileName, removeZip);
     return NextResponse.json({ success: true, message });
   } catch (error) {
     if (error instanceof Error && error.message === "Unauthorized") {

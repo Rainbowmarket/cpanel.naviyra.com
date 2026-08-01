@@ -18,8 +18,7 @@ export async function POST(request: Request) {
 
     const buffer = Buffer.from(await file.arrayBuffer());
     const message = await fileManagerUpload(
-      target,
-      user.id,
+      target, { id: user.id, role: user.role },
       dirPath,
       file.name,
       buffer.toString("base64")

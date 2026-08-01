@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { BrandLogo } from "@/components/ui/brand-logo";
 
 export default function WebmailLoginPage() {
   const router = useRouter();
@@ -60,10 +61,13 @@ export default function WebmailLoginPage() {
       />
       <div className="relative w-full max-w-md">
         <div className="rounded-2xl border border-slate-800/90 bg-slate-900/90 p-8 shadow-2xl backdrop-blur">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-400">
-            Naviyra Webmail
-          </p>
-          <h1 className="mt-2 text-2xl font-bold tracking-tight text-white">
+          <div className="flex items-center gap-3">
+            <BrandLogo size={40} priority />
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-400">
+              Naviyra Webmail
+            </p>
+          </div>
+          <h1 className="mt-4 text-2xl font-bold tracking-tight text-white">
             {domainLabel ? `Sign in · ${domainLabel}` : "Sign in to mail"}
           </h1>
           <p className="mt-1 text-sm text-slate-400">

@@ -15,18 +15,18 @@ export async function GET(request: Request) {
     const target = targetFromSearchParams(searchParams);
 
     if (action === "session") {
-      return NextResponse.json(await fileManagerSession(target, user.id));
+      return NextResponse.json(await fileManagerSession(target, { id: user.id, role: user.role }));
     }
 
     if (action === "list") {
       const path = searchParams.get("path") ?? "";
-      return NextResponse.json(await fileManagerList(target, user.id, path));
+      return NextResponse.json(await fileManagerList(target, { id: user.id, role: user.role }, path));
     }
 
     if (action === "read") {
       const path = searchParams.get("path") ?? "";
       const file = searchParams.get("file") ?? "";
-      return NextResponse.json(await fileManagerRead(target, user.id, path, file));
+      return NextResponse.json(await fileManagerRead(target, { id: user.id, role: user.role }, path, file));
     }
 
     return NextResponse.json({ success: false, message: "Unknown action" }, { status: 400 });

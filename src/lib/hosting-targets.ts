@@ -8,6 +8,13 @@ export type HostingTarget = {
   documentRoot: string;
   domainId: string;
   kind: "domain" | "subdomain";
+  ownerEmail?: string | null;
+  ownerName?: string | null;
+};
+
+export type AccessActor = {
+  id: string;
+  role: "ADMIN" | "RESELLER" | "USER";
 };
 
 export function parseHostingTargetId(
@@ -30,19 +37,43 @@ export function isMailSubdomainName(
   return mailLabel !== null && mailLabel !== "@" && subdomainName === mailLabel;
 }
 
+export function toAccessActor(actor: AccessActor | string): AccessActor {
+  if (typeof actor === "string") return { id: actor, role: "USER" };
+  return actor;
+}
+
+/** Domain ownership filter — admins see/manage everything. */
+export function domainAccessWhere(actor: AccessActor | string) {
+  const a = toAccessActor(actor);
+  if (a.role === "ADMIN") return {};
+  return { userId: a.id };
+}
+
 export async function listHostingTargets(
-  userId: string,
+  actor: AccessActor | string,
   options?: { excludeMailSubdomains?: boolean }
 ): Promise<HostingTarget[]> {
   const excludeMail = options?.excludeMailSubdomains ?? false;
+  const access = domainAccessWhere(actor);
+  const asAdmin = toAccessActor(actor).role === "ADMIN";
 
   const domains = await prisma.domain.findMany({
-    where: { userId },
+    where: access,
     orderBy: { name: "asc" },
+    include: {
+      user: { select: { email: true, name: true } },
+    },
   });
   const subdomains = await prisma.subdomain.findMany({
-    where: { domain: { userId } },
-    include: { domain: { select: { name: true } } },
+    where: { domain: access },
+    include: {
+      domain: {
+        select: {
+          name: true,
+          user: { select: { email: true, name: true } },
+        },
+      },
+    },
     orderBy: [{ domain: { name: "asc" } }, { name: "asc" }],
   });
 
@@ -55,6 +86,8 @@ export async function listHostingTargets(
       documentRoot: domain.documentRoot,
       domainId: domain.id,
       kind: "domain",
+      ownerEmail: asAdmin ? domain.user.email : null,
+      ownerName: asAdmin ? domain.user.name : null,
     });
     for (const subdomain of subdomains.filter((s) => s.domainId === domain.id)) {
       if (
@@ -69,6 +102,8 @@ export async function listHostingTargets(
         documentRoot: subdomain.documentRoot,
         domainId: domain.id,
         kind: "subdomain",
+        ownerEmail: asAdmin ? subdomain.domain.user.email : null,
+        ownerName: asAdmin ? subdomain.domain.user.name : null,
       });
     }
   }
@@ -78,11 +113,11 @@ export async function listHostingTargets(
 
 export async function resolveHostingTarget(
   target: string,
-  userId: string,
+  actor: AccessActor | string,
   options?: { excludeMailSubdomains?: boolean }
 ): Promise<HostingTarget> {
   const parsed = parseHostingTargetId(target);
-  const targets = await listHostingTargets(userId, options);
+  const targets = await listHostingTargets(actor, options);
   const match = targets.find((t) =>
     parsed.kind === "subdomain"
       ? t.id === `s:${parsed.id}`

@@ -24,7 +24,7 @@ export async function POST(request: Request) {
     if (!target) {
       return NextResponse.json({ success: false, message: "target required" }, { status: 400 });
     }
-    await fileManagerWrite(target, user.id, body.path, body.content);
+    await fileManagerWrite(target, { id: user.id, role: user.role }, body.path, body.content);
     return new NextResponse("Saved.", { status: 200 });
   } catch (error) {
     if (error instanceof z.ZodError) {

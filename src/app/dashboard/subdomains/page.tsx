@@ -634,13 +634,15 @@ export default function SubdomainsPage() {
                     Edit path
                   </button>
                 )}
-                <Link
+                <a
                   href={`/file-manager?target=s:${s.id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-emerald-400 hover:bg-slate-800"
                 >
                   <FolderOpen className="h-3.5 w-3.5" />
                   Open files
-                </Link>
+                </a>
                 {s.status === "ERROR" && (
                   <button
                     type="button"

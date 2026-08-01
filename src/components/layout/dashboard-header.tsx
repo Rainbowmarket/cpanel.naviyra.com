@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronRight } from "lucide-react";
 import { LogoutButton } from "@/components/layout/logout-button";
+import { BrandLogo } from "@/components/ui/brand-logo";
 import { cn } from "@/lib/utils";
 
 const routeLabels: Record<string, string> = {
@@ -47,7 +48,6 @@ type DashboardHeaderProps = {
 export function DashboardHeader({ name, email, role }: DashboardHeaderProps) {
   const pathname = usePathname();
   const crumbs = getBreadcrumbs(pathname);
-  const initial = name.trim().charAt(0).toUpperCase() || "?";
   const roleLabel = role === "ADMIN" ? "Administrator" : "User";
 
   return (
@@ -76,16 +76,14 @@ export function DashboardHeader({ name, email, role }: DashboardHeaderProps) {
 
       <div className="flex shrink-0 items-center gap-3">
         <div className="hidden items-center gap-3 rounded-xl border border-slate-800 bg-slate-900/80 px-3 py-2 sm:flex">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-sm font-semibold text-emerald-300 ring-1 ring-emerald-500/25">
-            {initial}
-          </div>
+          <BrandLogo size={36} className="ring-1 ring-white/10" />
           <div className="min-w-0 leading-tight">
             <p className="truncate text-sm font-medium text-white">{name}</p>
             <p className="truncate text-[11px] text-slate-500">{email}</p>
           </div>
           <span
             className={cn(
-              "ml-1 shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ring-1",
+              "ml-1 shrink-0 rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ring-1",
               role === "ADMIN"
                 ? "bg-emerald-500/10 text-emerald-400 ring-emerald-500/25"
                 : "bg-slate-800 text-slate-400 ring-slate-700"
@@ -95,9 +93,7 @@ export function DashboardHeader({ name, email, role }: DashboardHeaderProps) {
           </span>
         </div>
         <div className="flex items-center gap-2 sm:hidden">
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-500/15 text-sm font-semibold text-emerald-300 ring-1 ring-emerald-500/25">
-            {initial}
-          </div>
+          <BrandLogo size={36} className="ring-1 ring-white/10" />
         </div>
         <LogoutButton />
       </div>

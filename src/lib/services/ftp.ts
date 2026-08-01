@@ -13,15 +13,20 @@ export async function listFtpAccounts(userId: string) {
 export async function createFtpAccount(input: {
   target: string;
   userId: string;
+  role?: "ADMIN" | "RESELLER" | "USER";
   username: string;
   password: string;
 }) {
-  const hostingTarget = await resolveHostingTarget(input.target, input.userId, {
+  const actor = { id: input.userId, role: input.role ?? "USER" as const };
+  const hostingTarget = await resolveHostingTarget(input.target, actor, {
     excludeMailSubdomains: true,
   });
 
   const domain = await prisma.domain.findFirstOrThrow({
-    where: { id: hostingTarget.domainId, userId: input.userId },
+    where: {
+      id: hostingTarget.domainId,
+      ...(actor.role === "ADMIN" ? {} : { userId: input.userId }),
+    },
     include: { server: true },
   });
 

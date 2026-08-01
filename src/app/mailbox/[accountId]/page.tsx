@@ -21,6 +21,7 @@ import {
 import { formatDateTime } from "@/lib/utils";
 import type { MailFolder } from "@/lib/mail/types";
 import { FOLDER_LABELS, MAIL_FOLDERS } from "@/lib/mail/types";
+import { BrandLogo } from "@/components/ui/brand-logo";
 
 type MailMessage = {
   id: string;
@@ -484,9 +485,7 @@ export default function MailboxPage() {
     <>
       <header className="flex shrink-0 items-center justify-between border-b border-slate-800 px-5 py-3">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/20 ring-1 ring-emerald-500/30">
-            <Mail className="h-4 w-4 text-emerald-400" />
-          </div>
+          <BrandLogo size={36} className="ring-1 ring-white/10" />
           <div>
             <p className="text-sm font-semibold text-white">{email || "Mailbox"}</p>
             <p className="text-xs text-slate-500">Naviyra Webmail</p>

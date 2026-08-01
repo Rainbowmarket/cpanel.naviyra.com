@@ -16,7 +16,7 @@ export async function GET(request: Request) {
       return new NextResponse("Invalid request", { status: 400 });
     }
 
-    const message = await fileManagerCreate(target, user.id, dirPath, name, action);
+    const message = await fileManagerCreate(target, { id: user.id, role: user.role }, dirPath, name, action);
     return new NextResponse(message, { status: 200 });
   } catch (error) {
     if (error instanceof Error && error.message === "Unauthorized") {

@@ -15,7 +15,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: false, message: "Missing parameters" }, { status: 400 });
     }
 
-    const file = await fileManagerDownloadPath(target, user.id, dirPath, fileName);
+    const file = await fileManagerDownloadPath(target, { id: user.id, role: user.role }, dirPath, fileName);
     const body = Buffer.from(file.contentBase64, "base64");
     return new NextResponse(body, {
       headers: {
