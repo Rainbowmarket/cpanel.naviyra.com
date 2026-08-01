@@ -141,6 +141,40 @@ function defaultRestoreSelection(
   };
 }
 
+function IncludeChip(props: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  label: string;
+}) {
+  const { checked, onChange, label } = props;
+  return (
+    <label
+      className={`inline-flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition ${
+        checked
+          ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
+          : "border-slate-800 bg-slate-900/60 text-slate-400 hover:border-slate-700"
+      }`}
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="sr-only"
+      />
+      <span
+        className={`flex h-4 w-4 items-center justify-center rounded border text-[10px] ${
+          checked
+            ? "border-emerald-400 bg-emerald-500 text-white"
+            : "border-slate-600"
+        }`}
+      >
+        {checked ? "✓" : ""}
+      </span>
+      {label}
+    </label>
+  );
+}
+
 export default function BackupsPage() {
   const router = useRouter();
   const [config, setConfig] = useState<BackupConfig | null>(null);
@@ -392,6 +426,7 @@ export default function BackupsPage() {
     load();
   }
 
+
   if (loading || !config) {
     return <p className="text-slate-400">Loading backup worker...</p>;
   }
@@ -403,44 +438,45 @@ export default function BackupsPage() {
   }));
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <PageHeader
         title="Backups"
-        description="Scheduled daily backups per domain (files, DNS, mail) — no full-panel archive."
+        description="Per-domain archives of website files, DNS, and mail."
       />
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <div className="rounded-xl border border-slate-800 bg-slate-950/80 px-5 py-4">
-          <p className="text-xs uppercase tracking-wider text-slate-500">
+      <div className="flex flex-wrap gap-2">
+        <div className="rounded-lg border border-slate-800 bg-slate-950/80 px-3.5 py-2.5">
+          <p className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
             Last status
           </p>
-          <p className={`mt-1 text-lg font-medium ${statusTone(config.lastStatus)}`}>
+          <p className={`text-sm font-semibold ${statusTone(config.lastStatus)}`}>
             {config.lastStatus ?? "Never run"}
           </p>
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="text-[11px] text-slate-500">
             {config.lastRunAt
               ? new Date(config.lastRunAt).toLocaleString()
               : "—"}
           </p>
         </div>
-        <div className="rounded-xl border border-slate-800 bg-slate-950/80 px-5 py-4">
-          <p className="text-xs uppercase tracking-wider text-slate-500">
-            Timer
+        <div className="rounded-lg border border-slate-800 bg-slate-950/80 px-3.5 py-2.5">
+          <p className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
+            Schedule
           </p>
-          <p className="mt-1 text-lg font-medium text-white">
-            {config.enabled ? "Enabled" : "Disabled"}
+          <p className="text-sm font-semibold text-white">
+            {config.enabled ? "On" : "Off"}
           </p>
-          <p className="mt-1 text-xs text-slate-500">
-            {config.timerInstalled
-              ? "systemd unit installed"
-              : "Save while enabled to install timer (Linux)"}
+          <p className="text-[11px] text-slate-500">
+            {config.timerInstalled ? "Timer installed" : "Timer not installed"}
           </p>
         </div>
-        <div className="rounded-xl border border-slate-800 bg-slate-950/80 px-5 py-4">
-          <p className="text-xs uppercase tracking-wider text-slate-500">
+        <div className="min-w-0 flex-1 basis-48 rounded-lg border border-slate-800 bg-slate-950/80 px-3.5 py-2.5">
+          <p className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
             Last archive
           </p>
-          <p className="mt-1 truncate font-mono text-sm text-slate-300">
+          <p
+            className="truncate font-mono text-xs text-slate-300"
+            title={config.lastArchive ?? undefined}
+          >
             {config.lastArchive ?? "—"}
           </p>
         </div>
@@ -465,19 +501,33 @@ export default function BackupsPage() {
         </p>
       ) : null}
 
-      <section className="space-y-4 rounded-xl border border-slate-800 bg-slate-950/80 px-5 py-5">
-        <div>
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-white">
-            <Globe className="h-4 w-4 text-slate-400" />
-            Domain backup
-          </h2>
-          <p className="mt-0.5 text-xs text-slate-500">
-            Back up one domain’s website files, DNS zone, and mail — without
-            touching the panel database or other domains.
-          </p>
+      <section className="rounded-xl border border-slate-800 bg-slate-950/80 p-5">
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-white">
+              <Globe className="h-4 w-4 text-emerald-400" />
+              Backup one domain
+            </h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Manual snapshot for a single domain — does not touch the panel DB.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleDomainBackup}
+            disabled={domainRunning || !domainId}
+            className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+          >
+            {domainRunning ? (
+              <RefreshCw className="h-4 w-4 animate-spin" />
+            ) : (
+              <Archive className="h-4 w-4" />
+            )}
+            {domainRunning ? "Backing up…" : "Run backup"}
+          </button>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-3">
           <div>
             <label className="mb-1.5 block text-xs font-medium text-slate-400">
               Domain
@@ -492,76 +542,66 @@ export default function BackupsPage() {
               />
             )}
           </div>
-          <div className="grid gap-2 content-end">
-            {(
-              [
-                ["sites", domainIncludeSites, setDomainIncludeSites, "Website files"],
-                ["dns", domainIncludeDns, setDomainIncludeDns, "DNS zone"],
-                ["mail", domainIncludeMail, setDomainIncludeMail, "Mail vhosts"],
-              ] as const
-            ).map(([key, checked, setChecked, label]) => (
-              <label
-                key={key}
-                className="flex items-center gap-2 text-sm text-slate-300"
-              >
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  onChange={(e) => setChecked(e.target.checked)}
-                  className="rounded border-slate-600"
-                />
-                {label}
-              </label>
-            ))}
+          <div>
+            <p className="mb-1.5 text-xs font-medium text-slate-400">Include</p>
+            <div className="flex flex-wrap gap-2">
+              <IncludeChip
+                checked={domainIncludeSites}
+                onChange={setDomainIncludeSites}
+                label="Website files"
+              />
+              <IncludeChip
+                checked={domainIncludeDns}
+                onChange={setDomainIncludeDns}
+                label="DNS zone"
+              />
+              <IncludeChip
+                checked={domainIncludeMail}
+                onChange={setDomainIncludeMail}
+                label="Mail"
+              />
+            </div>
           </div>
         </div>
-
-        <button
-          type="button"
-          onClick={handleDomainBackup}
-          disabled={domainRunning || !domainId}
-          className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50"
-        >
-          {domainRunning ? (
-            <RefreshCw className="h-4 w-4 animate-spin" />
-          ) : (
-            <Archive className="h-4 w-4" />
-          )}
-          Backup domain
-        </button>
       </section>
 
       <form
         onSubmit={handleSave}
-        className="space-y-5 rounded-xl border border-slate-800 bg-slate-950/80 px-5 py-5"
+        className="rounded-xl border border-slate-800 bg-slate-950/80 p-5"
       >
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/80 pb-4">
           <div>
             <h2 className="text-sm font-semibold text-white">
-              Daily domain schedule
+              Automatic schedule
             </h2>
-            <p className="mt-0.5 text-xs text-slate-500">
-              When enabled, the timer backs up each domain separately (not one
-              full-panel archive).
+            <p className="mt-1 text-xs text-slate-500">
+              Backs up every domain on a timer (separate archives).
             </p>
           </div>
-          <label className="flex items-center gap-2 text-sm text-slate-300">
-            <input
-              type="checkbox"
-              checked={config.enabled}
-              onChange={(e) =>
-                setConfig({ ...config, enabled: e.target.checked })
-              }
-              className="rounded border-slate-600"
+          <button
+            type="button"
+            role="switch"
+            aria-checked={config.enabled}
+            onClick={() => setConfig({ ...config, enabled: !config.enabled })}
+            className={`relative h-7 w-12 shrink-0 rounded-full transition ${
+              config.enabled ? "bg-emerald-500" : "bg-slate-700"
+            }`}
+          >
+            <span
+              className={`absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white shadow transition ${
+                config.enabled ? "translate-x-5" : "translate-x-0"
+              }`}
             />
-            Enable daily domain backups
-          </label>
+            <span className="sr-only">
+              {config.enabled ? "Disable" : "Enable"} daily backups
+            </span>
+          </button>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-[1fr_8rem]">
           <div>
             <label className="mb-1.5 block text-xs font-medium text-slate-400">
-              Schedule
+              When
             </label>
             <Select
               value={config.schedule}
@@ -573,7 +613,7 @@ export default function BackupsPage() {
           </div>
           <div>
             <label className="mb-1.5 block text-xs font-medium text-slate-400">
-              Keep last N archives per domain
+              Keep last
             </label>
             <input
               type="number"
@@ -591,9 +631,9 @@ export default function BackupsPage() {
           </div>
         </div>
 
-        <div>
+        <div className="mt-4">
           <label className="mb-1.5 block text-xs font-medium text-slate-400">
-            Backup root
+            Backup folder
           </label>
           <input
             value={config.backupRoot}
@@ -604,32 +644,28 @@ export default function BackupsPage() {
           />
         </div>
 
-        <div className="grid gap-2 sm:grid-cols-2">
-          {(
-            [
-              ["includeSites", "Website files"],
-              ["includeDns", "DNS zone"],
-              ["includeMail", "Mail vhosts"],
-            ] as const
-          ).map(([key, label]) => (
-            <label
-              key={key}
-              className="flex items-center gap-2 rounded-lg border border-slate-800 px-3 py-2 text-sm text-slate-300"
-            >
-              <input
-                type="checkbox"
-                checked={config[key]}
-                onChange={(e) =>
-                  setConfig({ ...config, [key]: e.target.checked })
-                }
-                className="rounded border-slate-600"
-              />
-              {label}
-            </label>
-          ))}
+        <div className="mt-4">
+          <p className="mb-1.5 text-xs font-medium text-slate-400">Include</p>
+          <div className="flex flex-wrap gap-2">
+            <IncludeChip
+              checked={config.includeSites}
+              onChange={(v) => setConfig({ ...config, includeSites: v })}
+              label="Website files"
+            />
+            <IncludeChip
+              checked={config.includeDns}
+              onChange={(v) => setConfig({ ...config, includeDns: v })}
+              label="DNS zone"
+            />
+            <IncludeChip
+              checked={config.includeMail}
+              onChange={(v) => setConfig({ ...config, includeMail: v })}
+              label="Mail"
+            />
+          </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
+        <div className="mt-5 flex flex-wrap gap-2 border-t border-slate-800/80 pt-4">
           <button
             type="submit"
             disabled={saving}
@@ -640,7 +676,7 @@ export default function BackupsPage() {
             ) : (
               <Save className="h-4 w-4" />
             )}
-            Save &amp; sync timer
+            Save schedule
           </button>
           <button
             type="button"
@@ -653,95 +689,101 @@ export default function BackupsPage() {
             ) : (
               <Play className="h-4 w-4" />
             )}
-            Run all domains now
+            Run all now
           </button>
         </div>
       </form>
 
-      <div className="space-y-3">
-        <h2 className="flex items-center gap-2 text-sm font-semibold text-white">
+      <div>
+        <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-white">
           <Archive className="h-4 w-4 text-slate-400" />
           Recent runs
         </h2>
         {runs.length === 0 ? (
-          <p className="rounded-xl border border-slate-800 bg-slate-950/50 px-5 py-8 text-center text-slate-500">
+          <p className="rounded-xl border border-dashed border-slate-800 px-5 py-10 text-center text-sm text-slate-500">
             No backup runs yet.
           </p>
         ) : (
-          runs.map((run) => {
-            const meta = parseSummary(run.summary);
-            const domainOnly = isDomainRun(run);
-            return (
-              <div
-                key={run.id}
-                className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/80 px-5 py-4"
-              >
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span
-                      className={`text-sm font-medium ${statusTone(run.status)}`}
-                    >
-                      {run.status}
-                    </span>
-                    <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[10px] uppercase tracking-wide text-slate-400">
-                      {domainOnly ? "domain" : run.source}
-                    </span>
-                    {domainOnly && meta.domain ? (
-                      <span className="rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-medium text-sky-300">
-                        {meta.domain}
+          <div className="overflow-hidden rounded-xl border border-slate-800">
+            {runs.map((run, idx) => {
+              const meta = parseSummary(run.summary);
+              const domainOnly = isDomainRun(run);
+              return (
+                <div
+                  key={run.id}
+                  className={`flex flex-wrap items-start justify-between gap-3 bg-slate-950/80 px-4 py-3.5 ${
+                    idx > 0 ? "border-t border-slate-800" : ""
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span
+                        className={`text-sm font-medium ${statusTone(run.status)}`}
+                      >
+                        {run.status}
                       </span>
+                      <span className="rounded-md bg-slate-800 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-400">
+                        {domainOnly ? "domain" : run.source}
+                      </span>
+                      {domainOnly && meta.domain ? (
+                        <span className="rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300">
+                          {meta.domain}
+                        </span>
+                      ) : null}
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {new Date(run.startedAt).toLocaleString()}
+                      {run.finishedAt
+                        ? ` → ${new Date(run.finishedAt).toLocaleString()}`
+                        : ""}
+                    </p>
+                    {run.archivePath ? (
+                      <p className="mt-1 flex items-center gap-1.5 truncate font-mono text-xs text-slate-400">
+                        <HardDrive className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate">
+                          {run.archivePath} · {formatBytes(run.sizeBytes)}
+                        </span>
+                      </p>
+                    ) : null}
+                    {meta.included.length > 0 ? (
+                      <p className="mt-1 text-xs text-slate-500">
+                        {meta.included.join(" · ")}
+                      </p>
+                    ) : null}
+                    {run.error ? (
+                      <p className="mt-1 text-xs text-red-400">{run.error}</p>
                     ) : null}
                   </div>
-                  <p className="mt-1 text-xs text-slate-500">
-                    {new Date(run.startedAt).toLocaleString()}
-                    {run.finishedAt
-                      ? ` → ${new Date(run.finishedAt).toLocaleString()}`
-                      : ""}
-                  </p>
-                  {run.archivePath ? (
-                    <p className="mt-1 flex items-center gap-1.5 font-mono text-xs text-slate-400">
-                      <HardDrive className="h-3.5 w-3.5" />
-                      {run.archivePath} · {formatBytes(run.sizeBytes)}
-                    </p>
-                  ) : null}
-                  {meta.included.length > 0 ? (
-                    <p className="mt-1 text-xs text-slate-500">
-                      Included: {meta.included.join(", ")}
-                    </p>
-                  ) : null}
-                  {run.error ? (
-                    <p className="mt-1 text-xs text-red-400">{run.error}</p>
-                  ) : null}
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {run.status === "COMPLETED" && run.archivePath ? (
+                  <div className="flex flex-wrap gap-2">
+                    {run.status === "COMPLETED" && run.archivePath ? (
+                      <button
+                        type="button"
+                        onClick={() => openRestore(run)}
+                        disabled={restoreBusy || deletingId === run.id}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                        Restore
+                      </button>
+                    ) : null}
                     <button
                       type="button"
-                      onClick={() => openRestore(run)}
-                      disabled={restoreBusy || deletingId === run.id}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/40 px-3 py-1.5 text-xs text-amber-300 hover:bg-amber-500/10 disabled:opacity-50"
+                      onClick={() => handleDelete(run)}
+                      disabled={deletingId === run.id || restoreBusy}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/30 px-3 py-1.5 text-xs text-red-400 hover:bg-red-500/10 disabled:opacity-50"
                     >
-                      <RotateCcw className="h-3.5 w-3.5" />
-                      Restore
+                      {deletingId === run.id ? (
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-3.5 w-3.5" />
+                      )}
+                      Delete
                     </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(run)}
-                    disabled={deletingId === run.id || restoreBusy}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/40 px-3 py-1.5 text-xs text-red-300 hover:bg-red-500/10 disabled:opacity-50"
-                  >
-                    {deletingId === run.id ? (
-                      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Trash2 className="h-3.5 w-3.5" />
-                    )}
-                    Delete
-                  </button>
+                  </div>
                 </div>
-              </div>
-            );
-          })
+              );
+            })}
+          </div>
         )}
       </div>
 

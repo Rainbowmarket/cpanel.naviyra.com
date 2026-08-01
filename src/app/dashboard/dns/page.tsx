@@ -1,8 +1,18 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { formatDate, matchesSearch } from "@/lib/utils";
-import { AlertCircle, Mail, Network, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
+import {
+  AlertCircle,
+  ChevronDown,
+  ChevronRight,
+  Mail,
+  Network,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Trash2,
+} from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { Modal, modalInputClass, modalLabelClass } from "@/components/ui/modal";
 import { ModalActions, PageHeader } from "@/components/ui/page-header";
@@ -25,11 +35,30 @@ type DnsZone = {
   records: DnsRecord[];
 };
 
-const RECORD_TYPES = ["A", "AAAA", "CNAME", "MX", "TXT"];
+const RECORD_TYPES = ["A", "AAAA", "CNAME", "MX", "TXT"] as const;
+const FILTER_TYPES = ["ALL", ...RECORD_TYPES] as const;
+type FilterType = (typeof FILTER_TYPES)[number];
 
 function recordLabel(name: string, domain: string) {
   if (name === "@" || name === "") return domain;
   return `${name}.${domain}`;
+}
+
+function typeBadgeClass(type: string) {
+  switch (type) {
+    case "A":
+      return "bg-emerald-500/15 text-emerald-300 ring-emerald-500/25";
+    case "AAAA":
+      return "bg-cyan-500/15 text-cyan-300 ring-cyan-500/25";
+    case "CNAME":
+      return "bg-amber-500/15 text-amber-300 ring-amber-500/25";
+    case "MX":
+      return "bg-sky-500/15 text-sky-300 ring-sky-500/25";
+    case "TXT":
+      return "bg-violet-500/15 text-violet-300 ring-violet-500/25";
+    default:
+      return "bg-slate-800 text-slate-300 ring-slate-700";
+  }
 }
 
 export default function DnsPage() {
@@ -37,6 +66,8 @@ export default function DnsPage() {
   const [nameservers, setNameservers] = useState({ ns1: "", ns2: "" });
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState<FilterType>("ALL");
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<"add" | "edit">("add");
   const [activeZone, setActiveZone] = useState<DnsZone | null>(null);
@@ -158,17 +189,48 @@ export default function DnsPage() {
     await loadZones();
   }
 
-  const filtered = zones.filter((zone) =>
-    matchesSearch(
-      search,
-      zone.domain.name,
-      zone.domain.server.ipAddress,
-      ...zone.records.map((r) => `${r.name} ${r.type} ${r.value}`)
-    )
-  );
+  function toggleZone(zoneId: string) {
+    setCollapsed((prev) => ({ ...prev, [zoneId]: !prev[zoneId] }));
+  }
+
+  function setAllCollapsed(value: boolean) {
+    const next: Record<string, boolean> = {};
+    for (const zone of zones) next[zone.id] = value;
+    setCollapsed(next);
+  }
+
+  const filtered = useMemo(() => {
+    return zones
+      .map((zone) => {
+        const records = zone.records.filter((record) => {
+          if (typeFilter !== "ALL" && record.type !== typeFilter) return false;
+          if (!search.trim()) return true;
+          return matchesSearch(
+            search,
+            zone.domain.name,
+            zone.domain.server.ipAddress,
+            record.name,
+            record.type,
+            record.value,
+            recordLabel(record.name, zone.domain.name)
+          );
+        });
+        return { ...zone, records };
+      })
+      .filter((zone) => {
+        if (typeFilter !== "ALL") return zone.records.length > 0;
+        if (!search.trim()) return true;
+        return (
+          zone.records.length > 0 ||
+          matchesSearch(search, zone.domain.name, zone.domain.server.ipAddress)
+        );
+      });
+  }, [zones, search, typeFilter]);
+
+  const totalRecords = filtered.reduce((n, z) => n + z.records.length, 0);
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <PageHeader
         title="DNS Zones"
         description="Manage DNS records for your domains."
@@ -177,16 +239,62 @@ export default function DnsPage() {
         searchPlaceholder="Search zones or records..."
       />
 
-      <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-5">
-        <div className="flex items-start gap-3">
-          <Network className="mt-0.5 h-5 w-5 shrink-0 text-emerald-400" />
-          <p className="text-sm text-slate-400">
-            Nameservers:{" "}
-            <span className="text-emerald-300">{nameservers.ns1}</span>
-            {" · "}
-            <span className="text-emerald-300">{nameservers.ns2}</span>
-          </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="inline-flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/80 px-3.5 py-2 text-sm text-slate-400">
+          <Network className="h-4 w-4 text-emerald-400" />
+          <span className="text-xs uppercase tracking-wider text-slate-500">NS</span>
+          <span className="font-mono text-emerald-300">{nameservers.ns1 || "—"}</span>
+          <span className="text-slate-600">·</span>
+          <span className="font-mono text-emerald-300">{nameservers.ns2 || "—"}</span>
         </div>
+        <div className="rounded-lg border border-slate-800 bg-slate-950/80 px-3.5 py-2 text-sm text-slate-400">
+          <span className="text-white">{filtered.length}</span> zone
+          {filtered.length === 1 ? "" : "s"}
+          <span className="mx-1.5 text-slate-600">·</span>
+          <span className="text-white">{totalRecords}</span> record
+          {totalRecords === 1 ? "" : "s"}
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap gap-1.5">
+          {FILTER_TYPES.map((type) => {
+            const active = typeFilter === type;
+            return (
+              <button
+                key={type}
+                type="button"
+                onClick={() => setTypeFilter(type)}
+                className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+                  active
+                    ? "bg-emerald-600 text-white"
+                    : "border border-slate-800 bg-slate-950/80 text-slate-400 hover:border-slate-700 hover:text-slate-200"
+                }`}
+              >
+                {type === "ALL" ? "All types" : type}
+              </button>
+            );
+          })}
+        </div>
+        {filtered.length > 1 ? (
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setAllCollapsed(false)}
+              className="text-xs text-slate-500 hover:text-slate-300"
+            >
+              Expand all
+            </button>
+            <span className="text-slate-700">|</span>
+            <button
+              type="button"
+              onClick={() => setAllCollapsed(true)}
+              className="text-xs text-slate-500 hover:text-slate-300"
+            >
+              Collapse all
+            </button>
+          </div>
+        ) : null}
       </div>
 
       <Modal
@@ -259,117 +367,172 @@ export default function DnsPage() {
         </form>
       </Modal>
 
-      <div className="space-y-4">
-        {filtered.map((zone) => (
-          <div
-            key={zone.id}
-            className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950"
-          >
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 px-5 py-4">
-              <div>
-                <p className="font-semibold text-white">{zone.domain.name}</p>
-                <p className="mt-0.5 text-xs text-slate-500">
-                  Serial {zone.serial}
-                  {zone.syncedAt && ` · Synced ${formatDate(zone.syncedAt)}`}
-                  {zone.lastError && (
-                    <span className="ml-2 inline-flex items-center gap-1 text-red-400">
-                      <AlertCircle className="h-3 w-3" />
-                      {zone.lastError}
-                    </span>
-                  )}
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => openAddRecord(zone)}
-                  className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm text-slate-300 transition hover:border-emerald-500/40 hover:text-emerald-300"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  Add record
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleAddMailRecords(zone.domain.id)}
-                  disabled={loading}
-                  className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm text-slate-300 transition hover:border-emerald-500/40 hover:text-emerald-300 disabled:opacity-50"
-                >
-                  <Mail className="h-3.5 w-3.5" />
-                  Add mail records
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleRetry(zone.domain.id)}
-                  disabled={loading}
-                  className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm text-slate-300 transition hover:border-emerald-500/40 hover:text-emerald-300 disabled:opacity-50"
-                >
-                  <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-                  Re-sync
-                </button>
-              </div>
-            </div>
+      <div className="space-y-3">
+        {filtered.map((zone) => {
+          const isCollapsed = Boolean(collapsed[zone.id]);
+          const fullCount = zones.find((z) => z.id === zone.id)?.records.length ?? zone.records.length;
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead>
-                  <tr className="border-b border-slate-800/80 text-xs uppercase tracking-wider text-slate-500">
-                    <th className="px-5 py-3 font-medium">Name</th>
-                    <th className="px-5 py-3 font-medium">Type</th>
-                    <th className="px-5 py-3 font-medium">Value</th>
-                    <th className="px-5 py-3 font-medium">TTL</th>
-                    <th className="px-5 py-3 font-medium">Pri</th>
-                    <th className="px-5 py-3 font-medium" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {zone.records.map((record) => (
-                    <tr key={record.id} className="border-b border-slate-800/50 last:border-0">
-                      <td className="px-5 py-3 font-mono text-emerald-300/90">
-                        {recordLabel(record.name, zone.domain.name)}
-                      </td>
-                      <td className="px-5 py-3 text-slate-300">{record.type}</td>
-                      <td className="max-w-xs truncate px-5 py-3 font-mono text-slate-400">
-                        {record.value}
-                      </td>
-                      <td className="px-5 py-3 text-slate-500">{record.ttl}</td>
-                      <td className="px-5 py-3 text-slate-500">
-                        {record.priority ?? "—"}
-                      </td>
-                      <td className="px-5 py-3 text-right">
-                        <div className="inline-flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => openEditRecord(zone, record)}
-                            disabled={loading}
-                            className="rounded p-1.5 text-slate-500 transition hover:bg-slate-800 hover:text-emerald-400 disabled:opacity-50"
-                            title="Edit record"
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteRecord(record.id)}
-                            disabled={loading}
-                            className="rounded p-1.5 text-slate-500 transition hover:bg-red-500/10 hover:text-red-400 disabled:opacity-50"
-                            title="Delete record"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          return (
+            <div
+              key={zone.id}
+              className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/80"
+            >
+              <div className="flex flex-wrap items-center gap-2 px-3 py-2.5 sm:px-4">
+                <button
+                  type="button"
+                  onClick={() => toggleZone(zone.id)}
+                  className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1.5 py-1.5 text-left transition hover:bg-slate-900/80"
+                  aria-expanded={!isCollapsed}
+                >
+                  {isCollapsed ? (
+                    <ChevronRight className="h-4 w-4 shrink-0 text-slate-500" />
+                  ) : (
+                    <ChevronDown className="h-4 w-4 shrink-0 text-slate-500" />
+                  )}
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="truncate font-semibold text-white">{zone.domain.name}</p>
+                      <span className="rounded-md bg-slate-800 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-slate-400">
+                        {zone.records.length}
+                        {typeFilter !== "ALL" || search.trim()
+                          ? ` / ${fullCount}`
+                          : ""}{" "}
+                        records
+                      </span>
+                    </div>
+                    <p className="mt-0.5 text-[11px] text-slate-500">
+                      Serial {zone.serial}
+                      {zone.syncedAt ? ` · Synced ${formatDate(zone.syncedAt)}` : ""}
+                      {zone.lastError ? (
+                        <span className="ml-2 inline-flex items-center gap-1 text-red-400">
+                          <AlertCircle className="h-3 w-3" />
+                          {zone.lastError}
+                        </span>
+                      ) : null}
+                    </p>
+                  </div>
+                </button>
+
+                <div className="flex flex-wrap items-center gap-1.5 pl-7 sm:pl-0">
+                  <button
+                    type="button"
+                    onClick={() => openAddRecord(zone)}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-emerald-500"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Add
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleAddMailRecords(zone.domain.id)}
+                    disabled={loading}
+                    title="Add mail records"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+                  >
+                    <Mail className="h-3.5 w-3.5" />
+                    Mail
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRetry(zone.domain.id)}
+                    disabled={loading}
+                    title="Re-sync zone"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+                    Sync
+                  </button>
+                </div>
+              </div>
+
+              {!isCollapsed ? (
+                <div className="border-t border-slate-800/80">
+                  {zone.records.length === 0 ? (
+                    <p className="px-5 py-8 text-center text-sm text-slate-500">
+                      {typeFilter !== "ALL" || search.trim()
+                        ? "No records match this filter."
+                        : "No records in this zone yet."}
+                    </p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-sm">
+                        <thead>
+                          <tr className="border-b border-slate-800/80 text-[10px] uppercase tracking-wider text-slate-500">
+                            <th className="px-4 py-2.5 font-medium sm:px-5">Name</th>
+                            <th className="px-4 py-2.5 font-medium sm:px-5">Type</th>
+                            <th className="px-4 py-2.5 font-medium sm:px-5">Value</th>
+                            <th className="px-4 py-2.5 font-medium sm:px-5">TTL</th>
+                            <th className="px-4 py-2.5 font-medium sm:px-5">Pri</th>
+                            <th className="px-4 py-2.5 font-medium sm:px-5" />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {zone.records.map((record) => (
+                            <tr
+                              key={record.id}
+                              className="border-b border-slate-800/40 last:border-0 hover:bg-slate-900/40"
+                            >
+                              <td className="px-4 py-2.5 font-mono text-xs text-emerald-300/90 sm:px-5 sm:text-sm">
+                                {recordLabel(record.name, zone.domain.name)}
+                              </td>
+                              <td className="px-4 py-2.5 sm:px-5">
+                                <span
+                                  className={`inline-flex rounded-md px-1.5 py-0.5 text-[10px] font-semibold tracking-wide ring-1 ring-inset ${typeBadgeClass(record.type)}`}
+                                >
+                                  {record.type}
+                                </span>
+                              </td>
+                              <td
+                                className="max-w-[14rem] truncate px-4 py-2.5 font-mono text-xs text-slate-400 sm:max-w-xs sm:px-5 sm:text-sm"
+                                title={record.value}
+                              >
+                                {record.value}
+                              </td>
+                              <td className="px-4 py-2.5 tabular-nums text-slate-500 sm:px-5">
+                                {record.ttl}
+                              </td>
+                              <td className="px-4 py-2.5 tabular-nums text-slate-500 sm:px-5">
+                                {record.priority ?? "—"}
+                              </td>
+                              <td className="px-4 py-2.5 text-right sm:px-5">
+                                <div className="inline-flex items-center gap-0.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => openEditRecord(zone, record)}
+                                    disabled={loading}
+                                    className="rounded p-1.5 text-slate-500 transition hover:bg-slate-800 hover:text-emerald-400 disabled:opacity-50"
+                                    title="Edit record"
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteRecord(record.id)}
+                                    disabled={loading}
+                                    className="rounded p-1.5 text-slate-500 transition hover:bg-red-500/10 hover:text-red-400 disabled:opacity-50"
+                                    title="Delete record"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              ) : null}
             </div>
-          </div>
-        ))}
+          );
+        })}
 
         {filtered.length === 0 && (
           <div className="rounded-xl border border-dashed border-slate-800 py-16 text-center text-slate-500">
             {zones.length === 0
               ? "No DNS zones yet. Add a domain to auto-create a zone."
-              : "No zones match your search."}
+              : "No zones match your search or filter."}
           </div>
         )}
       </div>

@@ -2,6 +2,11 @@ import path from "node:path";
 import { prisma } from "@/lib/prisma";
 import { callAgent } from "@/lib/agent/client";
 import { isPathUnderRoot, resolvePathWithinRoot } from "@/lib/file-manager-path";
+import {
+  isMailSubdomainName,
+  listHostingTargets,
+  parseHostingTargetId,
+} from "@/lib/hosting-targets";
 
 export type FileManagerListItem = {
   name: string;
@@ -25,13 +30,18 @@ export function assertPathAllowed(filePath: string, documentRoot: string) {
 }
 
 export async function getTargetContext(target: string, userId: string) {
-  const normalized = normalizeTarget(target);
+  const normalized = parseHostingTargetId(target);
 
   if (normalized.kind === "subdomain") {
     const subdomain = await prisma.subdomain.findFirstOrThrow({
       where: { id: normalized.id, domain: { userId } },
       include: { domain: { include: { server: true } } },
     });
+    if (isMailSubdomainName(subdomain.name, subdomain.domain.name)) {
+      throw new Error(
+        "Mail hosts are webmail proxies — use Webmail, not the file manager"
+      );
+    }
     return {
       documentRoot: subdomain.documentRoot,
       agentKey: subdomain.domain.server.agentKey,
@@ -52,50 +62,21 @@ export async function getTargetContext(target: string, userId: string) {
   };
 }
 
-function normalizeTarget(target: string): { kind: "domain" | "subdomain"; id: string } {
-  if (target.startsWith("s:")) {
-    return { kind: "subdomain", id: target.slice(2) };
-  }
-  if (target.startsWith("d:")) {
-    return { kind: "domain", id: target.slice(2) };
-  }
-  return { kind: "domain", id: target };
-}
-
 /** @deprecated alias */
 export async function getDomainContext(domainId: string, userId: string) {
   return getTargetContext(domainId, userId);
 }
 
 export async function listFileManagerTargets(userId: string) {
-  const domains = await prisma.domain.findMany({
-    where: { userId },
-    orderBy: { name: "asc" },
+  // mail.* / webmail.* are panel proxies, not site document roots
+  const targets = await listHostingTargets(userId, {
+    excludeMailSubdomains: true,
   });
-  const subdomains = await prisma.subdomain.findMany({
-    where: { domain: { userId } },
-    include: { domain: { select: { name: true } } },
-    orderBy: [{ domain: { name: "asc" } }, { name: "asc" }],
-  });
-
-  const targets: Array<{ id: string; label: string; documentRoot: string }> = [];
-
-  for (const domain of domains) {
-    targets.push({
-      id: `d:${domain.id}`,
-      label: domain.name,
-      documentRoot: domain.documentRoot,
-    });
-    for (const subdomain of subdomains.filter((s) => s.domainId === domain.id)) {
-      targets.push({
-        id: `s:${subdomain.id}`,
-        label: `${subdomain.name}.${subdomain.domain.name}`,
-        documentRoot: subdomain.documentRoot,
-      });
-    }
-  }
-
-  return targets;
+  return targets.map((t) => ({
+    id: t.id,
+    label: t.label,
+    documentRoot: t.documentRoot,
+  }));
 }
 
 async function agentCall<T>(

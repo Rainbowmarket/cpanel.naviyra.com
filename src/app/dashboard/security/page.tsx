@@ -5,6 +5,8 @@ import { useSearchParams } from "next/navigation";
 import {
   Activity,
   Ban,
+  ChevronDown,
+  ChevronRight,
   Download,
   Eye,
   Globe,
@@ -19,6 +21,8 @@ import { PageHeader } from "@/components/ui/page-header";
 import { cn } from "@/lib/utils";
 
 type DatePreset = "today" | "yesterday" | "custom" | "all";
+type BotFilter = "all" | "human" | "bot";
+type CodeFilter = "all" | "2xx" | "3xx" | "4xx" | "5xx";
 
 function toDateInputValue(d: Date): string {
   const y = d.getFullYear();
@@ -116,45 +120,30 @@ const tabs = [
   { id: "overview", label: "Overview" },
   { id: "visitors", label: "Visitors" },
   { id: "threats", label: "Threats" },
-  { id: "blocked", label: "Blocked IPs" },
+  { id: "blocked", label: "Blocked" },
   { id: "whitelist", label: "Whitelist" },
 ] as const;
 
 type Tab = (typeof tabs)[number]["id"];
 
 const fieldClass =
-  "rounded-lg border border-slate-700/80 bg-slate-950 px-3 py-2 text-sm text-white outline-none transition focus:border-emerald-500/40 focus:ring-1 focus:ring-emerald-500/20";
+  "rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white outline-none transition focus:border-emerald-500/40";
 
-function StatBox({
-  label,
-  value,
-  icon: Icon,
-}: {
-  label: string;
-  value: number;
-  icon: React.ElementType;
-}) {
-  return (
-    <div className="rounded-xl border border-slate-800/80 bg-slate-950/40 p-4">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-          {label}
-        </p>
-        <Icon className="h-4 w-4 text-slate-500" />
-      </div>
-      <p className="mt-3 text-2xl font-semibold tracking-tight text-white">
-        {value.toLocaleString()}
-      </p>
-    </div>
-  );
+function matchesCodeFilter(code: number | null | undefined, filter: CodeFilter) {
+  if (filter === "all") return true;
+  if (code == null) return false;
+  if (filter === "2xx") return code >= 200 && code < 300;
+  if (filter === "3xx") return code >= 300 && code < 400;
+  if (filter === "4xx") return code >= 400 && code < 500;
+  return code >= 500;
 }
 
 function severityBadge(severity: string) {
   const map: Record<string, string> = {
-    CRITICAL: "bg-red-500/10 text-red-300 ring-red-500/20",
-    HIGH: "bg-red-500/10 text-red-300 ring-red-500/20",
-    MEDIUM: "bg-amber-500/10 text-amber-300 ring-amber-500/20",
-    LOW: "bg-slate-500/10 text-slate-300 ring-slate-500/20",
+    CRITICAL: "bg-red-500/15 text-red-300",
+    HIGH: "bg-red-500/15 text-red-300",
+    MEDIUM: "bg-amber-500/15 text-amber-300",
+    LOW: "bg-slate-800 text-slate-400",
   };
   return map[severity] ?? map.LOW;
 }
@@ -166,6 +155,31 @@ function statusCodeClass(code: number | null | undefined) {
   if (code >= 300) return "text-sky-400";
   if (code >= 200) return "text-emerald-400";
   return "text-slate-400";
+}
+
+function Chip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "rounded-lg px-2.5 py-1.5 text-xs font-medium transition",
+        active
+          ? "bg-emerald-600 text-white"
+          : "border border-slate-800 bg-slate-950/80 text-slate-400 hover:border-slate-700 hover:text-slate-200"
+      )}
+    >
+      {children}
+    </button>
+  );
 }
 
 export default function SecurityPage() {
@@ -205,6 +219,11 @@ function SecurityPageInner() {
   const [datePreset, setDatePreset] = useState<DatePreset>("today");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
+  const [botFilter, setBotFilter] = useState<BotFilter>("all");
+  const [codeFilter, setCodeFilter] = useState<CodeFilter>("all");
+  const [severityFilter, setSeverityFilter] = useState("ALL");
+  const [groupByDomain, setGroupByDomain] = useState(true);
+  const [collapsedDomains, setCollapsedDomains] = useState<Record<string, boolean>>({});
   const [exporting, setExporting] = useState(false);
   const [blockIp, setBlockIp] = useState("");
   const [blockReason, setBlockReason] = useState("Manual block");
@@ -355,9 +374,78 @@ function SecurityPageInner() {
     loadWhitelist();
   }
 
+  const filteredVisitors = useMemo(() => {
+    return visitors.filter((v) => {
+      if (botFilter === "bot" && !v.isBot) return false;
+      if (botFilter === "human" && v.isBot) return false;
+      if (!matchesCodeFilter(v.statusCode, codeFilter)) return false;
+      return true;
+    });
+  }, [visitors, botFilter, codeFilter]);
+
+  const visitorsByDomain = useMemo(() => {
+    const map = new Map<string, Visitor[]>();
+    for (const v of filteredVisitors) {
+      const key = v.domain.name;
+      const list = map.get(key) ?? [];
+      list.push(v);
+      map.set(key, list);
+    }
+    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [filteredVisitors]);
+
+  const filteredEvents = useMemo(() => {
+    if (severityFilter === "ALL") return events;
+    return events.filter((e) => e.severity === severityFilter);
+  }, [events, severityFilter]);
+
+  const overviewStats = stats
+    ? [
+        { label: "Visitors", value: stats.visitorsToday, icon: Eye },
+        { label: "Unique", value: stats.uniqueToday, icon: Users },
+        { label: "Live", value: stats.liveNow, icon: Activity },
+        { label: "Threats", value: stats.threatsToday, icon: ShieldAlert, alert: stats.threatsToday > 0 },
+        { label: "Blocked", value: stats.blockedIps, icon: Ban, alert: stats.blockedIps > 0 },
+        { label: "Domains", value: stats.domains, icon: Globe },
+      ]
+    : [];
+
+  function toggleDomainFold(name: string) {
+    setCollapsedDomains((prev) => ({ ...prev, [name]: !prev[name] }));
+  }
+
+  function renderVisitorRows(rows: Visitor[]) {
+    return rows.map((v) => (
+      <tr key={v.id} className="border-t border-slate-800/50 hover:bg-slate-900/40">
+        <td className="whitespace-nowrap px-3 py-2 text-[11px] text-slate-500 sm:px-4">
+          {new Date(v.visitedAt).toLocaleString()}
+        </td>
+        {!groupByDomain ? (
+          <td className="px-3 py-2 text-xs text-slate-300 sm:px-4">{v.domain.name}</td>
+        ) : null}
+        <td className="px-3 py-2 font-mono text-xs text-slate-200 sm:px-4">{v.ipAddress}</td>
+        <td className="max-w-[12rem] truncate px-3 py-2 font-mono text-xs text-slate-400 sm:max-w-xs sm:px-4" title={v.url}>
+          {v.url}
+        </td>
+        <td className={cn("px-3 py-2 font-mono text-xs font-medium sm:px-4", statusCodeClass(v.statusCode))}>
+          {v.statusCode ?? "—"}
+        </td>
+        <td className="px-3 py-2 text-xs text-slate-400 sm:px-4">
+          {v.browser ?? "—"} / {v.os ?? "—"}
+          {v.isBot ? (
+            <span className="ml-1.5 rounded bg-slate-800 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-400">
+              bot
+            </span>
+          ) : null}
+        </td>
+        <td className="px-3 py-2 text-xs text-slate-500 sm:px-4">{v.countryName ?? "—"}</td>
+      </tr>
+    ));
+  }
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <PageHeader
           title="Security"
           description="Visitor traffic, threats, and IP access controls."
@@ -370,229 +458,373 @@ function SecurityPageInner() {
             ...domains.map((d) => ({ value: d.id, label: d.name })),
           ]}
           placeholder="All domains"
-          className="w-full sm:w-56"
+          className="w-full sm:w-52"
         />
       </div>
 
-      <nav className="flex gap-1 overflow-x-auto border-b border-slate-800">
+      <div className="flex flex-wrap gap-1.5">
         {tabs.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setTab(t.id)}
-            className={cn(
-              "-mb-px border-b-2 px-4 py-2.5 text-sm font-medium transition whitespace-nowrap",
-              tab === t.id
-                ? "border-emerald-500 text-white"
-                : "border-transparent text-slate-500 hover:border-slate-700 hover:text-slate-300"
-            )}
-          >
+          <Chip key={t.id} active={tab === t.id} onClick={() => setTab(t.id)}>
             {t.label}
-          </button>
+          </Chip>
         ))}
-      </nav>
+      </div>
 
       {tab === "overview" && stats && (
-        <div className="space-y-6">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-            <StatBox label="Visitors today" value={stats.visitorsToday} icon={Eye} />
-            <StatBox label="Unique IPs" value={stats.uniqueToday} icon={Users} />
-            <StatBox label="Live now" value={stats.liveNow} icon={Activity} />
-            <StatBox label="Threats today" value={stats.threatsToday} icon={ShieldAlert} />
-            <StatBox label="Blocked IPs" value={stats.blockedIps} icon={Ban} />
-            <StatBox label="Domains" value={stats.domains} icon={Globe} />
+        <div className="space-y-4">
+          <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/80">
+            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6">
+              {overviewStats.map((stat, idx) => {
+                const Icon = stat.icon;
+                return (
+                  <button
+                    key={stat.label}
+                    type="button"
+                    onClick={() => {
+                      if (stat.label === "Threats") setTab("threats");
+                      else if (stat.label === "Blocked") setTab("blocked");
+                      else if (stat.label === "Live" || stat.label === "Visitors" || stat.label === "Unique") {
+                        setTab("visitors");
+                      }
+                    }}
+                    className={cn(
+                      "px-4 py-3.5 text-left transition hover:bg-slate-900/60",
+                      idx % 2 === 1 ? "border-l border-slate-800" : "",
+                      idx >= 2 ? "border-t border-slate-800 sm:border-t-0" : "",
+                      idx >= 1 ? "sm:border-l sm:border-slate-800" : "",
+                      idx >= 3 ? "xl:border-t-0" : ""
+                    )}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
+                        {stat.label}
+                      </p>
+                      <Icon
+                        className={cn(
+                          "h-3.5 w-3.5",
+                          "alert" in stat && stat.alert ? "text-amber-400" : "text-emerald-400"
+                        )}
+                      />
+                    </div>
+                    <p
+                      className={cn(
+                        "mt-1.5 text-xl font-semibold tabular-nums",
+                        "alert" in stat && stat.alert ? "text-amber-200" : "text-white"
+                      )}
+                    >
+                      {stat.value.toLocaleString()}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
-          <section className="overflow-hidden rounded-xl border border-slate-800/80 bg-slate-950/40">
-            <div className="flex items-center justify-between border-b border-slate-800/80 px-5 py-3.5">
-              <h2 className="text-sm font-medium text-white">Live visitors</h2>
-              <span className="text-xs text-slate-500">Updates every 15s</span>
+          <section className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/80">
+            <div className="flex items-center justify-between border-b border-slate-800 px-4 py-2.5 sm:px-5">
+              <h2 className="text-sm font-semibold text-white">Live visitors</h2>
+              <span className="text-[11px] text-slate-500">Updates every 15s</span>
             </div>
             {live.length === 0 ? (
-              <p className="px-5 py-12 text-center text-sm text-slate-500">
+              <p className="px-5 py-10 text-center text-sm text-slate-500">
                 No active visitors right now.
               </p>
             ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-800/80 text-left text-[11px] font-medium uppercase tracking-wide text-slate-500">
-                    <th className="px-5 py-3">Domain</th>
-                    <th className="px-5 py-3">IP</th>
-                    <th className="px-5 py-3">Page</th>
-                    <th className="px-5 py-3">Browser</th>
-                    <th className="px-5 py-3">Last seen</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {live.map((v) => (
-                    <tr
-                      key={v.id}
-                      className="border-t border-slate-800/60 hover:bg-slate-900/40"
-                    >
-                      <td className="px-5 py-3 text-slate-300">{v.domain.name}</td>
-                      <td className="px-5 py-3 font-mono text-xs text-slate-200">
-                        {v.ipAddress}
-                      </td>
-                      <td className="max-w-xs truncate px-5 py-3 text-slate-500">
-                        {v.url}
-                      </td>
-                      <td className="px-5 py-3 text-slate-400">{v.browser}</td>
-                      <td className="px-5 py-3 text-slate-500">
-                        {new Date(v.lastSeen).toLocaleTimeString()}
-                      </td>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-800 text-left text-[10px] uppercase tracking-wider text-slate-500">
+                      <th className="px-4 py-2.5 font-medium sm:px-5">Domain</th>
+                      <th className="px-4 py-2.5 font-medium sm:px-5">IP</th>
+                      <th className="px-4 py-2.5 font-medium sm:px-5">Page</th>
+                      <th className="px-4 py-2.5 font-medium sm:px-5">Browser</th>
+                      <th className="px-4 py-2.5 font-medium sm:px-5">Last seen</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {live.map((v) => (
+                      <tr key={v.id} className="border-t border-slate-800/50 hover:bg-slate-900/40">
+                        <td className="px-4 py-2.5 text-xs text-slate-300 sm:px-5">{v.domain.name}</td>
+                        <td className="px-4 py-2.5 font-mono text-xs text-slate-200 sm:px-5">{v.ipAddress}</td>
+                        <td className="max-w-xs truncate px-4 py-2.5 text-xs text-slate-500 sm:px-5">{v.url}</td>
+                        <td className="px-4 py-2.5 text-xs text-slate-400 sm:px-5">{v.browser}</td>
+                        <td className="px-4 py-2.5 text-xs text-slate-500 sm:px-5">
+                          {new Date(v.lastSeen).toLocaleTimeString()}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </section>
         </div>
       )}
 
       {tab === "visitors" && (
-        <div className="space-y-4">
-          <div className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-800/80 bg-slate-950/40 p-4">
-            <div className="space-y-1.5">
-              <span className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
-                Range
-              </span>
-              <div className="flex flex-wrap gap-1.5">
-                {(
-                  [
-                    ["today", "Today"],
-                    ["yesterday", "Yesterday"],
-                    ["custom", "Custom"],
-                    ["all", "All time"],
-                  ] as const
-                ).map(([id, label]) => (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => {
-                      setDatePreset(id);
-                      if (id === "custom" && !customFrom && !customTo) {
-                        const y = new Date();
-                        y.setDate(y.getDate() - 1);
-                        setCustomFrom(toDateInputValue(y));
-                        setCustomTo(toDateInputValue(new Date()));
-                      }
-                    }}
-                    className={cn(
-                      "rounded-md px-3 py-1.5 text-sm transition",
-                      datePreset === id
-                        ? "bg-slate-100 text-slate-900"
-                        : "border border-slate-700/80 text-slate-400 hover:border-slate-600 hover:text-slate-200"
-                    )}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
+        <div className="space-y-3">
+          <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-3.5 sm:p-4">
+            <div className="flex flex-wrap items-center gap-2">
+              {(
+                [
+                  ["today", "Today"],
+                  ["yesterday", "Yesterday"],
+                  ["custom", "Custom"],
+                  ["all", "All time"],
+                ] as const
+              ).map(([id, label]) => (
+                <Chip
+                  key={id}
+                  active={datePreset === id}
+                  onClick={() => {
+                    setDatePreset(id);
+                    if (id === "custom" && !customFrom && !customTo) {
+                      const y = new Date();
+                      y.setDate(y.getDate() - 1);
+                      setCustomFrom(toDateInputValue(y));
+                      setCustomTo(toDateInputValue(new Date()));
+                    }
+                  }}
+                >
+                  {label}
+                </Chip>
+              ))}
+              <span className="mx-1 hidden h-4 w-px bg-slate-800 sm:inline" />
+              {(
+                [
+                  ["all", "All traffic"],
+                  ["human", "Human"],
+                  ["bot", "Bots"],
+                ] as const
+              ).map(([id, label]) => (
+                <Chip key={id} active={botFilter === id} onClick={() => setBotFilter(id)}>
+                  {label}
+                </Chip>
+              ))}
+              <span className="mx-1 hidden h-4 w-px bg-slate-800 sm:inline" />
+              {(
+                [
+                  ["all", "All codes"],
+                  ["2xx", "2xx"],
+                  ["3xx", "3xx"],
+                  ["4xx", "4xx"],
+                  ["5xx", "5xx"],
+                ] as const
+              ).map(([id, label]) => (
+                <Chip key={id} active={codeFilter === id} onClick={() => setCodeFilter(id)}>
+                  {label}
+                </Chip>
+              ))}
             </div>
 
-            {datePreset === "custom" && (
-              <>
-                <div className="space-y-1.5">
-                  <span className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
-                    From
-                  </span>
-                  <input
-                    type="date"
-                    value={customFrom}
-                    onChange={(e) => setCustomFrom(e.target.value)}
-                    className={fieldClass}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <span className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
-                    To
-                  </span>
-                  <input
-                    type="date"
-                    value={customTo}
-                    onChange={(e) => setCustomTo(e.target.value)}
-                    className={fieldClass}
-                  />
-                </div>
-              </>
-            )}
+            {datePreset === "custom" ? (
+              <div className="mt-3 flex flex-wrap gap-2">
+                <input
+                  type="date"
+                  value={customFrom}
+                  onChange={(e) => setCustomFrom(e.target.value)}
+                  className={fieldClass}
+                />
+                <input
+                  type="date"
+                  value={customTo}
+                  onChange={(e) => setCustomTo(e.target.value)}
+                  className={fieldClass}
+                />
+              </div>
+            ) : null}
 
-            <div className="min-w-[220px] flex-1 space-y-1.5">
-              <span className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
-                Search
-              </span>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
               <input
-                className={cn(fieldClass, "w-full py-2.5")}
-                placeholder="IP, URL, browser…"
+                className={cn(fieldClass, "min-w-[12rem] flex-1")}
+                placeholder="Search IP, URL, browser…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
+              <Chip active={groupByDomain} onClick={() => setGroupByDomain((v) => !v)}>
+                Fold by domain
+              </Chip>
+              <button
+                type="button"
+                onClick={() => void exportVisitorsCsv()}
+                disabled={exporting}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+              >
+                <Download className="h-3.5 w-3.5" />
+                {exporting ? "Exporting…" : "CSV"}
+              </button>
             </div>
-
-            <button
-              type="button"
-              onClick={() => void exportVisitorsCsv()}
-              disabled={exporting}
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-4 py-2.5 text-sm font-medium text-slate-200 transition hover:border-slate-600 hover:bg-slate-800 disabled:opacity-50"
-            >
-              <Download className="h-4 w-4" />
-              {exporting ? "Exporting…" : "Export CSV"}
-            </button>
           </div>
 
-          <p className="text-xs text-slate-500">
-            {visitorRange.label}
-            <span className="mx-2 text-slate-700">·</span>
-            {visitors.length} records
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+            <p>
+              {visitorRange.label}
+              <span className="mx-1.5 text-slate-700">·</span>
+              <span className="text-slate-300">{filteredVisitors.length}</span> shown
+              {filteredVisitors.length !== visitors.length ? (
+                <>
+                  <span className="mx-1.5 text-slate-700">·</span>
+                  {visitors.length} loaded
+                </>
+              ) : null}
+            </p>
+            {groupByDomain && visitorsByDomain.length > 1 ? (
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className="hover:text-slate-300"
+                  onClick={() => setCollapsedDomains({})}
+                >
+                  Expand all
+                </button>
+                <span className="text-slate-700">|</span>
+                <button
+                  type="button"
+                  className="hover:text-slate-300"
+                  onClick={() => {
+                    const next: Record<string, boolean> = {};
+                    for (const [name] of visitorsByDomain) next[name] = true;
+                    setCollapsedDomains(next);
+                  }}
+                >
+                  Collapse all
+                </button>
+              </div>
+            ) : null}
+          </div>
 
-          <TableShell
-            empty={visitors.length === 0}
-            emptyText={`No visitors for ${visitorRange.label.toLowerCase()}.`}
-          >
+          {filteredVisitors.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-800 py-12 text-center text-sm text-slate-500">
+              No visitors for {visitorRange.label.toLowerCase()}.
+            </div>
+          ) : groupByDomain ? (
+            <div className="space-y-2">
+              {visitorsByDomain.map(([domainName, rows]) => {
+                const folded = Boolean(collapsedDomains[domainName]);
+                return (
+                  <div
+                    key={domainName}
+                    className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/80"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleDomainFold(domainName)}
+                      className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-slate-900/60 sm:px-4"
+                    >
+                      {folded ? (
+                        <ChevronRight className="h-4 w-4 text-slate-500" />
+                      ) : (
+                        <ChevronDown className="h-4 w-4 text-slate-500" />
+                      )}
+                      <span className="font-medium text-white">{domainName}</span>
+                      <span className="rounded-md bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">
+                        {rows.length}
+                      </span>
+                    </button>
+                    {!folded ? (
+                      <div className="overflow-x-auto border-t border-slate-800">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b border-slate-800 text-left text-[10px] uppercase tracking-wider text-slate-500">
+                              <th className="px-3 py-2 font-medium sm:px-4">Time</th>
+                              <th className="px-3 py-2 font-medium sm:px-4">IP</th>
+                              <th className="px-3 py-2 font-medium sm:px-4">URL</th>
+                              <th className="px-3 py-2 font-medium sm:px-4">Code</th>
+                              <th className="px-3 py-2 font-medium sm:px-4">Browser / OS</th>
+                              <th className="px-3 py-2 font-medium sm:px-4">Country</th>
+                            </tr>
+                          </thead>
+                          <tbody>{renderVisitorRows(rows)}</tbody>
+                        </table>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <TableShell empty={false} emptyText="">
+              <thead>
+                <tr className="border-b border-slate-800 text-left text-[10px] uppercase tracking-wider text-slate-500">
+                  <th className="px-3 py-2.5 font-medium sm:px-4">Time</th>
+                  <th className="px-3 py-2.5 font-medium sm:px-4">Domain</th>
+                  <th className="px-3 py-2.5 font-medium sm:px-4">IP</th>
+                  <th className="px-3 py-2.5 font-medium sm:px-4">URL</th>
+                  <th className="px-3 py-2.5 font-medium sm:px-4">Code</th>
+                  <th className="px-3 py-2.5 font-medium sm:px-4">Browser / OS</th>
+                  <th className="px-3 py-2.5 font-medium sm:px-4">Country</th>
+                </tr>
+              </thead>
+              <tbody>{renderVisitorRows(filteredVisitors)}</tbody>
+            </TableShell>
+          )}
+        </div>
+      )}
+
+      {tab === "threats" && (
+        <div className="space-y-3">
+          <div className="flex flex-wrap gap-1.5">
+            {["ALL", "CRITICAL", "HIGH", "MEDIUM", "LOW"].map((s) => (
+              <Chip
+                key={s}
+                active={severityFilter === s}
+                onClick={() => setSeverityFilter(s)}
+              >
+                {s === "ALL" ? "All severities" : s}
+              </Chip>
+            ))}
+          </div>
+          <TableShell empty={filteredEvents.length === 0} emptyText="No threats detected.">
             <thead>
-              <tr className="border-b border-slate-800/80 text-left text-[11px] font-medium uppercase tracking-wide text-slate-500">
-                <th className="px-5 py-3">Time</th>
-                <th className="px-5 py-3">Domain</th>
-                <th className="px-5 py-3">IP</th>
-                <th className="px-5 py-3">URL</th>
-                <th className="px-5 py-3">Code</th>
-                <th className="px-5 py-3">Browser / OS</th>
-                <th className="px-5 py-3">Country</th>
+              <tr className="border-b border-slate-800 text-left text-[10px] uppercase tracking-wider text-slate-500">
+                <th className="px-3 py-2.5 font-medium sm:px-4">Time</th>
+                <th className="px-3 py-2.5 font-medium sm:px-4">Type</th>
+                <th className="px-3 py-2.5 font-medium sm:px-4">Severity</th>
+                <th className="px-3 py-2.5 font-medium sm:px-4">IP</th>
+                <th className="px-3 py-2.5 font-medium sm:px-4">Domain</th>
+                <th className="px-3 py-2.5 font-medium sm:px-4">Code</th>
+                <th className="px-3 py-2.5 font-medium sm:px-4">Details</th>
+                <th className="px-3 py-2.5 font-medium sm:px-4" />
               </tr>
             </thead>
             <tbody>
-              {visitors.map((v) => (
-                <tr
-                  key={v.id}
-                  className="border-t border-slate-800/60 hover:bg-slate-900/40"
-                >
-                  <td className="px-5 py-3 text-slate-500">
-                    {new Date(v.visitedAt).toLocaleString()}
+              {filteredEvents.map((e) => (
+                <tr key={e.id} className="border-t border-slate-800/50 hover:bg-slate-900/40">
+                  <td className="whitespace-nowrap px-3 py-2 text-[11px] text-slate-500 sm:px-4">
+                    {new Date(e.detectedAt).toLocaleString()}
                   </td>
-                  <td className="px-5 py-3 text-slate-300">{v.domain.name}</td>
-                  <td className="px-5 py-3 font-mono text-xs">{v.ipAddress}</td>
-                  <td className="max-w-xs truncate px-5 py-3 text-slate-400">
-                    {v.url}
+                  <td className="px-3 py-2 text-xs text-slate-300 sm:px-4">
+                    {e.threatType.replace(/_/g, " ")}
                   </td>
-                  <td
-                    className={cn(
-                      "px-5 py-3 font-mono text-xs font-medium",
-                      statusCodeClass(v.statusCode)
-                    )}
-                  >
-                    {v.statusCode ?? "—"}
+                  <td className="px-3 py-2 sm:px-4">
+                    <span
+                      className={cn(
+                        "rounded-md px-1.5 py-0.5 text-[10px] font-medium uppercase",
+                        severityBadge(e.severity)
+                      )}
+                    >
+                      {e.severity}
+                    </span>
                   </td>
-                  <td className="px-5 py-3 text-slate-400">
-                    {v.browser} / {v.os}
-                    {v.isBot && (
-                      <span className="ml-2 rounded bg-slate-800 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-400">
-                        bot
-                      </span>
-                    )}
+                  <td className="px-3 py-2 font-mono text-xs sm:px-4">{e.ipAddress}</td>
+                  <td className="px-3 py-2 text-xs text-slate-400 sm:px-4">
+                    {e.domain?.name ?? "—"}
                   </td>
-                  <td className="px-5 py-3 text-slate-500">
-                    {v.countryName ?? "—"}
+                  <td className={cn("px-3 py-2 font-mono text-xs font-medium sm:px-4", statusCodeClass(e.statusCode))}>
+                    {e.statusCode ?? "—"}
+                  </td>
+                  <td className="max-w-[12rem] truncate px-3 py-2 text-xs text-slate-500 sm:max-w-xs sm:px-4">
+                    {e.url} {e.payload ? `· ${e.payload.slice(0, 40)}` : ""}
+                  </td>
+                  <td className="px-3 py-2 sm:px-4">
+                    <button
+                      type="button"
+                      onClick={() => blockFromEvent(e.id)}
+                      className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:border-red-500/40 hover:text-red-300"
+                    >
+                      <Ban className="h-3 w-3" />
+                      Block
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -601,78 +833,11 @@ function SecurityPageInner() {
         </div>
       )}
 
-      {tab === "threats" && (
-        <TableShell empty={events.length === 0} emptyText="No threats detected.">
-          <thead>
-            <tr className="border-b border-slate-800/80 text-left text-[11px] font-medium uppercase tracking-wide text-slate-500">
-              <th className="px-5 py-3">Time</th>
-              <th className="px-5 py-3">Type</th>
-              <th className="px-5 py-3">Severity</th>
-              <th className="px-5 py-3">IP</th>
-              <th className="px-5 py-3">Domain</th>
-              <th className="px-5 py-3">Code</th>
-              <th className="px-5 py-3">Details</th>
-              <th className="px-5 py-3" />
-            </tr>
-          </thead>
-          <tbody>
-            {events.map((e) => (
-              <tr
-                key={e.id}
-                className="border-t border-slate-800/60 hover:bg-slate-900/40"
-              >
-                <td className="px-5 py-3 text-slate-500">
-                  {new Date(e.detectedAt).toLocaleString()}
-                </td>
-                <td className="px-5 py-3 text-slate-300">
-                  {e.threatType.replace(/_/g, " ")}
-                </td>
-                <td className="px-5 py-3">
-                  <span
-                    className={cn(
-                      "rounded-full px-2 py-0.5 text-xs ring-1",
-                      severityBadge(e.severity)
-                    )}
-                  >
-                    {e.severity}
-                  </span>
-                </td>
-                <td className="px-5 py-3 font-mono text-xs">{e.ipAddress}</td>
-                <td className="px-5 py-3 text-slate-400">
-                  {e.domain?.name ?? "—"}
-                </td>
-                <td
-                  className={cn(
-                    "px-5 py-3 font-mono text-xs font-medium",
-                    statusCodeClass(e.statusCode)
-                  )}
-                >
-                  {e.statusCode ?? "—"}
-                </td>
-                <td className="max-w-xs truncate px-5 py-3 text-xs text-slate-500">
-                  {e.url} {e.payload ? `· ${e.payload.slice(0, 40)}` : ""}
-                </td>
-                <td className="px-5 py-3">
-                  <button
-                    type="button"
-                    onClick={() => blockFromEvent(e.id)}
-                    className="inline-flex items-center gap-1 rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-300 transition hover:border-red-500/40 hover:text-red-300"
-                  >
-                    <Ban className="h-3 w-3" />
-                    Block
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </TableShell>
-      )}
-
       {tab === "blocked" && (
-        <div className="space-y-4">
+        <div className="space-y-3">
           <form
             onSubmit={addBlock}
-            className="flex flex-wrap gap-3 rounded-xl border border-slate-800/80 bg-slate-950/40 p-4"
+            className="flex flex-wrap gap-2 rounded-xl border border-slate-800 bg-slate-950/80 p-3.5"
           >
             <input
               className={fieldClass}
@@ -682,7 +847,7 @@ function SecurityPageInner() {
               required
             />
             <input
-              className={cn(fieldClass, "min-w-[200px] flex-1")}
+              className={cn(fieldClass, "min-w-[12rem] flex-1")}
               placeholder="Reason"
               value={blockReason}
               onChange={(e) => setBlockReason(e.target.value)}
@@ -690,22 +855,22 @@ function SecurityPageInner() {
             />
             <button
               type="submit"
-              className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-500"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-500"
             >
-              <Plus className="h-4 w-4" />
+              <Plus className="h-3.5 w-3.5" />
               Block IP
             </button>
           </form>
           <TableShell empty={blocked.length === 0} emptyText="No blocked IPs.">
             <thead>
-              <tr className="border-b border-slate-800/80 text-left text-[11px] font-medium uppercase tracking-wide text-slate-500">
-                <th className="px-5 py-3">IP</th>
-                <th className="px-5 py-3">Reason</th>
-                <th className="px-5 py-3">Source</th>
-                <th className="px-5 py-3">Via</th>
-                <th className="px-5 py-3">Blocked</th>
-                <th className="px-5 py-3">Expires</th>
-                <th className="px-5 py-3" />
+              <tr className="border-b border-slate-800 text-left text-[10px] uppercase tracking-wider text-slate-500">
+                <th className="px-3 py-2.5 font-medium sm:px-4">IP</th>
+                <th className="px-3 py-2.5 font-medium sm:px-4">Reason</th>
+                <th className="px-3 py-2.5 font-medium sm:px-4">Source</th>
+                <th className="px-3 py-2.5 font-medium sm:px-4">Via</th>
+                <th className="px-3 py-2.5 font-medium sm:px-4">Blocked</th>
+                <th className="px-3 py-2.5 font-medium sm:px-4">Expires</th>
+                <th className="px-3 py-2.5 font-medium sm:px-4" />
               </tr>
             </thead>
             <tbody>
@@ -718,31 +883,32 @@ function SecurityPageInner() {
                     )
                   : null;
                 return (
-                <tr
-                  key={b.id}
-                  className="border-t border-slate-800/60 hover:bg-slate-900/40"
-                >
-                  <td className="px-5 py-3 font-mono text-sm">{b.ipAddress}</td>
-                  <td className="px-5 py-3 text-slate-300">{b.reason}</td>
-                  <td className="px-5 py-3 text-slate-500">{b.source}</td>
-                  <td className="px-5 py-3 text-slate-500">{b.blockedVia}</td>
-                  <td className="px-5 py-3 text-slate-500">
-                    {new Date(b.blockedAt).toLocaleString()}
-                  </td>
-                  <td className="px-5 py-3 text-slate-500">
-                    {expires ? expires.toLocaleString() : "Never (manual)"}
-                  </td>
-                  <td className="px-5 py-3">
-                    <button
-                      type="button"
-                      onClick={() => unblock(b.ipAddress)}
-                      className="inline-flex items-center gap-1 rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-300 transition hover:bg-slate-800"
-                    >
-                      <Unlock className="h-3 w-3" />
-                      Unblock
-                    </button>
-                  </td>
-                </tr>
+                  <tr key={b.id} className="border-t border-slate-800/50 hover:bg-slate-900/40">
+                    <td className="px-3 py-2 font-mono text-xs sm:px-4 sm:text-sm">{b.ipAddress}</td>
+                    <td className="px-3 py-2 text-xs text-slate-300 sm:px-4">{b.reason}</td>
+                    <td className="px-3 py-2 sm:px-4">
+                      <span className="rounded-md bg-slate-800 px-1.5 py-0.5 text-[10px] uppercase text-slate-400">
+                        {b.source}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-xs text-slate-500 sm:px-4">{b.blockedVia}</td>
+                    <td className="px-3 py-2 text-[11px] text-slate-500 sm:px-4">
+                      {new Date(b.blockedAt).toLocaleString()}
+                    </td>
+                    <td className="px-3 py-2 text-[11px] text-slate-500 sm:px-4">
+                      {expires ? expires.toLocaleString() : "Never"}
+                    </td>
+                    <td className="px-3 py-2 sm:px-4">
+                      <button
+                        type="button"
+                        onClick={() => unblock(b.ipAddress)}
+                        className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800"
+                      >
+                        <Unlock className="h-3 w-3" />
+                        Unblock
+                      </button>
+                    </td>
+                  </tr>
                 );
               })}
             </tbody>
@@ -751,10 +917,10 @@ function SecurityPageInner() {
       )}
 
       {tab === "whitelist" && (
-        <div className="space-y-4">
+        <div className="space-y-3">
           <form
             onSubmit={addWhite}
-            className="flex flex-wrap gap-3 rounded-xl border border-slate-800/80 bg-slate-950/40 p-4"
+            className="flex flex-wrap gap-2 rounded-xl border border-slate-800 bg-slate-950/80 p-3.5"
           >
             <input
               className={fieldClass}
@@ -764,47 +930,41 @@ function SecurityPageInner() {
               required
             />
             <input
-              className={cn(fieldClass, "min-w-[200px] flex-1")}
+              className={cn(fieldClass, "min-w-[12rem] flex-1")}
               placeholder="Label (optional)"
               value={whiteLabel}
               onChange={(e) => setWhiteLabel(e.target.value)}
             />
             <button
               type="submit"
-              className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-500"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-500"
             >
-              <Plus className="h-4 w-4" />
+              <Plus className="h-3.5 w-3.5" />
               Add IP
             </button>
           </form>
-          <TableShell
-            empty={whitelist.length === 0}
-            emptyText="No whitelisted IPs."
-          >
+          <TableShell empty={whitelist.length === 0} emptyText="No whitelisted IPs.">
             <thead>
-              <tr className="border-b border-slate-800/80 text-left text-[11px] font-medium uppercase tracking-wide text-slate-500">
-                <th className="px-5 py-3">IP</th>
-                <th className="px-5 py-3">Label</th>
-                <th className="px-5 py-3">Added</th>
-                <th className="px-5 py-3" />
+              <tr className="border-b border-slate-800 text-left text-[10px] uppercase tracking-wider text-slate-500">
+                <th className="px-3 py-2.5 font-medium sm:px-4">IP</th>
+                <th className="px-3 py-2.5 font-medium sm:px-4">Label</th>
+                <th className="px-3 py-2.5 font-medium sm:px-4">Added</th>
+                <th className="px-3 py-2.5 font-medium sm:px-4" />
               </tr>
             </thead>
             <tbody>
               {whitelist.map((w) => (
-                <tr
-                  key={w.id}
-                  className="border-t border-slate-800/60 hover:bg-slate-900/40"
-                >
-                  <td className="px-5 py-3 font-mono text-sm">{w.ipAddress}</td>
-                  <td className="px-5 py-3 text-slate-400">{w.label ?? "—"}</td>
-                  <td className="px-5 py-3 text-slate-500">
+                <tr key={w.id} className="border-t border-slate-800/50 hover:bg-slate-900/40">
+                  <td className="px-3 py-2 font-mono text-xs sm:px-4 sm:text-sm">{w.ipAddress}</td>
+                  <td className="px-3 py-2 text-xs text-slate-400 sm:px-4">{w.label ?? "—"}</td>
+                  <td className="px-3 py-2 text-[11px] text-slate-500 sm:px-4">
                     {new Date(w.createdAt).toLocaleString()}
                   </td>
-                  <td className="px-5 py-3">
+                  <td className="px-3 py-2 sm:px-4">
                     <button
                       type="button"
                       onClick={() => removeWhite(w.id)}
-                      className="inline-flex items-center gap-1 rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-300 transition hover:border-red-500/40 hover:text-red-300"
+                      className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:border-red-500/40 hover:text-red-300"
                     >
                       <Trash2 className="h-3 w-3" />
                       Remove
@@ -830,7 +990,7 @@ function TableShell({
   emptyText: string;
 }) {
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-800/80 bg-slate-950/40">
+    <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/80">
       {empty ? (
         <p className="px-5 py-12 text-center text-sm text-slate-500">{emptyText}</p>
       ) : (
