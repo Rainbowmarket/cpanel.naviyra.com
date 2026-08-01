@@ -9,20 +9,30 @@ import { matchesSearch } from "@/lib/utils";
 
 type HostingTarget = { id: string; label: string; documentRoot: string };
 type FtpAccount = { id: string; username: string; homeDir: string };
+type FtpConnection = {
+  host: string;
+  port: number;
+  passivePorts: string;
+  protocol: string;
+};
 
 export default function FtpPage() {
   const [targets, setTargets] = useState<HostingTarget[]>([]);
   const [target, setTarget] = useState("");
   const [accounts, setAccounts] = useState<FtpAccount[]>([]);
+  const [connection, setConnection] = useState<FtpConnection | null>(null);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [search, setSearch] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
+  const [error, setError] = useState("");
+  const [creating, setCreating] = useState(false);
 
   const loadAccounts = useCallback(async () => {
     const res = await fetch("/api/ftp");
     const data = await res.json();
     setAccounts(data.accounts ?? []);
+    if (data.connection) setConnection(data.connection);
   }, []);
 
   useEffect(() => {
@@ -37,14 +47,35 @@ export default function FtpPage() {
 
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
-    await fetch("/api/ftp", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ target, username, password }),
-    });
-    setUsername("");
-    setPassword("");
-    setCreateOpen(false);
+    setError("");
+    setCreating(true);
+    try {
+      const res = await fetch("/api/ftp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target, username, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(
+          typeof data.error === "string"
+            ? data.error
+            : "Failed to create FTP account"
+        );
+        return;
+      }
+      setUsername("");
+      setPassword("");
+      setCreateOpen(false);
+      await loadAccounts();
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function handleDelete(id: string) {
+    if (!confirm("Delete this FTP account?")) return;
+    await fetch(`/api/ftp?id=${encodeURIComponent(id)}`, { method: "DELETE" });
     await loadAccounts();
   }
 
@@ -58,12 +89,25 @@ export default function FtpPage() {
         title="FTP Server"
         description="Create FTP accounts for file uploads."
         actionLabel="Create FTP Account"
-        onAction={() => setCreateOpen(true)}
+        onAction={() => {
+          setError("");
+          setCreateOpen(true);
+        }}
         actionIcon={<Upload className="h-4 w-4" />}
         searchValue={search}
         onSearchChange={setSearch}
         searchPlaceholder="Search FTP accounts..."
       />
+
+      {connection ? (
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-3 text-sm text-slate-300">
+          <p className="font-medium text-white">Connection</p>
+          <p className="mt-1 font-mono text-xs text-slate-400">
+            Host: {connection.host} · Port: {connection.port} · Passive:{" "}
+            {connection.passivePorts}
+          </p>
+        </div>
+      ) : null}
 
       <Modal
         open={createOpen}
@@ -89,6 +133,7 @@ export default function FtpPage() {
               placeholder="ftp_user"
               className={modalInputClass}
               required
+              pattern="[A-Za-z_][A-Za-z0-9_-]{2,31}"
             />
           </div>
           <div>
@@ -97,14 +142,16 @@ export default function FtpPage() {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Password"
+              placeholder="At least 8 characters"
               className={modalInputClass}
               required
+              minLength={8}
             />
           </div>
+          {error ? <p className="text-sm text-red-400">{error}</p> : null}
           <ModalActions
             onCancel={() => setCreateOpen(false)}
-            submitLabel="Create Account"
+            submitLabel={creating ? "Creating…" : "Create Account"}
           />
         </form>
       </Modal>
@@ -113,10 +160,21 @@ export default function FtpPage() {
         {filteredAccounts.map((a) => (
           <div
             key={a.id}
-            className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950 px-4 py-3"
+            className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-950 px-4 py-3"
           >
-            <p className="font-medium text-white">{a.username}</p>
-            <p className="text-sm text-slate-400">{a.homeDir}</p>
+            <div className="min-w-0">
+              <p className="font-medium text-white">{a.username}</p>
+              <p className="truncate font-mono text-xs text-slate-500">
+                {a.homeDir}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleDelete(a.id)}
+              className="rounded-lg border border-red-500/30 px-3 py-1.5 text-xs text-red-400 hover:bg-red-500/10"
+            >
+              Delete
+            </button>
           </div>
         ))}
         {accounts.length === 0 ? (

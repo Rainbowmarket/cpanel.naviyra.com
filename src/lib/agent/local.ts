@@ -121,11 +121,20 @@ export async function executeLocalAgent<T = unknown>(
         );
         return {
           success: true,
-          data: { username: payload.username, homeDir: payload.homeDir } as T,
+          data: {
+            username: payload.username,
+            homeDir: payload.homeDir,
+            dryRun: true,
+          } as T,
         };
 
       case "delete_ftp_account":
-        return { success: true };
+        await fs.appendFile(
+          path.join(CONFIG_ROOT, "ftp.map"),
+          `delete ${payload.username}:-\n`,
+          "utf8"
+        );
+        return { success: true, data: { username: payload.username } as T };
 
       case "sync_dns_zone": {
         const dryRun =

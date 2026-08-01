@@ -65,6 +65,10 @@ import {
   runDomainBackup,
   type BackupSchedulePreset,
 } from "./backup";
+import {
+  createFtpAccountOnServer,
+  deleteFtpAccountOnServer,
+} from "./ftp";
 import type { VhostOptions } from "./nginx";
 const exec = promisify(execFile);
 const PORT = Number(process.env.AGENT_PORT ?? 4000);
@@ -387,18 +391,25 @@ async function handleAction(payload: Action) {
 
     case "create_ftp_account": {
       const username = String(payload.username);
+      const password = String(payload.password);
       const homeDir = String(payload.homeDir);
-      await ensureConfigDir();
-      await fs.appendFile(
-        path.join(CONFIG_ROOT, "ftp.map"),
-        `ftp ${username}:${homeDir}\n`,
-        "utf8"
-      );
-      return { success: true, data: { username, homeDir } };
+      const data = await createFtpAccountOnServer({
+        username,
+        password,
+        homeDir,
+        dryRun: DRY_RUN,
+      });
+      return { success: true, data };
     }
 
-    case "delete_ftp_account":
-      return { success: true };
+    case "delete_ftp_account": {
+      const username = String(payload.username);
+      const data = await deleteFtpAccountOnServer({
+        username,
+        dryRun: DRY_RUN,
+      });
+      return { success: true, data };
+    }
 
     case "sync_dns_zone": {
       const data = payload as SyncDnsZonePayload & Action;

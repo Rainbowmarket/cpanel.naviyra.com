@@ -179,6 +179,10 @@ echo "== mail.* webmail proxies =="
 chmod +x scripts/refresh-mail-proxies.sh scripts/provision-panel-mail.sh
 ./scripts/refresh-mail-proxies.sh "$PANEL" || true
 
+echo "== FTP (vsftpd) =="
+chmod +x scripts/install-ftp.sh
+./scripts/install-ftp.sh || true
+
 echo "== panel mail host from .env (PANEL_HOSTNAME / MAIL_*) =="
 ./scripts/provision-panel-mail.sh "$PANEL" || true
 

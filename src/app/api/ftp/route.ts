@@ -7,11 +7,27 @@ import {
   listFtpAccounts,
 } from "@/lib/services/ftp";
 
+function ftpConnectionInfo() {
+  const host =
+    process.env.SERVER_PUBLIC_IP?.trim() ||
+    process.env.DEFAULT_SERVER_HOSTNAME?.trim() ||
+    "your-server-ip";
+  return {
+    host,
+    port: 21,
+    passivePorts: "40000-40100",
+    protocol: "ftp",
+  };
+}
+
 export async function GET() {
   try {
     const user = await requireSessionUser();
-    const accounts = await listFtpAccounts(user.id);
-    return NextResponse.json({ accounts });
+    const accounts = await listFtpAccounts(user.id, user.role);
+    return NextResponse.json({
+      accounts,
+      connection: ftpConnectionInfo(),
+    });
   } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -19,7 +35,12 @@ export async function GET() {
 
 const createSchema = z.object({
   target: z.string().min(1),
-  username: z.string().min(3),
+  username: z
+    .string()
+    .regex(
+      /^[a-z_][a-z0-9_-]{2,31}$/i,
+      "Username must be 3–32 chars (letters, digits, _ or -)"
+    ),
   password: z.string().min(8),
 });
 
@@ -32,12 +53,21 @@ export async function POST(request: Request) {
       userId: user.id,
       role: user.role,
     });
-    return NextResponse.json({ account }, { status: 201 });
+    return NextResponse.json(
+      { account, connection: ftpConnectionInfo() },
+      { status: 201 }
+    );
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: error.flatten() }, { status: 400 });
     }
-    return NextResponse.json({ error: "Failed to create FTP account" }, { status: 500 });
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Failed to create FTP account",
+      },
+      { status: 500 }
+    );
   }
 }
 
@@ -48,9 +78,15 @@ export async function DELETE(request: Request) {
     if (!id) {
       return NextResponse.json({ error: "Missing id" }, { status: 400 });
     }
-    await deleteFtpAccount(id, user.id);
+    await deleteFtpAccount(id, user.id, user.role);
     return NextResponse.json({ ok: true });
-  } catch {
-    return NextResponse.json({ error: "Failed to delete FTP account" }, { status: 500 });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Failed to delete FTP account",
+      },
+      { status: 500 }
+    );
   }
 }
