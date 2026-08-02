@@ -16,6 +16,7 @@ import {
 import { Select } from "@/components/ui/select";
 import { Modal, modalInputClass, modalLabelClass } from "@/components/ui/modal";
 import { ModalActions, PageHeader } from "@/components/ui/page-header";
+import { useAlert } from "@/components/ui/alert-provider";
 import { matchesSearch } from "@/lib/utils";
 import {
   AppRuntimeControls,
@@ -60,7 +61,7 @@ function StatusBadge({ status }: { status: string }) {
   };
   return (
     <span
-      className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${styles[status] ?? styles.SUSPENDED}`}
+      className={`inline-flex rounded-md px-1.5 py-0.5 text-[10px] font-medium ring-1 ${styles[status] ?? styles.SUSPENDED}`}
     >
       {status}
     </span>
@@ -68,6 +69,7 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export default function SubdomainsPage() {
+  const { confirm } = useAlert();
   const [domains, setDomains] = useState<Domain[]>([]);
   const [panelBaseDomain, setPanelBaseDomain] = useState<string | null>(null);
   const [subdomains, setSubdomains] = useState<Subdomain[]>([]);
@@ -191,10 +193,21 @@ export default function SubdomainsPage() {
   }
 
   async function handleDelete(id: string, documentRoot: string) {
-    if (!confirm(`Delete subdomain from the panel?`)) return;
+    const ok = await confirm("Delete this subdomain from the panel?", {
+      title: "Delete subdomain",
+      danger: true,
+      confirmLabel: "Delete",
+    });
+    if (!ok) return;
 
-    const deleteFiles = confirm(
-      `Also delete the folder and all files?\n\n${documentRoot}\n\n• OK = delete folder\n• Cancel = keep folder on disk`
+    const deleteFiles = await confirm(
+      `Also delete the folder and all files?\n\n${documentRoot}\n\nYes = delete folder\nNo = keep folder on disk`,
+      {
+        title: "Delete files?",
+        danger: true,
+        confirmLabel: "Delete folder",
+        cancelLabel: "Keep folder",
+      }
     );
 
     await fetch(
@@ -288,7 +301,7 @@ export default function SubdomainsPage() {
   });
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-4">
       <PageHeader
         title="Subdomains"
         description="Create and manage subdomains across all of your domains."
@@ -458,119 +471,122 @@ export default function SubdomainsPage() {
         </p>
       )}
 
-      <div className="space-y-3">
+      <div className="space-y-2">
         {filteredSubdomains.map((s) => {
           const ssl = s.sslCerts[0];
           const fqdn = `${s.name}.${s.domain.name}`;
           const mailHost = isMailHostSubdomain(s);
+          const btn =
+            "inline-flex items-center justify-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-medium transition disabled:opacity-50";
 
           return (
-          <div
-            key={s.id}
-            className="rounded-xl border border-slate-800 bg-slate-950/80 p-5"
-          >
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-3">
-                  <p className="font-medium text-white">
-                    <a
-                      href={mailHost ? `https://${fqdn}/webmail` : `https://${fqdn}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="hover:text-emerald-400 hover:underline"
-                      title={
-                        mailHost
-                          ? `Open webmail https://${fqdn}/webmail`
-                          : `Open https://${fqdn}`
-                      }
-                    >
-                      {fqdn}
-                    </a>
-                  </p>
-                  <StatusBadge status={s.status} />
-                  {mailHost ? (
-                    <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-300 ring-1 ring-emerald-500/30">
-                      <Mail className="h-3 w-3" />
-                      Webmail host
-                    </span>
-                  ) : (
-                    <span className="rounded-md bg-slate-800 px-2 py-0.5 text-xs text-slate-300">
-                      {s.appType ?? "PHP"}
-                    </span>
-                  )}
-                  {ssl ? (
-                    <span
-                      className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${sslStatusColor(ssl.status)}`}
-                    >
-                      SSL {ssl.status}
-                    </span>
-                  ) : (
-                    <span className="inline-flex rounded-full bg-slate-500/15 px-2.5 py-0.5 text-xs font-medium text-slate-400 ring-1 ring-slate-500/30">
-                      No SSL
-                    </span>
-                  )}
-                </div>
+            <div
+              key={s.id}
+              className="rounded-xl border border-slate-800 bg-slate-950/80 p-3 sm:p-4"
+            >
+              <a
+                href={mailHost ? `https://${fqdn}/webmail` : `https://${fqdn}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block truncate text-sm font-medium text-white hover:text-emerald-400"
+                title={fqdn}
+              >
+                {fqdn}
+              </a>
+
+              <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                <StatusBadge status={s.status} />
                 {mailHost ? (
-                  <p className="mt-2 text-xs text-slate-400">
-                    Proxies to panel webmail — not a website document root.
-                  </p>
-                ) : editingId === s.id ? (
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <input
-                      value={editPath}
-                      onChange={(e) => setEditPath(e.target.value)}
-                      className="min-w-0 flex-1 rounded-lg border border-emerald-500/40 bg-slate-900 px-3 py-2 font-mono text-xs text-white outline-none focus:ring-1 focus:ring-emerald-500/30"
-                    />
+                  <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300 ring-1 ring-emerald-500/30">
+                    <Mail className="h-3 w-3" />
+                    Webmail
+                  </span>
+                ) : (
+                  <span className="rounded-md bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-300">
+                    {s.appType ?? "PHP"}
+                  </span>
+                )}
+                {ssl ? (
+                  <span
+                    className={`inline-flex rounded-md px-1.5 py-0.5 text-[10px] font-medium ring-1 ${sslStatusColor(ssl.status)}`}
+                  >
+                    SSL {ssl.status}
+                  </span>
+                ) : (
+                  <span className="inline-flex rounded-md bg-slate-500/15 px-1.5 py-0.5 text-[10px] font-medium text-slate-400 ring-1 ring-slate-500/30">
+                    No SSL
+                  </span>
+                )}
+              </div>
+
+              {mailHost ? (
+                <p className="mt-1.5 text-[11px] text-slate-500">
+                  Proxies to panel webmail — not a website root.
+                </p>
+              ) : editingId === s.id ? (
+                <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <input
+                    value={editPath}
+                    onChange={(e) => setEditPath(e.target.value)}
+                    className="min-w-0 w-full flex-1 rounded-lg border border-emerald-500/40 bg-slate-900 px-2.5 py-1.5 font-mono text-[11px] text-white outline-none focus:ring-1 focus:ring-emerald-500/30"
+                  />
+                  <div className="flex gap-1.5">
                     <button
                       type="button"
                       onClick={() => saveEditPath(s.id)}
                       disabled={savingPath === s.id}
-                      className="rounded-lg bg-emerald-600 px-3 py-2 text-xs text-white hover:bg-emerald-500 disabled:opacity-50"
+                      className={`${btn} border-emerald-500/40 bg-emerald-500/15 text-emerald-300`}
                     >
-                      {savingPath === s.id ? "Saving..." : "Save"}
+                      {savingPath === s.id ? "Saving…" : "Save"}
                     </button>
                     <button
                       type="button"
                       onClick={cancelEditPath}
-                      className="rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-300 hover:bg-slate-800"
+                      className={`${btn} border-slate-700 text-slate-300`}
                     >
                       Cancel
                     </button>
                   </div>
-                ) : (
-                  <p className="mt-2 break-all font-mono text-xs text-slate-400">
-                    {s.documentRoot}
-                  </p>
-                )}
-                {s.lastError && (
-                  <p className="mt-1 text-xs text-red-400">{s.lastError}</p>
-                )}
-                {ssl?.lastError && (
-                  <p className="mt-1 text-xs text-red-400">SSL: {ssl.lastError}</p>
-                )}
-              </div>
+                </div>
+              ) : (
+                <p
+                  className="mt-1.5 truncate font-mono text-[11px] text-slate-500"
+                  title={s.documentRoot}
+                >
+                  {s.documentRoot}
+                </p>
+              )}
 
-              <div className="flex flex-wrap items-center gap-2">
+              {s.lastError ? (
+                <p className="mt-1 text-[11px] text-red-400">{s.lastError}</p>
+              ) : null}
+              {ssl?.lastError ? (
+                <p className="mt-1 text-[11px] text-red-400">
+                  SSL: {ssl.lastError}
+                </p>
+              ) : null}
+
+              <div className="mt-2.5 grid grid-cols-2 gap-1.5 sm:mt-3 sm:flex sm:flex-wrap sm:justify-end">
                 {mailHost ? (
                   <>
                     <a
                       href={`https://${fqdn}/webmail`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex items-center gap-1.5 rounded-lg border border-emerald-500/30 px-3 py-1.5 text-xs text-emerald-400 hover:bg-emerald-500/10"
+                      className={`${btn} border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10`}
                     >
-                      <Mail className="h-3.5 w-3.5" />
-                      Open webmail
+                      <Mail className="h-3 w-3" />
+                      Webmail
                     </a>
                     {ssl?.status === "ACTIVE" ? (
                       <button
                         type="button"
                         onClick={() => handleRenewSsl(ssl.id, s.id)}
                         disabled={sslLoading === s.id}
-                        className="flex items-center gap-1.5 rounded-lg border border-emerald-500/30 px-3 py-1.5 text-xs text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-50"
+                        className={`${btn} border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10`}
                       >
                         <RefreshCw
-                          className={`h-3.5 w-3.5 ${sslLoading === s.id ? "animate-spin" : ""}`}
+                          className={`h-3 w-3 ${sslLoading === s.id ? "animate-spin" : ""}`}
                         />
                         Renew SSL
                       </button>
@@ -579,104 +595,111 @@ export default function SubdomainsPage() {
                         type="button"
                         onClick={() => handleIssueSsl(s.id)}
                         disabled={sslLoading === s.id || s.status !== "ACTIVE"}
-                        className="flex items-center gap-1.5 rounded-lg border border-emerald-500/30 px-3 py-1.5 text-xs text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-50"
+                        className={`${btn} border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10`}
                       >
-                        <Lock className="h-3.5 w-3.5" />
+                        <Lock className="h-3 w-3" />
                         {ssl ? "Re-issue SSL" : "Issue SSL"}
                       </button>
                     )}
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(s.id, s.documentRoot)}
+                      className={`${btn} col-span-2 border-red-500/30 text-red-400 hover:bg-red-500/10 sm:col-span-1`}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                      Delete
+                    </button>
                   </>
                 ) : (
                   <>
-                <button
-                  type="button"
-                  onClick={() => setRuntimeSub(s)}
-                  className="flex items-center gap-1.5 rounded-lg border border-sky-500/30 px-3 py-1.5 text-xs text-sky-400 hover:bg-sky-500/10"
-                >
-                  <Settings2 className="h-3.5 w-3.5" />
-                  Runtime
-                </button>
-                {ssl?.status === "ACTIVE" ? (
-                  <button
-                    type="button"
-                    onClick={() => handleRenewSsl(ssl.id, s.id)}
-                    disabled={sslLoading === s.id}
-                    className="flex items-center gap-1.5 rounded-lg border border-emerald-500/30 px-3 py-1.5 text-xs text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-50"
-                  >
-                    <RefreshCw
-                      className={`h-3.5 w-3.5 ${sslLoading === s.id ? "animate-spin" : ""}`}
-                    />
-                    Renew SSL
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => handleIssueSsl(s.id)}
-                    disabled={sslLoading === s.id || s.status !== "ACTIVE"}
-                    className="flex items-center gap-1.5 rounded-lg border border-emerald-500/30 px-3 py-1.5 text-xs text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-50"
-                    title={
-                      s.status !== "ACTIVE"
-                        ? "Subdomain must be active before issuing SSL"
-                        : undefined
-                    }
-                  >
-                    <Lock className="h-3.5 w-3.5" />
-                    {ssl ? "Re-issue SSL" : "Issue SSL"}
-                  </button>
-                )}
-                {editingId !== s.id && (
-                  <button
-                    type="button"
-                    onClick={() => startEditPath(s)}
-                    className="flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                    Edit path
-                  </button>
-                )}
-                <a
-                  href={`/file-manager?target=s:${s.id}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-emerald-400 hover:bg-slate-800"
-                >
-                  <FolderOpen className="h-3.5 w-3.5" />
-                  Open files
-                </a>
-                {s.status === "ERROR" && (
-                  <button
-                    type="button"
-                    onClick={() => handleRetry(s.id)}
-                    disabled={retrying === s.id}
-                    className="flex items-center gap-1.5 rounded-lg border border-amber-500/30 px-3 py-1.5 text-xs text-amber-400 hover:bg-amber-500/10 disabled:opacity-50"
-                  >
-                    <RefreshCw
-                      className={`h-3.5 w-3.5 ${retrying === s.id ? "animate-spin" : ""}`}
-                    />
-                    Retry
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => handleDelete(s.id, s.documentRoot)}
-                  className="flex items-center gap-1.5 rounded-lg border border-red-500/30 px-3 py-1.5 text-xs text-red-400 hover:bg-red-500/10"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  Delete
-                </button>
+                    <button
+                      type="button"
+                      onClick={() => setRuntimeSub(s)}
+                      className={`${btn} border-sky-500/30 text-sky-400 hover:bg-sky-500/10`}
+                    >
+                      <Settings2 className="h-3 w-3" />
+                      Runtime
+                    </button>
+                    {ssl?.status === "ACTIVE" ? (
+                      <button
+                        type="button"
+                        onClick={() => handleRenewSsl(ssl.id, s.id)}
+                        disabled={sslLoading === s.id}
+                        className={`${btn} border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10`}
+                      >
+                        <RefreshCw
+                          className={`h-3 w-3 ${sslLoading === s.id ? "animate-spin" : ""}`}
+                        />
+                        Renew SSL
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleIssueSsl(s.id)}
+                        disabled={sslLoading === s.id || s.status !== "ACTIVE"}
+                        className={`${btn} border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10`}
+                        title={
+                          s.status !== "ACTIVE"
+                            ? "Subdomain must be active before issuing SSL"
+                            : undefined
+                        }
+                      >
+                        <Lock className="h-3 w-3" />
+                        {ssl ? "Re-issue SSL" : "Issue SSL"}
+                      </button>
+                    )}
+                    {editingId !== s.id ? (
+                      <button
+                        type="button"
+                        onClick={() => startEditPath(s)}
+                        className={`${btn} border-slate-700 text-slate-300 hover:bg-slate-800`}
+                      >
+                        <Pencil className="h-3 w-3" />
+                        Edit path
+                      </button>
+                    ) : null}
+                    <a
+                      href={`/file-manager?target=s:${s.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={`${btn} border-slate-700 text-emerald-400 hover:bg-slate-800`}
+                    >
+                      <FolderOpen className="h-3 w-3" />
+                      Files
+                    </a>
+                    {s.status === "ERROR" ? (
+                      <button
+                        type="button"
+                        onClick={() => handleRetry(s.id)}
+                        disabled={retrying === s.id}
+                        className={`${btn} border-amber-500/30 text-amber-400 hover:bg-amber-500/10`}
+                      >
+                        <RefreshCw
+                          className={`h-3 w-3 ${retrying === s.id ? "animate-spin" : ""}`}
+                        />
+                        Retry
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(s.id, s.documentRoot)}
+                      className={`${btn} border-red-500/30 text-red-400 hover:bg-red-500/10`}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                      Delete
+                    </button>
                   </>
                 )}
               </div>
             </div>
-          </div>
-        );
+          );
         })}
         {subdomains.length === 0 ? (
-          <p className="rounded-xl border border-slate-800 bg-slate-950/50 px-5 py-10 text-center text-slate-500">
-            No subdomains for {parentDomain ?? "this domain"} yet.
+          <p className="rounded-xl border border-slate-800 bg-slate-950/50 px-5 py-8 text-center text-sm text-slate-500">
+            No subdomains yet.
           </p>
         ) : filteredSubdomains.length === 0 ? (
-          <p className="rounded-xl border border-slate-800 bg-slate-950/50 px-5 py-10 text-center text-slate-500">
+          <p className="rounded-xl border border-slate-800 bg-slate-950/50 px-5 py-8 text-center text-sm text-slate-500">
             No subdomains match your search.
           </p>
         ) : null}

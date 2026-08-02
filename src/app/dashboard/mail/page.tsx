@@ -5,6 +5,7 @@ import { KeyRound, Mail, ExternalLink, Power, Trash2 } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { Modal, modalInputClass, modalLabelClass } from "@/components/ui/modal";
 import { ModalActions, PageHeader } from "@/components/ui/page-header";
+import { useAlert } from "@/components/ui/alert-provider";
 import { matchesSearch } from "@/lib/utils";
 
 type Domain = { id: string; name: string };
@@ -19,6 +20,7 @@ type MailAccount = {
 };
 
 export default function MailPage() {
+  const { alert, confirm } = useAlert();
   const [domains, setDomains] = useState<Domain[]>([]);
   const [filterDomainId, setFilterDomainId] = useState("");
   const [createDomainId, setCreateDomainId] = useState("");
@@ -78,7 +80,12 @@ export default function MailPage() {
   }
 
   async function handleDelete(id: string, email: string) {
-    if (!confirm(`Delete mailbox ${email}?`)) return;
+    const ok = await confirm(`Delete mailbox ${email}?`, {
+      title: "Delete mailbox",
+      danger: true,
+      confirmLabel: "Delete",
+    });
+    if (!ok) return;
     setLoading(id);
     await fetch(`/api/mail?id=${id}`, { method: "DELETE" });
     setLoading(null);
@@ -87,7 +94,10 @@ export default function MailPage() {
 
   async function handleResetPassword(id: string) {
     if (!newPassword || newPassword.length < 8) {
-      alert("Password must be at least 8 characters");
+      await alert("Password must be at least 8 characters", {
+        title: "Invalid password",
+        tone: "warning",
+      });
       return;
     }
     setLoading(id);
@@ -104,7 +114,12 @@ export default function MailPage() {
 
   async function handleToggleActive(id: string, isActive: boolean, email: string) {
     const action = isActive ? "deactivate" : "activate";
-    if (!confirm(`${action} mailbox ${email}?`)) return;
+    const ok = await confirm(`${action} mailbox ${email}?`, {
+      title: isActive ? "Deactivate mailbox" : "Activate mailbox",
+      tone: isActive ? "warning" : "info",
+      confirmLabel: isActive ? "Deactivate" : "Activate",
+    });
+    if (!ok) return;
     setLoading(id);
     await fetch(`/api/mail?id=${id}`, {
       method: "PATCH",
@@ -140,21 +155,23 @@ export default function MailPage() {
   });
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-4">
       <PageHeader
         title="Mail Server"
         description="Manage email accounts for all domains."
         actionLabel="Create Mailbox"
         onAction={openCreate}
-        actionIcon={<Mail className="h-4 w-4" />}
+        actionIcon={<Mail className="h-3.5 w-3.5" />}
         searchValue={search}
         onSearchChange={setSearch}
         searchPlaceholder="Search mailboxes..."
       />
 
-      <div className="flex flex-wrap items-center gap-3">
-        <label className="text-xs font-medium text-slate-400">Domain</label>
-        <div className="w-full max-w-xs">
+      <div className="flex items-center gap-2">
+        <label className="shrink-0 text-xs font-medium text-slate-400">
+          Domain
+        </label>
+        <div className="min-w-0 flex-1 sm:max-w-xs">
           <Select
             value={filterDomainId}
             onChange={setFilterDomainId}

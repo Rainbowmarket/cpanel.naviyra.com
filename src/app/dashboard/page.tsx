@@ -193,17 +193,17 @@ export default async function DashboardPage() {
   ];
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-bold text-white">Dashboard</h2>
-          <p className="mt-1 text-sm text-slate-400">
-            Hosting overview — resources, storage, and security.
+    <div className="space-y-4 sm:space-y-5">
+      <div className="flex flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between sm:gap-3">
+        <div className="min-w-0">
+          <h2 className="text-lg font-bold text-white sm:text-2xl">Dashboard</h2>
+          <p className="mt-0.5 text-xs text-slate-400 sm:mt-1 sm:text-sm">
+            Resources, storage, and security.
           </p>
         </div>
         <div className="flex flex-wrap gap-1.5">
           <div
-            className={`inline-flex items-center gap-2 rounded-lg border px-2.5 py-1 text-[11px] ${
+            className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[10px] sm:gap-2 sm:rounded-lg sm:px-2.5 sm:py-1 sm:text-[11px] ${
               agentOnline
                 ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
                 : "border-amber-500/30 bg-amber-500/10 text-amber-300"
@@ -217,7 +217,7 @@ export default async function DashboardPage() {
             Agent {agentOnline ? "online" : "offline"}
           </div>
           <div
-            className={`inline-flex items-center gap-2 rounded-lg border px-2.5 py-1 text-[11px] ${
+            className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[10px] sm:gap-2 sm:rounded-lg sm:px-2.5 sm:py-1 sm:text-[11px] ${
               canManage
                 ? "border-slate-800 bg-slate-950/80 text-slate-300"
                 : "border-red-500/30 bg-red-500/10 text-red-300"
@@ -227,41 +227,44 @@ export default async function DashboardPage() {
             {getPlatformName()} · {getPermissionLabel()}
           </div>
           {!liveMode ? (
-            <div className="inline-flex items-center rounded-lg border border-slate-800 bg-slate-950/80 px-2.5 py-1 text-[11px] text-slate-400">
+            <div className="inline-flex items-center rounded-md border border-slate-800 bg-slate-950/80 px-2 py-0.5 text-[10px] text-slate-400 sm:rounded-lg sm:px-2.5 sm:py-1 sm:text-[11px]">
               Dry-run
             </div>
           ) : null}
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-1.5">
-        {shortcuts.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className="rounded-lg border border-slate-800 bg-slate-950/60 px-2.5 py-1 text-[11px] text-slate-400 transition hover:border-slate-700 hover:text-slate-200"
-          >
-            {item.label}
-          </Link>
-        ))}
+      {/* Horizontal scroll on narrow screens — no awkward wrap */}
+      <div className="-mx-4 overflow-x-auto overscroll-x-contain px-4 [scrollbar-width:none] sm:mx-0 sm:overflow-visible sm:px-0 [&::-webkit-scrollbar]:hidden">
+        <div className="flex w-max gap-1.5 sm:w-auto sm:flex-wrap">
+          {shortcuts.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="shrink-0 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-1.5 text-[11px] text-slate-400 transition hover:border-slate-700 hover:text-slate-200 active:bg-slate-900"
+            >
+              {item.label}
+            </Link>
+          ))}
+        </div>
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-8">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
         {resourceStats.map((stat) => {
           const Icon = stat.icon;
           return (
             <Link
               key={stat.label}
               href={stat.href}
-              className="rounded-xl border border-slate-800 bg-slate-950/80 px-3.5 py-3 transition hover:border-emerald-500/30 hover:bg-slate-900/70 xl:col-span-1"
+              className="rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-2.5 transition hover:border-emerald-500/30 hover:bg-slate-900/70 active:bg-slate-900 sm:px-3.5 sm:py-3 xl:col-span-1"
             >
               <div className="flex items-center justify-between gap-2">
                 <p className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
                   {stat.label}
                 </p>
-                <Icon className="h-3.5 w-3.5 text-emerald-400" />
+                <Icon className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
               </div>
-              <p className="mt-1 text-xl font-semibold tabular-nums text-white">
+              <p className="mt-1 text-lg font-semibold tabular-nums text-white sm:text-xl">
                 {stat.value}
               </p>
             </Link>
@@ -273,20 +276,20 @@ export default async function DashboardPage() {
             <Link
               key={stat.label}
               href={stat.href}
-              className="rounded-xl border border-slate-800 bg-slate-950/80 px-3.5 py-3 transition hover:bg-slate-900/70 xl:col-span-1"
+              className="rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-2.5 transition hover:bg-slate-900/70 active:bg-slate-900 sm:px-3.5 sm:py-3 xl:col-span-1"
             >
               <div className="flex items-center justify-between gap-2">
                 <p className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
                   {stat.label}
                 </p>
                 <Icon
-                  className={`h-3.5 w-3.5 ${
+                  className={`h-3.5 w-3.5 shrink-0 ${
                     stat.alert ? "text-amber-400" : "text-emerald-400"
                   }`}
                 />
               </div>
               <p
-                className={`mt-1 text-xl font-semibold tabular-nums ${
+                className={`mt-1 text-lg font-semibold tabular-nums sm:text-xl ${
                   stat.alert ? "text-amber-200" : "text-white"
                 }`}
               >
@@ -393,41 +396,43 @@ export default async function DashboardPage() {
               {recentDomains.map((domain) => (
                 <li
                   key={domain.id}
-                  className="flex items-center justify-between gap-3 border-t border-slate-800/70 px-4 py-2.5 first:border-t-0"
+                  className="flex items-center justify-between gap-2 border-t border-slate-800/70 px-3 py-2.5 first:border-t-0 sm:gap-3 sm:px-4"
                 >
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-1.5">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex min-w-0 items-center gap-1.5">
                       <p className="truncate text-sm font-medium text-white">
                         {domain.name}
                       </p>
                       <span
-                        className={`rounded px-1.5 py-0.5 text-[10px] font-medium uppercase ${
+                        className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium uppercase ${
                           domain.status === "ACTIVE"
                             ? "bg-emerald-500/15 text-emerald-300"
                             : "bg-slate-800 text-slate-400"
                         }`}
                       >
-                        {domain.status}
+                        {domain.status === "ACTIVE" ? "OK" : domain.status}
                       </span>
                     </div>
-                    <p className="mt-0.5 text-[11px] text-slate-500">
+                    <p className="mt-0.5 truncate text-[11px] text-slate-500">
                       {domain._count.sslCerts} SSL
                       <span className="mx-1 text-slate-700">·</span>
                       {formatDiskBytes(domainSizeById.get(domain.id) ?? null)}
-                      <span className="mx-1 text-slate-700">·</span>
-                      {formatDate(domain.createdAt)}
+                      <span className="mx-1 hidden text-slate-700 sm:inline">·</span>
+                      <span className="hidden sm:inline">
+                        {formatDate(domain.createdAt)}
+                      </span>
                     </p>
                   </div>
                   <div className="flex shrink-0 gap-1">
                     <Link
                       href="/dashboard/dns"
-                      className="rounded-md border border-slate-700 px-2 py-1 text-[11px] text-slate-300 hover:bg-slate-800"
+                      className="rounded-md border border-slate-700 px-2 py-1.5 text-[11px] text-slate-300 hover:bg-slate-800"
                     >
                       DNS
                     </Link>
                     <Link
                       href="/dashboard/files"
-                      className="rounded-md border border-slate-700 px-2 py-1 text-[11px] text-slate-300 hover:bg-slate-800"
+                      className="rounded-md border border-slate-700 px-2 py-1.5 text-[11px] text-slate-300 hover:bg-slate-800"
                     >
                       Files
                     </Link>

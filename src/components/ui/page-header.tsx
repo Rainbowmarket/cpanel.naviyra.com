@@ -4,7 +4,7 @@ import { SearchInput } from "@/components/ui/search-input";
 
 type PageHeaderProps = {
   title: string;
-  description: string;
+  description?: string;
   actionLabel?: string;
   onAction?: () => void;
   actionIcon?: ReactNode;
@@ -24,31 +24,35 @@ export function PageHeader({
   searchPlaceholder = "Search...",
 }: PageHeaderProps) {
   return (
-    <div className="flex flex-wrap items-start justify-between gap-4">
-      <div>
-        <h2 className="text-2xl font-bold text-white">{title}</h2>
-        <p className="mt-1 text-slate-400">{description}</p>
-      </div>
-      <div className="flex flex-wrap items-center justify-end gap-3">
-        {onSearchChange && (
-          <SearchInput
-            value={searchValue ?? ""}
-            onChange={onSearchChange}
-            placeholder={searchPlaceholder}
-            className="w-56 sm:w-64"
-          />
-        )}
-        {actionLabel && onAction && (
-          <button
-            type="button"
-            onClick={onAction}
-            className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-500"
-          >
-            {actionIcon ?? <Plus className="h-4 w-4" />}
-            {actionLabel}
-          </button>
-        )}
-      </div>
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+      <h2 className="shrink-0 text-lg font-semibold text-white sm:text-xl">
+        {title}
+      </h2>
+
+      {onSearchChange ? (
+        <SearchInput
+          value={searchValue ?? ""}
+          onChange={onSearchChange}
+          placeholder={searchPlaceholder}
+          className="w-full min-w-0 flex-1 sm:max-w-sm"
+        />
+      ) : (
+        <div className="hidden min-w-0 flex-1 sm:block" />
+      )}
+
+      {actionLabel && onAction ? (
+        <button
+          type="button"
+          onClick={onAction}
+          className="inline-flex w-full shrink-0 items-center justify-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-300 transition hover:bg-emerald-500/20 sm:w-auto sm:gap-2 sm:px-3.5 sm:py-2 sm:text-sm"
+        >
+          {actionIcon ?? <Plus className="h-3.5 w-3.5 sm:h-4 sm:w-4" />}
+          {actionLabel}
+        </button>
+      ) : null}
+
+      {/* Keep prop for callers; not shown to reduce clutter */}
+      {description ? <span className="sr-only">{description}</span> : null}
     </div>
   );
 }
@@ -65,18 +69,18 @@ export function ModalActions({
   submitDisabled?: boolean;
 }) {
   return (
-    <div className="flex justify-end gap-3 border-t border-slate-800 pt-4">
+    <div className="flex justify-end gap-2 border-t border-slate-800 pt-4 sm:gap-3">
       <button
         type="button"
         onClick={onCancel}
-        className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 hover:bg-slate-800"
+        className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800 sm:px-4 sm:py-2"
       >
         Cancel
       </button>
       <button
         type="submit"
         disabled={submitting || submitDisabled}
-        className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+        className="rounded-lg border border-emerald-500/40 bg-emerald-500/15 px-3 py-1.5 text-sm font-medium text-emerald-300 hover:bg-emerald-500/25 disabled:opacity-50 sm:px-4 sm:py-2"
       >
         {submitting ? "Saving..." : submitLabel}
       </button>

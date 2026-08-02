@@ -148,7 +148,7 @@ export default function SslPage() {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-4">
       <PageHeader
         title="SSL Certificates"
         description="Issue and renew Let's Encrypt certificates for domains and subdomains."

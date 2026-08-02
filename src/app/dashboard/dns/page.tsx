@@ -16,6 +16,7 @@ import {
 import { Select } from "@/components/ui/select";
 import { Modal, modalInputClass, modalLabelClass } from "@/components/ui/modal";
 import { ModalActions, PageHeader } from "@/components/ui/page-header";
+import { useAlert } from "@/components/ui/alert-provider";
 
 type DnsRecord = {
   id: string;
@@ -62,6 +63,7 @@ function typeBadgeClass(type: string) {
 }
 
 export default function DnsPage() {
+  const { confirm } = useAlert();
   const [zones, setZones] = useState<DnsZone[]>([]);
   const [nameservers, setNameservers] = useState({ ns1: "", ns2: "" });
   const [loading, setLoading] = useState(false);
@@ -142,7 +144,12 @@ export default function DnsPage() {
   }
 
   async function handleDeleteRecord(recordId: string) {
-    if (!confirm("Delete this DNS record?")) return;
+    const ok = await confirm("Delete this DNS record?", {
+      title: "Delete DNS record",
+      danger: true,
+      confirmLabel: "Delete",
+    });
+    if (!ok) return;
     setLoading(true);
     await fetch(`/api/dns/records?id=${recordId}`, { method: "DELETE" });
     await loadZones();

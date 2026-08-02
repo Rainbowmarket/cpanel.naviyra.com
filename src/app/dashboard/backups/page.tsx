@@ -17,6 +17,7 @@ import {
 import { Select } from "@/components/ui/select";
 import { PageHeader } from "@/components/ui/page-header";
 import { Modal } from "@/components/ui/modal";
+import { useAlert } from "@/components/ui/alert-provider";
 
 type BackupSchedule = "EVERY_6H" | "DAILY_02" | "DAILY_03" | "WEEKLY_SUN";
 
@@ -177,6 +178,7 @@ function IncludeChip(props: {
 
 export default function BackupsPage() {
   const router = useRouter();
+  const { confirm } = useAlert();
   const [config, setConfig] = useState<BackupConfig | null>(null);
   const [runs, setRuns] = useState<BackupRun[]>([]);
   const [domains, setDomains] = useState<DomainOption[]>([]);
@@ -402,8 +404,9 @@ export default function BackupsPage() {
 
   async function handleDelete(run: BackupRun) {
     const label = run.archivePath ?? run.id;
-    const ok = confirm(
-      `Delete this backup?\n\n${label}\n\nThis removes the archive from disk and the run from history. This cannot be undone.`
+    const ok = await confirm(
+      `Delete this backup?\n\n${label}\n\nThis removes the archive from disk and the run from history. This cannot be undone.`,
+      { title: "Delete backup", danger: true, confirmLabel: "Delete" }
     );
     if (!ok) return;
 

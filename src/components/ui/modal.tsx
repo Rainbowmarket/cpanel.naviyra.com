@@ -35,7 +35,7 @@ export function Modal({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[60] flex items-end justify-center p-0 sm:items-center sm:p-4">
       <button
         type="button"
         aria-label="Close dialog"
@@ -47,11 +47,11 @@ export function Modal({
         aria-modal="true"
         aria-labelledby="modal-title"
         className={cn(
-          "relative max-h-[90vh] w-full overflow-y-auto rounded-xl border border-slate-700 bg-slate-900 shadow-2xl",
+          "relative max-h-[92vh] w-full overflow-y-auto rounded-t-2xl border border-slate-700 bg-slate-900 shadow-2xl sm:rounded-xl",
           className ?? "max-w-lg"
         )}
       >
-        <div className="sticky top-0 flex items-start justify-between border-b border-slate-800 bg-slate-900 px-6 py-4">
+        <div className="sticky top-0 flex items-start justify-between border-b border-slate-800 bg-slate-900 px-4 py-4 sm:px-6">
           <div>
             <h3 id="modal-title" className="text-lg font-semibold text-white">
               {title}

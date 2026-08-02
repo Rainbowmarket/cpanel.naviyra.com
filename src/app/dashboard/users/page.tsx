@@ -6,6 +6,7 @@ import { KeyRound, Trash2, UserPlus } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { Modal, modalInputClass, modalLabelClass } from "@/components/ui/modal";
 import { ModalActions, PageHeader } from "@/components/ui/page-header";
+import { useAlert } from "@/components/ui/alert-provider";
 import { matchesSearch } from "@/lib/utils";
 
 type PanelUser = {
@@ -31,6 +32,7 @@ const roleStyles: Record<string, string> = {
 
 export default function UsersPage() {
   const router = useRouter();
+  const { alert, confirm } = useAlert();
   const [users, setUsers] = useState<PanelUser[]>([]);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -91,12 +93,19 @@ export default function UsersPage() {
   }
 
   async function handleDelete(id: string, userEmail: string) {
-    if (!confirm(`Delete user ${userEmail}? Their domains will also be removed.`)) return;
+    const ok = await confirm(
+      `Delete user ${userEmail}? Their domains will also be removed.`,
+      { title: "Delete user", danger: true, confirmLabel: "Delete" }
+    );
+    if (!ok) return;
     setDeletingId(id);
     const res = await fetch(`/api/users?id=${id}`, { method: "DELETE" });
     const data = await res.json();
     if (!res.ok) {
-      alert(data.error ?? "Failed to delete user");
+      await alert(data.error ?? "Failed to delete user", {
+        title: "Could not delete",
+        tone: "danger",
+      });
     }
     setDeletingId(null);
     load();
@@ -158,7 +167,7 @@ export default function UsersPage() {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-4">
       <PageHeader
         title="Users"
         description="Create and manage panel login accounts."

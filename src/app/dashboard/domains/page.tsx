@@ -7,6 +7,7 @@ import { AlertCircle, FolderOpen, Globe, Lock, RefreshCw, Settings2 } from "luci
 import { Select } from "@/components/ui/select";
 import { Modal, modalInputClass, modalLabelClass } from "@/components/ui/modal";
 import { ModalActions, PageHeader } from "@/components/ui/page-header";
+import { useAlert } from "@/components/ui/alert-provider";
 import {
   AppRuntimeControls,
   AppTypeSelectField,
@@ -64,6 +65,7 @@ function StatusBadge({ status, error }: { status: string; error?: string | null 
 
 export default function DomainsPage() {
   const router = useRouter();
+  const { confirm } = useAlert();
   const [domains, setDomains] = useState<Domain[]>([]);
   const [servers, setServers] = useState<ServerOption[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -133,7 +135,12 @@ export default function DomainsPage() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("Delete this domain?")) return;
+    const ok = await confirm("Delete this domain? This cannot be undone.", {
+      title: "Delete domain",
+      danger: true,
+      confirmLabel: "Delete",
+    });
+    if (!ok) return;
     await fetch(`/api/domains?id=${id}`, { method: "DELETE" });
     await load();
     router.refresh();
@@ -168,7 +175,7 @@ export default function DomainsPage() {
   if (loading) return <p className="text-slate-400">Loading...</p>;
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-4">
       <PageHeader
         title="Domains"
         description="Add and manage hosted domains (React, PHP, Python, Go)."

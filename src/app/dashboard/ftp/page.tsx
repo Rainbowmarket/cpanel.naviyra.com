@@ -5,6 +5,7 @@ import { Upload } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { Modal, modalInputClass, modalLabelClass } from "@/components/ui/modal";
 import { ModalActions, PageHeader } from "@/components/ui/page-header";
+import { useAlert } from "@/components/ui/alert-provider";
 import { matchesSearch } from "@/lib/utils";
 
 type HostingTarget = { id: string; label: string; documentRoot: string };
@@ -17,6 +18,7 @@ type FtpConnection = {
 };
 
 export default function FtpPage() {
+  const { confirm } = useAlert();
   const [targets, setTargets] = useState<HostingTarget[]>([]);
   const [target, setTarget] = useState("");
   const [accounts, setAccounts] = useState<FtpAccount[]>([]);
@@ -74,7 +76,12 @@ export default function FtpPage() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("Delete this FTP account?")) return;
+    const ok = await confirm("Delete this FTP account?", {
+      title: "Delete FTP account",
+      danger: true,
+      confirmLabel: "Delete",
+    });
+    if (!ok) return;
     await fetch(`/api/ftp?id=${encodeURIComponent(id)}`, { method: "DELETE" });
     await loadAccounts();
   }
@@ -84,7 +91,7 @@ export default function FtpPage() {
   );
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-4">
       <PageHeader
         title="FTP Server"
         description="Create FTP accounts for file uploads."

@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { PageHeader } from "@/components/ui/page-header";
+import { useAlert } from "@/components/ui/alert-provider";
 import { cn } from "@/lib/utils";
 
 type DatePreset = "today" | "yesterday" | "custom" | "all";
@@ -191,6 +192,7 @@ export default function SecurityPage() {
 }
 
 function SecurityPageInner() {
+  const { confirm } = useAlert();
   const searchParams = useSearchParams();
   const initialTab = (() => {
     const t = searchParams.get("tab");
@@ -332,7 +334,12 @@ function SecurityPageInner() {
   }, [tab, loadOverview]);
 
   async function blockFromEvent(id: string) {
-    if (!confirm("Block this IP?")) return;
+    const ok = await confirm("Block this IP?", {
+      title: "Block IP",
+      danger: true,
+      confirmLabel: "Block",
+    });
+    if (!ok) return;
     await fetch(`/api/security/events?id=${id}`, { method: "PATCH" });
     loadEvents();
     loadBlocked();
@@ -350,7 +357,12 @@ function SecurityPageInner() {
   }
 
   async function unblock(ip: string) {
-    if (!confirm(`Unblock ${ip}?`)) return;
+    const ok = await confirm(`Unblock ${ip}?`, {
+      title: "Unblock IP",
+      tone: "warning",
+      confirmLabel: "Unblock",
+    });
+    if (!ok) return;
     await fetch(`/api/security/blocklist?ip=${encodeURIComponent(ip)}`, {
       method: "DELETE",
     });
