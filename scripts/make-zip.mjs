@@ -8,7 +8,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const OUT_DIR = path.join(ROOT, "Output", "zip");
+const OUT_DIR = path.join(ROOT, "Output");
 
 const EXCLUDES = [
   "node_modules",

@@ -4,6 +4,7 @@ import { requireAgentApiKey } from "@/lib/secrets";
 export type TerminalTokenClaims = {
   sid: string;
   uid: string;
+  /** "jail" = start in cwd with HOME set there — not OS containment. */
   mode: "full" | "jail";
   cwd: string;
   exp: number;

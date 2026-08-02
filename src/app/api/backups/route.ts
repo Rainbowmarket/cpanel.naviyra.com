@@ -9,6 +9,7 @@ import {
   runAllDomainBackupsNow,
   updateBackupConfig,
 } from "@/lib/services/backups";
+import { bearerTokenMatches } from "@/lib/timing-safe";
 
 function workerToken(): string {
   const explicit = process.env.BACKUP_WORKER_TOKEN?.trim();
@@ -19,8 +20,9 @@ function workerToken(): string {
 }
 
 async function authorizeBackupRun(request: Request): Promise<"admin" | "worker"> {
-  const auth = request.headers.get("authorization") ?? "";
-  if (auth === `Bearer ${workerToken()}`) return "worker";
+  if (bearerTokenMatches(request.headers.get("authorization"), workerToken())) {
+    return "worker";
+  }
   await requireAdminUser();
   return "admin";
 }

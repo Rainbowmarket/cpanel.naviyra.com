@@ -26,6 +26,12 @@ function send(ws: WebSocket, msg: Record<string, unknown>) {
   }
 }
 
+/**
+ * "jail" mode is NOT a security boundary: no chroot, namespaces, or FS
+ * sandbox. It only sets the initial cwd and HOME. Users can still `cd /`
+ * and traverse anything the agent process OS user can read. Treat it as
+ * convenience / UX restriction only — never as containment.
+ */
 function resolveCwd(claims: TerminalTokenClaims): string {
   const cwd = path.resolve(claims.cwd);
   if (claims.mode === "jail") {
@@ -84,6 +90,7 @@ async function spawnPty(
     ...process.env,
     TERM: "xterm-256color",
     COLORTERM: "truecolor",
+    // Restricted cwd only — not a jail; HOME nudge does not block `cd /`.
     HOME: claims.mode === "jail" ? cwd : process.env.HOME || cwd,
   };
 
@@ -106,6 +113,14 @@ async function spawnPty(
       }
     },
     onData: (cb) => {
+      if (claims.mode === "jail") {
+        queueMicrotask(() =>
+          cb(
+            "\r\n[Naviyra] Restricted start directory (not a security jail). " +
+              "You can still leave this path with the agent process privileges.\r\n\r\n"
+          )
+        );
+      }
       proc.onData(cb);
     },
     onExit: (cb) => {

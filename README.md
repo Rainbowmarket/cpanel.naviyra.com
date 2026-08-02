@@ -13,7 +13,7 @@ Works on **Windows**, **Linux**, and **macOS**.
 - **FTP server** — FTP accounts per domain
 - **SSL certificates** — Let's Encrypt issue & renew
 - **File manager** — browse and edit website files (ZIP auto-extract)
-- **Terminal** — interactive web shell (admin full access; users jailed to document root) with session command log
+- **Terminal** — interactive web shell (admin full access; non-admins start in their document root — restricted cwd only, not a security jail) with session command log
 - **Security Manager** — visitors, threats, IP block/whitelist
 
 ## Requirements
@@ -228,6 +228,25 @@ Keep the terminal open while using the app. Press **Ctrl+C** to stop.
 
 ---
 
+## Deploy to production server
+
+Put SSH credentials in local `.env` (never commit `.env`):
+
+```env
+DEPLOY_HOST=136.243.196.166
+DEPLOY_USER=root
+DEPLOY_PASSWORD=your-ssh-password
+DEPLOY_PORT=22
+```
+
+Then from this machine:
+
+```bash
+npm run deploy
+```
+
+This packs sources (excludes `node_modules`, `.next`, `.env`, `data`), uploads to the server, and runs `scripts/remote-deploy.sh` (`/opt/naviyra-panel` install, build, systemd restart). On Windows it uses PuTTY `pscp`/`plink` when a password is set; on Linux/macOS use OpenSSH keys or `sshpass`.
+
 ## Production build (optional)
 
 ```bash
@@ -245,7 +264,9 @@ Dashboard → **Tools → Terminal**.
 | Role | Scope |
 |------|--------|
 | **ADMIN** | Full server shell (optional: start in a domain document root) |
-| **USER / RESELLER** | Shell jailed to the selected domain/subdomain document root |
+| **USER / RESELLER** | Shell starts in the selected domain/subdomain document root (`HOME` set there). **Not a security boundary** — no chroot/namespace; users can still `cd` elsewhere with the agent process’s OS permissions. |
+
+Do not treat “jail” mode as containment. For real isolation, run the agent as a least-privilege OS user or use OS/container sandboxing outside the panel.
 
 ### Local development
 
@@ -413,6 +434,10 @@ Use this when you want two independent control panels (e.g. one for you, one for
 | `AGENT_PORT` | Agent port (default 4000) |
 | `AGENT_DRY_RUN` | `true` = simulate, `false` = real commands |
 | `SERVER_PUBLIC_IP` | Your server's public IPv4 for DNS A records (default `127.0.0.1`) |
+| `DEPLOY_HOST` | SSH host for `npm run deploy` (falls back to `SERVER_PUBLIC_IP`) |
+| `DEPLOY_USER` | SSH user for deploy (default `root`) |
+| `DEPLOY_PASSWORD` | SSH password for deploy (omit if using SSH keys / `sshpass` not needed) |
+| `DEPLOY_PORT` | SSH port (default `22`) |
 | `DNS_NS1` | Primary nameserver hostname (default `ns1.naviyra.uk`) |
 | `DNS_NS2` | Secondary nameserver hostname (default `ns2.naviyra.uk`) |
 | `BIND_ZONES_DIR` | BIND zone files dir (e.g. `/etc/bind/zones`) |

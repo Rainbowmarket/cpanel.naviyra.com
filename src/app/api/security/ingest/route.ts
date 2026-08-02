@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireIngestKey } from "@/lib/secrets";
 import { logVisit } from "@/lib/services/security";
+import { timingSafeEqualString } from "@/lib/timing-safe";
 
 function ingestKeyOk(request: Request): boolean {
   let expected: string;
@@ -16,11 +17,10 @@ function ingestKeyOk(request: Request): boolean {
     return false;
   }
   const header = request.headers.get("authorization") ?? "";
+  const bearer = /^Bearer\s+(.+)$/i.exec(header.trim());
   const key =
-    header.replace(/^Bearer\s+/i, "").trim() ||
-    request.headers.get("x-ingest-key")?.trim() ||
-    "";
-  return key.length > 0 && key === expected;
+    (bearer?.[1]?.trim() || request.headers.get("x-ingest-key")?.trim() || "");
+  return key.length > 0 && timingSafeEqualString(key, expected);
 }
 
 const ingestSchema = z.object({

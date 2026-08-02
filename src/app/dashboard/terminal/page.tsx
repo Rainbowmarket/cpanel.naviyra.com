@@ -272,7 +272,7 @@ export default function TerminalPage() {
     <div className="space-y-6">
       <PageHeader
         title="Terminal"
-        description="Interactive shell with session command log. Admins get a full server shell; other users are jailed to their document root."
+        description="Interactive shell with session command log. Admins get a full server shell; other users start in their document root (restricted cwd only — not a security jail)."
       />
 
       <div className="flex flex-wrap items-end gap-3">

@@ -32,6 +32,7 @@ export async function createTerminalSession(
       { id: user.id, role: user.role },
       { excludeMailSubdomains: true }
     );
+    // Non-admins: restricted start directory only (mode "jail" is not containment).
     mode = user.role === "ADMIN" ? "full" : "jail";
     dbMode = mode === "full" ? "FULL" : "JAIL";
     cwd = target.documentRoot;

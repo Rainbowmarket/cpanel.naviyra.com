@@ -9,6 +9,7 @@ import {
   listBlockedIps,
   unblockIp,
 } from "@/lib/services/security";
+import { bearerTokenMatches } from "@/lib/timing-safe";
 
 function workerToken(): string {
   const explicit = process.env.BACKUP_WORKER_TOKEN?.trim();
@@ -19,8 +20,9 @@ function workerToken(): string {
 }
 
 async function authorizeExpire(request: Request): Promise<void> {
-  const auth = request.headers.get("authorization") ?? "";
-  if (auth === `Bearer ${workerToken()}`) return;
+  if (bearerTokenMatches(request.headers.get("authorization"), workerToken())) {
+    return;
+  }
   await requireSessionUser();
 }
 

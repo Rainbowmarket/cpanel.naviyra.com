@@ -45,6 +45,7 @@ import {
 } from "./nginx";
 import { resolvePhpFpmPass } from "./php-fpm";
 import { attachTerminalWs } from "./terminal";
+import { bearerTokenMatches } from "./timing-safe";
 import { extractZipArchive, isZipFileName } from "./zip";
 import {
   allocateUpstreamPort,
@@ -934,8 +935,7 @@ async function handleAction(payload: Action) {
 
 const server = http.createServer(async (req, res) => {
   if (req.method === "POST" && req.url === "/execute") {
-    const auth = req.headers.authorization ?? "";
-    if (auth !== `Bearer ${API_KEY}`) {
+    if (!bearerTokenMatches(req.headers.authorization, API_KEY)) {
       return unauthorized(res);
     }
 
