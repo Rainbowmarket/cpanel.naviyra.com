@@ -25,6 +25,14 @@ export type AgentAction =
     }
   | { action: "delete_postgres_database"; dbName: string; roleName: string }
   | { action: "reset_postgres_password"; roleName: string; password: string }
+  | { action: "inspect_postgres_schema"; dbName: string }
+  | {
+      action: "preview_postgres_table";
+      dbName: string;
+      schema?: string;
+      table: string;
+      limit?: number;
+    }
   | { action: "list_files"; path: string }
   | { action: "read_file"; path: string }
   | { action: "write_file"; path: string; content: string }

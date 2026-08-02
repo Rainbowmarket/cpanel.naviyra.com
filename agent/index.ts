@@ -72,6 +72,8 @@ import {
 import {
   createPostgresDatabaseOnServer,
   deletePostgresDatabaseOnServer,
+  inspectPostgresSchemaOnServer,
+  previewPostgresTableOnServer,
   resetPostgresPasswordOnServer,
 } from "./postgres";
 import type { VhostOptions } from "./nginx";
@@ -439,6 +441,26 @@ async function handleAction(payload: Action) {
       const data = await resetPostgresPasswordOnServer({
         roleName: String(payload.roleName),
         password: String(payload.password),
+        dryRun: DRY_RUN,
+      });
+      return { success: true, data };
+    }
+
+    case "inspect_postgres_schema": {
+      const data = await inspectPostgresSchemaOnServer({
+        dbName: String(payload.dbName),
+        dryRun: DRY_RUN,
+      });
+      return { success: true, data };
+    }
+
+    case "preview_postgres_table": {
+      const data = await previewPostgresTableOnServer({
+        dbName: String(payload.dbName),
+        schema: String(payload.schema || "public"),
+        table: String(payload.table),
+        limit:
+          payload.limit !== undefined ? Number(payload.limit) : undefined,
         dryRun: DRY_RUN,
       });
       return { success: true, data };

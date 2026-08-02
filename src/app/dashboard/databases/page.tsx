@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { Copy, Database, KeyRound } from "lucide-react";
+import { Copy, Database, KeyRound, Table2 } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { Modal, modalInputClass, modalLabelClass } from "@/components/ui/modal";
 import { ModalActions, PageHeader } from "@/components/ui/page-header";
@@ -28,6 +28,42 @@ type PgDatabase = {
   connection: DbConnection;
 };
 
+type SchemaColumn = {
+  name: string;
+  dataType: string;
+  udtName: string;
+  nullable: boolean;
+  defaultValue: string | null;
+  ordinal: number;
+  isPrimaryKey: boolean;
+};
+
+type SchemaTable = {
+  schema: string;
+  name: string;
+  kind: string;
+  approxRows: number | null;
+  columns: SchemaColumn[];
+};
+
+type TablePreview = {
+  columns: string[];
+  rows: Record<string, unknown>[];
+  limit: number;
+};
+
+function formatCell(value: unknown): string {
+  if (value === null || value === undefined) return "NULL";
+  if (typeof value === "object") {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+  return String(value);
+}
+
 export default function DatabasesPage() {
   const { confirm, alert } = useAlert();
   const [targets, setTargets] = useState<HostingTarget[]>([]);
@@ -43,6 +79,14 @@ export default function DatabasesPage() {
   const [resetId, setResetId] = useState<string | null>(null);
   const [resetPassword, setResetPassword] = useState("");
   const [revealed, setRevealed] = useState<DbConnection | null>(null);
+  const [browseDb, setBrowseDb] = useState<PgDatabase | null>(null);
+  const [schemaTables, setSchemaTables] = useState<SchemaTable[]>([]);
+  const [schemaLoading, setSchemaLoading] = useState(false);
+  const [schemaError, setSchemaError] = useState("");
+  const [selectedTableKey, setSelectedTableKey] = useState("");
+  const [preview, setPreview] = useState<TablePreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -126,6 +170,80 @@ export default function DatabasesPage() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function openSchemaBrowser(db: PgDatabase) {
+    setBrowseDb(db);
+    setSchemaTables([]);
+    setSelectedTableKey("");
+    setPreview(null);
+    setPreviewError("");
+    setSchemaError("");
+    setSchemaLoading(true);
+    try {
+      const res = await fetch(`/api/databases/${encodeURIComponent(db.id)}/schema`);
+      const data = await res.json();
+      if (!res.ok) {
+        setSchemaError(
+          typeof data.error === "string"
+            ? data.error
+            : "Failed to load schema"
+        );
+        return;
+      }
+      const tables = (data.tables ?? []) as SchemaTable[];
+      setSchemaTables(tables);
+      if (tables[0]) {
+        const key = `${tables[0].schema}.${tables[0].name}`;
+        setSelectedTableKey(key);
+        await loadTablePreview(db.id, tables[0].schema, tables[0].name);
+      }
+    } finally {
+      setSchemaLoading(false);
+    }
+  }
+
+  async function loadTablePreview(
+    dbId: string,
+    schema: string,
+    table: string
+  ) {
+    setPreviewLoading(true);
+    setPreviewError("");
+    setPreview(null);
+    try {
+      const qs = new URLSearchParams({
+        schema,
+        table,
+        limit: "50",
+      });
+      const res = await fetch(
+        `/api/databases/${encodeURIComponent(dbId)}/preview?${qs}`
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        setPreviewError(
+          typeof data.error === "string"
+            ? data.error
+            : "Failed to load table rows"
+        );
+        return;
+      }
+      setPreview({
+        columns: data.columns ?? [],
+        rows: data.rows ?? [],
+        limit: data.limit ?? 50,
+      });
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
+
+  async function selectSchemaTable(table: SchemaTable) {
+    if (!browseDb) return;
+    const key = `${table.schema}.${table.name}`;
+    setSelectedTableKey(key);
+    await loadTablePreview(browseDb.id, table.schema, table.name);
   }
 
   async function handleDelete(id: string) {
@@ -326,6 +444,202 @@ export default function DatabasesPage() {
         ) : null}
       </Modal>
 
+      <Modal
+        open={!!browseDb}
+        onClose={() => {
+          setBrowseDb(null);
+          setSchemaTables([]);
+          setSelectedTableKey("");
+          setPreview(null);
+          setSchemaError("");
+          setPreviewError("");
+        }}
+        title={browseDb ? `Browse · ${browseDb.label}` : "Browse database"}
+        description={
+          browseDb
+            ? `${browseDb.dbName} · read-only schema and row preview`
+            : "Read-only schema viewer"
+        }
+        className="max-w-5xl"
+      >
+        {schemaLoading ? (
+          <p className="text-sm text-slate-400">Loading schema…</p>
+        ) : schemaError ? (
+          <p className="text-sm text-red-400">{schemaError}</p>
+        ) : schemaTables.length === 0 ? (
+          <p className="text-sm text-slate-500">
+            No tables or views in this database yet.
+          </p>
+        ) : (
+          <div className="grid gap-4 lg:grid-cols-[13rem_1fr]">
+            <div className="max-h-[28rem] space-y-1 overflow-y-auto rounded-lg border border-slate-800 bg-slate-950/60 p-2">
+              {schemaTables.map((table) => {
+                const key = `${table.schema}.${table.name}`;
+                const active = key === selectedTableKey;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => selectSchemaTable(table)}
+                    className={`block w-full rounded-md px-2.5 py-2 text-left text-xs transition ${
+                      active
+                        ? "bg-emerald-500/15 text-emerald-200"
+                        : "text-slate-300 hover:bg-slate-800"
+                    }`}
+                  >
+                    <span className="block truncate font-medium">
+                      {table.schema === "public"
+                        ? table.name
+                        : `${table.schema}.${table.name}`}
+                    </span>
+                    <span className="mt-0.5 block text-[10px] text-slate-500">
+                      {table.kind}
+                      {table.approxRows != null
+                        ? ` · ~${table.approxRows} rows`
+                        : ""}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="min-w-0 space-y-4">
+              {(() => {
+                const selected = schemaTables.find(
+                  (t) => `${t.schema}.${t.name}` === selectedTableKey
+                );
+                if (!selected) {
+                  return (
+                    <p className="text-sm text-slate-500">Select a table.</p>
+                  );
+                }
+                return (
+                  <>
+                    <div>
+                      <p className="text-sm font-medium text-white">
+                        {selected.schema}.{selected.name}
+                      </p>
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        {selected.columns.length} columns
+                        {selected.approxRows != null
+                          ? ` · ~${selected.approxRows} rows`
+                          : ""}
+                      </p>
+                      <div className="mt-3 overflow-x-auto rounded-lg border border-slate-800">
+                        <table className="min-w-full text-left text-xs">
+                          <thead className="bg-slate-900 text-slate-400">
+                            <tr>
+                              <th className="px-3 py-2 font-medium">Column</th>
+                              <th className="px-3 py-2 font-medium">Type</th>
+                              <th className="px-3 py-2 font-medium">Null</th>
+                              <th className="px-3 py-2 font-medium">Default</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {selected.columns.map((col) => (
+                              <tr
+                                key={col.name}
+                                className="border-t border-slate-800 text-slate-300"
+                              >
+                                <td className="px-3 py-2 font-mono text-white">
+                                  {col.isPrimaryKey ? (
+                                    <span className="mr-1 text-[10px] text-amber-300">
+                                      PK
+                                    </span>
+                                  ) : null}
+                                  {col.name}
+                                </td>
+                                <td className="px-3 py-2 font-mono text-slate-400">
+                                  {col.udtName || col.dataType}
+                                </td>
+                                <td className="px-3 py-2">
+                                  {col.nullable ? "YES" : "NO"}
+                                </td>
+                                <td className="max-w-[12rem] truncate px-3 py-2 font-mono text-slate-500">
+                                  {col.defaultValue ?? "—"}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="text-sm font-medium text-white">
+                        Data preview
+                      </p>
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        First {preview?.limit ?? 50} rows (read-only)
+                      </p>
+                      {previewLoading ? (
+                        <p className="mt-3 text-sm text-slate-400">
+                          Loading rows…
+                        </p>
+                      ) : previewError ? (
+                        <p className="mt-3 text-sm text-red-400">
+                          {previewError}
+                        </p>
+                      ) : !preview || preview.columns.length === 0 ? (
+                        <p className="mt-3 text-sm text-slate-500">
+                          No columns or rows to show.
+                        </p>
+                      ) : (
+                        <div className="mt-3 max-h-64 overflow-auto rounded-lg border border-slate-800">
+                          <table className="min-w-full text-left text-xs">
+                            <thead className="sticky top-0 bg-slate-900 text-slate-400">
+                              <tr>
+                                {preview.columns.map((col) => (
+                                  <th
+                                    key={col}
+                                    className="whitespace-nowrap px-3 py-2 font-medium"
+                                  >
+                                    {col}
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {preview.rows.length === 0 ? (
+                                <tr>
+                                  <td
+                                    colSpan={preview.columns.length}
+                                    className="px-3 py-4 text-center text-slate-500"
+                                  >
+                                    Table is empty.
+                                  </td>
+                                </tr>
+                              ) : (
+                                preview.rows.map((row, idx) => (
+                                  <tr
+                                    key={idx}
+                                    className="border-t border-slate-800 text-slate-300"
+                                  >
+                                    {preview.columns.map((col) => (
+                                      <td
+                                        key={col}
+                                        className="max-w-[14rem] truncate whitespace-nowrap px-3 py-2 font-mono"
+                                        title={formatCell(row[col])}
+                                      >
+                                        {formatCell(row[col])}
+                                      </td>
+                                    ))}
+                                  </tr>
+                                ))
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+        )}
+      </Modal>
+
       <div className="space-y-2">
         {filtered.map((db) => (
           <div
@@ -344,6 +658,14 @@ export default function DatabasesPage() {
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => openSchemaBrowser(db)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
+                >
+                  <Table2 className="h-3.5 w-3.5" />
+                  Browse
+                </button>
                 <button
                   type="button"
                   onClick={() => copyText(db.connection.uri)}

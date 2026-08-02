@@ -237,3 +237,101 @@ export async function deletePostgresDatabase(
 
   return prisma.postgresDatabase.delete({ where: { id: record.id } });
 }
+
+export async function inspectPostgresDatabaseSchema(
+  id: string,
+  userId: string,
+  role?: string
+) {
+  const record = await prisma.postgresDatabase.findFirstOrThrow({
+    where: {
+      id,
+      ...(role === "ADMIN" ? {} : { domain: { userId } }),
+    },
+    include: {
+      domain: {
+        select: {
+          id: true,
+          name: true,
+          server: { select: { agentKey: true } },
+        },
+      },
+    },
+  });
+
+  const agentResult = await callAgent(
+    {
+      action: "inspect_postgres_schema",
+      dbName: record.dbName,
+    },
+    record.domain.server.agentKey
+  );
+  if (!agentResult.success) {
+    throw new Error(
+      agentResult.error ?? "Failed to inspect PostgreSQL schema on server"
+    );
+  }
+
+  const data = (agentResult.data ?? {}) as {
+    tables?: unknown[];
+  };
+
+  return {
+    database: {
+      id: record.id,
+      label: record.label,
+      dbName: record.dbName,
+      roleName: record.roleName,
+      domain: { id: record.domain.id, name: record.domain.name },
+    },
+    tables: data.tables ?? [],
+  };
+}
+
+export async function previewPostgresDatabaseTable(input: {
+  id: string;
+  userId: string;
+  role?: string;
+  schema?: string;
+  table: string;
+  limit?: number;
+}) {
+  const record = await prisma.postgresDatabase.findFirstOrThrow({
+    where: {
+      id: input.id,
+      ...(input.role === "ADMIN" ? {} : { domain: { userId: input.userId } }),
+    },
+    include: {
+      domain: {
+        select: {
+          server: { select: { agentKey: true } },
+        },
+      },
+    },
+  });
+
+  const agentResult = await callAgent(
+    {
+      action: "preview_postgres_table",
+      dbName: record.dbName,
+      schema: input.schema || "public",
+      table: input.table,
+      limit: input.limit,
+    },
+    record.domain.server.agentKey
+  );
+  if (!agentResult.success) {
+    throw new Error(
+      agentResult.error ?? "Failed to preview PostgreSQL table on server"
+    );
+  }
+
+  return agentResult.data as {
+    dbName: string;
+    schema: string;
+    table: string;
+    columns: string[];
+    rows: Record<string, unknown>[];
+    limit: number;
+  };
+}
