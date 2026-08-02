@@ -33,6 +33,20 @@ export type AgentAction =
       table: string;
       limit?: number;
     }
+  | {
+      action: "create_postgres_table";
+      dbName: string;
+      roleName: string;
+      schema?: string;
+      table: string;
+      columns: Array<{
+        name: string;
+        type: string;
+        nullable?: boolean;
+        primaryKey?: boolean;
+        defaultValue?: string | null;
+      }>;
+    }
   | { action: "list_files"; path: string }
   | { action: "read_file"; path: string }
   | { action: "write_file"; path: string; content: string }

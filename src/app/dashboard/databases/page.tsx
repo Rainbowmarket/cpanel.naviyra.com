@@ -52,6 +52,39 @@ type TablePreview = {
   limit: number;
 };
 
+type CreateColumnDraft = {
+  name: string;
+  type: string;
+  nullable: boolean;
+  primaryKey: boolean;
+  defaultValue: string;
+};
+
+const COLUMN_TYPE_OPTIONS = [
+  { value: "serial", label: "serial (auto int)" },
+  { value: "bigserial", label: "bigserial" },
+  { value: "integer", label: "integer" },
+  { value: "bigint", label: "bigint" },
+  { value: "text", label: "text" },
+  { value: "varchar(255)", label: "varchar(255)" },
+  { value: "boolean", label: "boolean" },
+  { value: "numeric", label: "numeric" },
+  { value: "uuid", label: "uuid" },
+  { value: "timestamptz", label: "timestamptz" },
+  { value: "date", label: "date" },
+  { value: "jsonb", label: "jsonb" },
+];
+
+function emptyCreateColumn(primaryKey = false): CreateColumnDraft {
+  return {
+    name: primaryKey ? "id" : "",
+    type: primaryKey ? "serial" : "text",
+    nullable: !primaryKey,
+    primaryKey,
+    defaultValue: "",
+  };
+}
+
 function formatCell(value: unknown): string {
   if (value === null || value === undefined) return "NULL";
   if (typeof value === "object") {
@@ -87,6 +120,14 @@ export default function DatabasesPage() {
   const [preview, setPreview] = useState<TablePreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState("");
+  const [createTableOpen, setCreateTableOpen] = useState(false);
+  const [createTableName, setCreateTableName] = useState("");
+  const [createColumns, setCreateColumns] = useState<CreateColumnDraft[]>([
+    emptyCreateColumn(true),
+    emptyCreateColumn(false),
+  ]);
+  const [createError, setCreateError] = useState("");
+  const [creatingTable, setCreatingTable] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -172,12 +213,7 @@ export default function DatabasesPage() {
     }
   }
 
-  async function openSchemaBrowser(db: PgDatabase) {
-    setBrowseDb(db);
-    setSchemaTables([]);
-    setSelectedTableKey("");
-    setPreview(null);
-    setPreviewError("");
+  async function reloadSchema(db: PgDatabase, preferTable?: string) {
     setSchemaError("");
     setSchemaLoading(true);
     try {
@@ -193,14 +229,37 @@ export default function DatabasesPage() {
       }
       const tables = (data.tables ?? []) as SchemaTable[];
       setSchemaTables(tables);
-      if (tables[0]) {
-        const key = `${tables[0].schema}.${tables[0].name}`;
+      const preferred =
+        (preferTable
+          ? tables.find(
+              (t) =>
+                t.name === preferTable ||
+                `${t.schema}.${t.name}` === preferTable
+            )
+          : null) ?? tables[0];
+      if (preferred) {
+        const key = `${preferred.schema}.${preferred.name}`;
         setSelectedTableKey(key);
-        await loadTablePreview(db.id, tables[0].schema, tables[0].name);
+        await loadTablePreview(db.id, preferred.schema, preferred.name);
+      } else {
+        setSelectedTableKey("");
+        setPreview(null);
       }
     } finally {
       setSchemaLoading(false);
     }
+  }
+
+  async function openSchemaBrowser(db: PgDatabase) {
+    setBrowseDb(db);
+    setSchemaTables([]);
+    setSelectedTableKey("");
+    setPreview(null);
+    setPreviewError("");
+    setSchemaError("");
+    setCreateTableOpen(false);
+    setCreateError("");
+    await reloadSchema(db);
   }
 
   async function loadTablePreview(
@@ -243,7 +302,55 @@ export default function DatabasesPage() {
     if (!browseDb) return;
     const key = `${table.schema}.${table.name}`;
     setSelectedTableKey(key);
+    setCreateTableOpen(false);
     await loadTablePreview(browseDb.id, table.schema, table.name);
+  }
+
+  function openCreateTableForm() {
+    setCreateTableOpen(true);
+    setCreateTableName("");
+    setCreateColumns([emptyCreateColumn(true), emptyCreateColumn(false)]);
+    setCreateError("");
+  }
+
+  async function handleCreateTable(e: FormEvent) {
+    e.preventDefault();
+    if (!browseDb) return;
+    setCreateError("");
+    setCreatingTable(true);
+    try {
+      const res = await fetch(
+        `/api/databases/${encodeURIComponent(browseDb.id)}/tables`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            schema: "public",
+            table: createTableName.trim(),
+            columns: createColumns.map((col) => ({
+              name: col.name.trim(),
+              type: col.type,
+              nullable: col.primaryKey ? false : col.nullable,
+              primaryKey: col.primaryKey,
+              defaultValue: col.defaultValue.trim() || null,
+            })),
+          }),
+        }
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        setCreateError(
+          typeof data.error === "string"
+            ? data.error
+            : "Failed to create table on server"
+        );
+        return;
+      }
+      setCreateTableOpen(false);
+      await reloadSchema(browseDb, String(data.table || createTableName.trim()));
+    } finally {
+      setCreatingTable(false);
+    }
   }
 
   async function handleDelete(id: string) {
@@ -453,12 +560,14 @@ export default function DatabasesPage() {
           setPreview(null);
           setSchemaError("");
           setPreviewError("");
+          setCreateTableOpen(false);
+          setCreateError("");
         }}
         title={browseDb ? `Browse · ${browseDb.label}` : "Browse database"}
         description={
           browseDb
-            ? `${browseDb.dbName} · read-only schema and row preview`
-            : "Read-only schema viewer"
+            ? `${browseDb.dbName} · schema, preview, and create tables`
+            : "Database schema viewer"
         }
         className="max-w-5xl"
       >
@@ -466,176 +575,350 @@ export default function DatabasesPage() {
           <p className="text-sm text-slate-400">Loading schema…</p>
         ) : schemaError ? (
           <p className="text-sm text-red-400">{schemaError}</p>
-        ) : schemaTables.length === 0 ? (
-          <p className="text-sm text-slate-500">
-            No tables or views in this database yet.
-          </p>
         ) : (
-          <div className="grid gap-4 lg:grid-cols-[13rem_1fr]">
-            <div className="max-h-[28rem] space-y-1 overflow-y-auto rounded-lg border border-slate-800 bg-slate-950/60 p-2">
-              {schemaTables.map((table) => {
-                const key = `${table.schema}.${table.name}`;
-                const active = key === selectedTableKey;
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => selectSchemaTable(table)}
-                    className={`block w-full rounded-md px-2.5 py-2 text-left text-xs transition ${
-                      active
-                        ? "bg-emerald-500/15 text-emerald-200"
-                        : "text-slate-300 hover:bg-slate-800"
-                    }`}
-                  >
-                    <span className="block truncate font-medium">
-                      {table.schema === "public"
-                        ? table.name
-                        : `${table.schema}.${table.name}`}
-                    </span>
-                    <span className="mt-0.5 block text-[10px] text-slate-500">
-                      {table.kind}
-                      {table.approxRows != null
-                        ? ` · ~${table.approxRows} rows`
-                        : ""}
-                    </span>
-                  </button>
-                );
-              })}
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-slate-500">
+                {schemaTables.length} table
+                {schemaTables.length === 1 ? "" : "s"}
+              </p>
+              <button
+                type="button"
+                onClick={openCreateTableForm}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/15 px-3 py-1.5 text-xs font-medium text-emerald-300 hover:bg-emerald-500/25"
+              >
+                <Table2 className="h-3.5 w-3.5" />
+                Create table
+              </button>
             </div>
 
-            <div className="min-w-0 space-y-4">
-              {(() => {
-                const selected = schemaTables.find(
-                  (t) => `${t.schema}.${t.name}` === selectedTableKey
-                );
-                if (!selected) {
-                  return (
-                    <p className="text-sm text-slate-500">Select a table.</p>
-                  );
-                }
-                return (
-                  <>
-                    <div>
-                      <p className="text-sm font-medium text-white">
-                        {selected.schema}.{selected.name}
-                      </p>
-                      <p className="mt-0.5 text-xs text-slate-500">
-                        {selected.columns.length} columns
-                        {selected.approxRows != null
-                          ? ` · ~${selected.approxRows} rows`
-                          : ""}
-                      </p>
-                      <div className="mt-3 overflow-x-auto rounded-lg border border-slate-800">
-                        <table className="min-w-full text-left text-xs">
-                          <thead className="bg-slate-900 text-slate-400">
-                            <tr>
-                              <th className="px-3 py-2 font-medium">Column</th>
-                              <th className="px-3 py-2 font-medium">Type</th>
-                              <th className="px-3 py-2 font-medium">Null</th>
-                              <th className="px-3 py-2 font-medium">Default</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {selected.columns.map((col) => (
-                              <tr
-                                key={col.name}
-                                className="border-t border-slate-800 text-slate-300"
-                              >
-                                <td className="px-3 py-2 font-mono text-white">
-                                  {col.isPrimaryKey ? (
-                                    <span className="mr-1 text-[10px] text-amber-300">
-                                      PK
-                                    </span>
-                                  ) : null}
-                                  {col.name}
-                                </td>
-                                <td className="px-3 py-2 font-mono text-slate-400">
-                                  {col.udtName || col.dataType}
-                                </td>
-                                <td className="px-3 py-2">
-                                  {col.nullable ? "YES" : "NO"}
-                                </td>
-                                <td className="max-w-[12rem] truncate px-3 py-2 font-mono text-slate-500">
-                                  {col.defaultValue ?? "—"}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
+            {createTableOpen ? (
+              <form
+                onSubmit={handleCreateTable}
+                className="space-y-3 rounded-lg border border-slate-800 bg-slate-950/70 p-3"
+              >
+                <div>
+                  <label className={modalLabelClass}>Table name</label>
+                  <input
+                    value={createTableName}
+                    onChange={(e) => setCreateTableName(e.target.value)}
+                    placeholder="products"
+                    className={modalInputClass}
+                    required
+                    pattern="[A-Za-z_][A-Za-z0-9_]*"
+                    maxLength={63}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-slate-400">Columns</p>
+                  {createColumns.map((col, idx) => (
+                    <div
+                      key={idx}
+                      className="grid gap-2 rounded-md border border-slate-800 p-2 sm:grid-cols-[1fr_8rem_auto_auto_1fr_auto]"
+                    >
+                      <input
+                        value={col.name}
+                        onChange={(e) => {
+                          const next = [...createColumns];
+                          next[idx] = { ...col, name: e.target.value };
+                          setCreateColumns(next);
+                        }}
+                        placeholder="column"
+                        className={modalInputClass}
+                        required
+                        pattern="[A-Za-z_][A-Za-z0-9_]*"
+                      />
+                      <select
+                        value={col.type}
+                        onChange={(e) => {
+                          const next = [...createColumns];
+                          next[idx] = { ...col, type: e.target.value };
+                          setCreateColumns(next);
+                        }}
+                        className={modalInputClass}
+                      >
+                        {COLUMN_TYPE_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                      <label className="flex items-center gap-1 text-[11px] text-slate-400">
+                        <input
+                          type="checkbox"
+                          checked={col.primaryKey}
+                          onChange={(e) => {
+                            const next = createColumns.map((c, i) =>
+                              i === idx
+                                ? {
+                                    ...c,
+                                    primaryKey: e.target.checked,
+                                    nullable: e.target.checked
+                                      ? false
+                                      : c.nullable,
+                                  }
+                                : c
+                            );
+                            setCreateColumns(next);
+                          }}
+                        />
+                        PK
+                      </label>
+                      <label className="flex items-center gap-1 text-[11px] text-slate-400">
+                        <input
+                          type="checkbox"
+                          checked={col.nullable}
+                          disabled={col.primaryKey}
+                          onChange={(e) => {
+                            const next = [...createColumns];
+                            next[idx] = {
+                              ...col,
+                              nullable: e.target.checked,
+                            };
+                            setCreateColumns(next);
+                          }}
+                        />
+                        Null
+                      </label>
+                      <input
+                        value={col.defaultValue}
+                        onChange={(e) => {
+                          const next = [...createColumns];
+                          next[idx] = {
+                            ...col,
+                            defaultValue: e.target.value,
+                          };
+                          setCreateColumns(next);
+                        }}
+                        placeholder="default (optional)"
+                        className={modalInputClass}
+                      />
+                      <button
+                        type="button"
+                        disabled={createColumns.length <= 1}
+                        onClick={() =>
+                          setCreateColumns(
+                            createColumns.filter((_, i) => i !== idx)
+                          )
+                        }
+                        className="rounded-lg border border-slate-700 px-2 py-1 text-[11px] text-slate-400 hover:bg-slate-800 disabled:opacity-40"
+                      >
+                        Remove
+                      </button>
                     </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setCreateColumns([
+                        ...createColumns,
+                        emptyCreateColumn(false),
+                      ])
+                    }
+                    className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
+                  >
+                    Add column
+                  </button>
+                </div>
+                {createError ? (
+                  <p className="text-sm text-red-400">{createError}</p>
+                ) : (
+                  <p className="text-xs text-slate-500">
+                    Creates a real PostgreSQL table on the server, owned by this
+                    database user.
+                  </p>
+                )}
+                <ModalActions
+                  onCancel={() => {
+                    setCreateTableOpen(false);
+                    setCreateError("");
+                  }}
+                  submitLabel={
+                    creatingTable ? "Creating…" : "Create table on server"
+                  }
+                  submitting={creatingTable}
+                />
+              </form>
+            ) : null}
 
-                    <div>
-                      <p className="text-sm font-medium text-white">
-                        Data preview
-                      </p>
-                      <p className="mt-0.5 text-xs text-slate-500">
-                        First {preview?.limit ?? 50} rows (read-only)
-                      </p>
-                      {previewLoading ? (
-                        <p className="mt-3 text-sm text-slate-400">
-                          Loading rows…
+            {schemaTables.length === 0 && !createTableOpen ? (
+              <p className="rounded-lg border border-dashed border-slate-800 px-4 py-8 text-center text-sm text-slate-500">
+                No tables yet. Click Create table to add one on the server.
+              </p>
+            ) : schemaTables.length > 0 ? (
+              <div className="grid gap-4 lg:grid-cols-[13rem_1fr]">
+                <div className="max-h-[28rem] space-y-1 overflow-y-auto rounded-lg border border-slate-800 bg-slate-950/60 p-2">
+                  {schemaTables.map((table) => {
+                    const key = `${table.schema}.${table.name}`;
+                    const active = key === selectedTableKey;
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => selectSchemaTable(table)}
+                        className={`block w-full rounded-md px-2.5 py-2 text-left text-xs transition ${
+                          active
+                            ? "bg-emerald-500/15 text-emerald-200"
+                            : "text-slate-300 hover:bg-slate-800"
+                        }`}
+                      >
+                        <span className="block truncate font-medium">
+                          {table.schema === "public"
+                            ? table.name
+                            : `${table.schema}.${table.name}`}
+                        </span>
+                        <span className="mt-0.5 block text-[10px] text-slate-500">
+                          {table.kind}
+                          {table.approxRows != null
+                            ? ` · ~${table.approxRows} rows`
+                            : ""}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="min-w-0 space-y-4">
+                  {(() => {
+                    const selected = schemaTables.find(
+                      (t) => `${t.schema}.${t.name}` === selectedTableKey
+                    );
+                    if (!selected) {
+                      return (
+                        <p className="text-sm text-slate-500">
+                          Select a table.
                         </p>
-                      ) : previewError ? (
-                        <p className="mt-3 text-sm text-red-400">
-                          {previewError}
-                        </p>
-                      ) : !preview || preview.columns.length === 0 ? (
-                        <p className="mt-3 text-sm text-slate-500">
-                          No columns or rows to show.
-                        </p>
-                      ) : (
-                        <div className="mt-3 max-h-64 overflow-auto rounded-lg border border-slate-800">
-                          <table className="min-w-full text-left text-xs">
-                            <thead className="sticky top-0 bg-slate-900 text-slate-400">
-                              <tr>
-                                {preview.columns.map((col) => (
-                                  <th
-                                    key={col}
-                                    className="whitespace-nowrap px-3 py-2 font-medium"
-                                  >
-                                    {col}
-                                  </th>
-                                ))}
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {preview.rows.length === 0 ? (
+                      );
+                    }
+                    return (
+                      <>
+                        <div>
+                          <p className="text-sm font-medium text-white">
+                            {selected.schema}.{selected.name}
+                          </p>
+                          <p className="mt-0.5 text-xs text-slate-500">
+                            {selected.columns.length} columns
+                            {selected.approxRows != null
+                              ? ` · ~${selected.approxRows} rows`
+                              : ""}
+                          </p>
+                          <div className="mt-3 overflow-x-auto rounded-lg border border-slate-800">
+                            <table className="min-w-full text-left text-xs">
+                              <thead className="bg-slate-900 text-slate-400">
                                 <tr>
-                                  <td
-                                    colSpan={preview.columns.length}
-                                    className="px-3 py-4 text-center text-slate-500"
-                                  >
-                                    Table is empty.
-                                  </td>
+                                  <th className="px-3 py-2 font-medium">
+                                    Column
+                                  </th>
+                                  <th className="px-3 py-2 font-medium">Type</th>
+                                  <th className="px-3 py-2 font-medium">Null</th>
+                                  <th className="px-3 py-2 font-medium">
+                                    Default
+                                  </th>
                                 </tr>
-                              ) : (
-                                preview.rows.map((row, idx) => (
+                              </thead>
+                              <tbody>
+                                {selected.columns.map((col) => (
                                   <tr
-                                    key={idx}
+                                    key={col.name}
                                     className="border-t border-slate-800 text-slate-300"
                                   >
+                                    <td className="px-3 py-2 font-mono text-white">
+                                      {col.isPrimaryKey ? (
+                                        <span className="mr-1 text-[10px] text-amber-300">
+                                          PK
+                                        </span>
+                                      ) : null}
+                                      {col.name}
+                                    </td>
+                                    <td className="px-3 py-2 font-mono text-slate-400">
+                                      {col.udtName || col.dataType}
+                                    </td>
+                                    <td className="px-3 py-2">
+                                      {col.nullable ? "YES" : "NO"}
+                                    </td>
+                                    <td className="max-w-[12rem] truncate px-3 py-2 font-mono text-slate-500">
+                                      {col.defaultValue ?? "—"}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+
+                        <div>
+                          <p className="text-sm font-medium text-white">
+                            Data preview
+                          </p>
+                          <p className="mt-0.5 text-xs text-slate-500">
+                            First {preview?.limit ?? 50} rows (read-only)
+                          </p>
+                          {previewLoading ? (
+                            <p className="mt-3 text-sm text-slate-400">
+                              Loading rows…
+                            </p>
+                          ) : previewError ? (
+                            <p className="mt-3 text-sm text-red-400">
+                              {previewError}
+                            </p>
+                          ) : !preview || preview.columns.length === 0 ? (
+                            <p className="mt-3 text-sm text-slate-500">
+                              No columns or rows to show.
+                            </p>
+                          ) : (
+                            <div className="mt-3 max-h-64 overflow-auto rounded-lg border border-slate-800">
+                              <table className="min-w-full text-left text-xs">
+                                <thead className="sticky top-0 bg-slate-900 text-slate-400">
+                                  <tr>
                                     {preview.columns.map((col) => (
-                                      <td
+                                      <th
                                         key={col}
-                                        className="max-w-[14rem] truncate whitespace-nowrap px-3 py-2 font-mono"
-                                        title={formatCell(row[col])}
+                                        className="whitespace-nowrap px-3 py-2 font-medium"
                                       >
-                                        {formatCell(row[col])}
-                                      </td>
+                                        {col}
+                                      </th>
                                     ))}
                                   </tr>
-                                ))
-                              )}
-                            </tbody>
-                          </table>
+                                </thead>
+                                <tbody>
+                                  {preview.rows.length === 0 ? (
+                                    <tr>
+                                      <td
+                                        colSpan={preview.columns.length}
+                                        className="px-3 py-4 text-center text-slate-500"
+                                      >
+                                        Table is empty.
+                                      </td>
+                                    </tr>
+                                  ) : (
+                                    preview.rows.map((row, idx) => (
+                                      <tr
+                                        key={idx}
+                                        className="border-t border-slate-800 text-slate-300"
+                                      >
+                                        {preview.columns.map((col) => (
+                                          <td
+                                            key={col}
+                                            className="max-w-[14rem] truncate whitespace-nowrap px-3 py-2 font-mono"
+                                            title={formatCell(row[col])}
+                                          >
+                                            {formatCell(row[col])}
+                                          </td>
+                                        ))}
+                                      </tr>
+                                    ))
+                                  )}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
-                  </>
-                );
-              })()}
-            </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
+            ) : null}
           </div>
         )}
       </Modal>

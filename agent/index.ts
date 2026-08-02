@@ -71,6 +71,7 @@ import {
 } from "./ftp";
 import {
   createPostgresDatabaseOnServer,
+  createPostgresTableOnServer,
   deletePostgresDatabaseOnServer,
   inspectPostgresSchemaOnServer,
   previewPostgresTableOnServer,
@@ -461,6 +462,27 @@ async function handleAction(payload: Action) {
         table: String(payload.table),
         limit:
           payload.limit !== undefined ? Number(payload.limit) : undefined,
+        dryRun: DRY_RUN,
+      });
+      return { success: true, data };
+    }
+
+    case "create_postgres_table": {
+      const columns = Array.isArray(payload.columns)
+        ? (payload.columns as Array<{
+            name: string;
+            type: string;
+            nullable?: boolean;
+            primaryKey?: boolean;
+            defaultValue?: string | null;
+          }>)
+        : [];
+      const data = await createPostgresTableOnServer({
+        dbName: String(payload.dbName),
+        roleName: String(payload.roleName),
+        schema: payload.schema ? String(payload.schema) : "public",
+        table: String(payload.table),
+        columns,
         dryRun: DRY_RUN,
       });
       return { success: true, data };

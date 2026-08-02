@@ -335,3 +335,56 @@ export async function previewPostgresDatabaseTable(input: {
     limit: number;
   };
 }
+
+export async function createPostgresDatabaseTable(input: {
+  id: string;
+  userId: string;
+  role?: string;
+  schema?: string;
+  table: string;
+  columns: Array<{
+    name: string;
+    type: string;
+    nullable?: boolean;
+    primaryKey?: boolean;
+    defaultValue?: string | null;
+  }>;
+}) {
+  const record = await prisma.postgresDatabase.findFirstOrThrow({
+    where: {
+      id: input.id,
+      ...(input.role === "ADMIN" ? {} : { domain: { userId: input.userId } }),
+    },
+    include: {
+      domain: {
+        select: {
+          server: { select: { agentKey: true } },
+        },
+      },
+    },
+  });
+
+  const agentResult = await callAgent(
+    {
+      action: "create_postgres_table",
+      dbName: record.dbName,
+      roleName: record.roleName,
+      schema: input.schema || "public",
+      table: input.table,
+      columns: input.columns,
+    },
+    record.domain.server.agentKey
+  );
+  if (!agentResult.success) {
+    throw new Error(
+      agentResult.error ?? "Failed to create PostgreSQL table on server"
+    );
+  }
+
+  return agentResult.data as {
+    dbName: string;
+    schema: string;
+    table: string;
+    columns: number;
+  };
+}

@@ -413,3 +413,216 @@ WHERE table_schema = ${quoteLiteral(schema)}
 
   return { dbName, schema, table, columns, rows, limit, dryRun: false };
 }
+
+export type CreatePostgresColumnInput = {
+  name: string;
+  type: string;
+  nullable?: boolean;
+  primaryKey?: boolean;
+  defaultValue?: string | null;
+};
+
+const ALLOWED_PG_TYPES = new Set([
+  "text",
+  "integer",
+  "bigint",
+  "smallint",
+  "boolean",
+  "real",
+  "double precision",
+  "numeric",
+  "uuid",
+  "date",
+  "timestamp",
+  "timestamptz",
+  "jsonb",
+  "json",
+  "bytea",
+  "serial",
+  "bigserial",
+]);
+
+function normalizeColumnType(raw: string): string {
+  const value = raw.trim().toLowerCase().replace(/\s+/g, " ");
+  if (ALLOWED_PG_TYPES.has(value)) {
+    if (value === "timestamp") return "timestamp without time zone";
+    if (value === "timestamptz") return "timestamp with time zone";
+    return value;
+  }
+  const varchar = value.match(/^varchar\((\d{1,5})\)$/);
+  if (varchar) {
+    const n = Number(varchar[1]);
+    if (n >= 1 && n <= 10485760) return `character varying(${n})`;
+  }
+  const numeric = value.match(/^numeric\((\d{1,3})(?:,(\d{1,3}))?\)$/);
+  if (numeric) {
+    const p = Number(numeric[1]);
+    const s = numeric[2] !== undefined ? Number(numeric[2]) : undefined;
+    if (p >= 1 && p <= 1000 && (s === undefined || (s >= 0 && s <= p))) {
+      return s === undefined ? `numeric(${p})` : `numeric(${p},${s})`;
+    }
+  }
+  throw new Error(
+    `Unsupported column type '${raw}'. Use a common type like text, integer, boolean, uuid, timestamptz, jsonb, serial, or varchar(255).`
+  );
+}
+
+function assertSafeIdent(ident: string, label: string): string {
+  const value = ident.trim();
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(value) || value.length > 63) {
+    throw new Error(`Invalid ${label}: ${ident}`);
+  }
+  return value;
+}
+
+function normalizeDefaultSql(raw: string | null | undefined): string | null {
+  if (raw == null) return null;
+  const value = raw.trim();
+  if (!value) return null;
+  const upper = value.toUpperCase();
+  if (
+    upper === "NULL" ||
+    upper === "TRUE" ||
+    upper === "FALSE" ||
+    upper === "CURRENT_TIMESTAMP" ||
+    upper === "CURRENT_DATE" ||
+    upper === "NOW()" ||
+    upper === "GEN_RANDOM_UUID()"
+  ) {
+    return upper === "NOW()"
+      ? "NOW()"
+      : upper === "GEN_RANDOM_UUID()"
+        ? "gen_random_uuid()"
+        : upper;
+  }
+  if (/^-?\d+(\.\d+)?$/.test(value)) return value;
+  // single-quoted string literal only
+  if (/^'(?:[^']|'')*'$/.test(value)) return value;
+  // bare text → quote it
+  if (!/['\\;]/.test(value) && value.length <= 200) {
+    return quoteLiteral(value);
+  }
+  throw new Error(
+    `Unsafe default value. Use NULL, TRUE/FALSE, a number, CURRENT_TIMESTAMP, gen_random_uuid(), or a short text value.`
+  );
+}
+
+export async function createPostgresTableOnServer(input: {
+  dbName: string;
+  roleName: string;
+  schema?: string;
+  table: string;
+  columns: CreatePostgresColumnInput[];
+  dryRun: boolean;
+}) {
+  const dbName = assertSafeIdent(input.dbName.trim().toLowerCase(), "database name");
+  const roleName = assertSafeIdent(
+    input.roleName.trim().toLowerCase(),
+    "role name"
+  );
+  const schema = assertSafeIdent(input.schema?.trim() || "public", "schema name");
+  const table = assertSafeIdent(input.table.trim(), "table name");
+  if (!/^[a-z][a-z0-9_]*$/.test(table.toLowerCase())) {
+    throw new Error(
+      "Table name must start with a letter and use letters, digits, or _"
+    );
+  }
+
+  if (!Array.isArray(input.columns) || input.columns.length === 0) {
+    throw new Error("Add at least one column");
+  }
+  if (input.columns.length > 40) {
+    throw new Error("A table can have at most 40 columns from the panel");
+  }
+
+  const seen = new Set<string>();
+  const pkCols: string[] = [];
+  const defs: string[] = [];
+
+  for (const raw of input.columns) {
+    const name = assertSafeIdent(raw.name, "column name").toLowerCase();
+    if (seen.has(name)) {
+      throw new Error(`Duplicate column name: ${name}`);
+    }
+    seen.add(name);
+    const typeSql = normalizeColumnType(String(raw.type || ""));
+    const isSerial = typeSql === "serial" || typeSql === "bigserial";
+    const nullable = raw.nullable !== false && !raw.primaryKey;
+    const defaultSql = isSerial
+      ? null
+      : normalizeDefaultSql(raw.defaultValue ?? null);
+
+    let piece = `${quoteIdent(name)} ${typeSql}`;
+    if (!nullable) piece += " NOT NULL";
+    if (defaultSql) piece += ` DEFAULT ${defaultSql}`;
+    defs.push(piece);
+    if (raw.primaryKey) pkCols.push(name);
+  }
+
+  if (pkCols.length > 0) {
+    defs.push(
+      `PRIMARY KEY (${pkCols.map((c) => quoteIdent(c)).join(", ")})`
+    );
+  }
+
+  await appendMap(`create_table ${dbName}.${schema}.${table}`);
+
+  if (process.platform === "win32" || input.dryRun) {
+    return {
+      dbName,
+      schema,
+      table,
+      columns: input.columns.length,
+      dryRun: true as const,
+    };
+  }
+
+  if (!(await databaseExists(dbName))) {
+    throw new Error(`Database '${dbName}' was not found on the server`);
+  }
+
+  const qualified = `${quoteIdent(schema)}.${quoteIdent(table)}`;
+  const createSql = `CREATE TABLE ${qualified} (\n  ${defs.join(",\n  ")}\n);`;
+  await runPsql(createSql, false, dbName);
+  await runPsql(
+    `ALTER TABLE ${qualified} OWNER TO ${quoteIdent(roleName)};`,
+    false,
+    dbName
+  );
+  await runPsql(
+    `GRANT ALL ON TABLE ${qualified} TO ${quoteIdent(roleName)};`,
+    false,
+    dbName
+  );
+
+  for (const col of [...seen]) {
+    try {
+      const seqName = (await psqlJsonQuery(
+        dbName,
+        `SELECT to_json(pg_get_serial_sequence(${quoteLiteral(`${schema}.${table}`)}, ${quoteLiteral(col)}))`
+      )) as string | null;
+      if (seqName) {
+        await runPsql(
+          `ALTER SEQUENCE ${seqName} OWNER TO ${quoteIdent(roleName)};`,
+          false,
+          dbName
+        );
+        await runPsql(
+          `GRANT ALL ON SEQUENCE ${seqName} TO ${quoteIdent(roleName)};`,
+          false,
+          dbName
+        );
+      }
+    } catch {
+      /* ignore non-serial columns */
+    }
+  }
+
+  return {
+    dbName,
+    schema,
+    table,
+    columns: input.columns.length,
+    dryRun: false as const,
+  };
+}

@@ -39,7 +39,6 @@ import {
   IcArchiveArrowDown,
   IcArchiveExtract,
   IcArrowsRightLeft,
-  IcCircleX,
   IcDuplicate,
   IcFilePlus,
   IcFolderPlus,
@@ -162,9 +161,9 @@ type WorkspacePageProps = {
 };
 
 export function WorkspacePage({
-  domainOptions,
-  domainId,
-  onDomainChange,
+  domainOptions: _domainOptions,
+  domainId: _domainId,
+  onDomainChange: _onDomainChange,
 }: WorkspacePageProps = {}) {
   const { searchParams, setSearchParams } = usePanelSearchParams();
   const dirPath = searchParams.get('p') || '';
@@ -191,6 +190,7 @@ export function WorkspacePage({
   const destSuggestSeqRef = useRef(0);
   /** Multi-select: plain click = one item; Ctrl/Cmd+click = toggle; Shift+click = range from last anchor. */
   const [selectedEntries, setSelectedEntries] = useState<ListItem[]>([]);
+  const [multiSelectMode, setMultiSelectMode] = useState(false);
   const rangeAnchorRef = useRef<number | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; kind: 'row' | 'list' } | null>(null);
   const ctxMenuRef = useRef<HTMLDivElement | null>(null);
@@ -586,7 +586,7 @@ export function WorkspacePage({
     index: number,
     e: MouseEvent,
   ) {
-    if (e.ctrlKey || e.metaKey) {
+    if (multiSelectMode || e.ctrlKey || e.metaKey) {
       e.preventDefault();
       setSelectedEntries((prev) => {
         if (prev.some((s) => sameEntry(s, it))) {
@@ -964,22 +964,12 @@ export function WorkspacePage({
     <div className="app-root">
       <header className="app-nav">
         <div className="app-nav-path">
-          {domainOptions && domainOptions.length > 0 && domainId && onDomainChange ? (
-            <select
-              className="app-nav-domain-select"
-              value={domainId}
-              onChange={(e) => onDomainChange(e.target.value)}
-              title="Switch domain"
-              aria-label="Switch domain"
-            >
-              {domainOptions.map((d) => (
-                <option key={d.value} value={d.value}>
-                  {d.label}
-                </option>
-              ))}
-            </select>
-          ) : null}
           <strong>Path:</strong>
+          {multiSelectMode ? (
+            <span className="app-nav-multiselect-badge" title="Click items to toggle selection">
+              Multi select
+            </span>
+          ) : null}
           <span className="app-nav-breadcrumb">
             <button
               type="button"
@@ -1293,6 +1283,7 @@ export function WorkspacePage({
             className={dialog === 'move' || dialog === 'copy' ? 'modal-box modal-box--wide' : 'modal-box'}
             onClick={(e) => e.stopPropagation()}
           >
+            <div className="modal-box-body">
             {dialog === 'rename' ? (
               <>
                 <h3>Rename</h3>
@@ -1363,6 +1354,7 @@ export function WorkspacePage({
                 />
               </>
             ) : null}
+            </div>
             <div className="modal-actions">
               <button type="button" onClick={() => setDialog(null)}>
                 Cancel
@@ -1373,7 +1365,7 @@ export function WorkspacePage({
                 </button>
               ) : (
                 <button type="button" className="primary" onClick={submitDialog}>
-                  OK
+                  {dialog === 'copy' ? 'Copy' : dialog === 'move' ? 'Move' : 'OK'}
                 </button>
               )}
             </div>
@@ -1433,6 +1425,23 @@ export function WorkspacePage({
                     <IcGridSelect />
                     <span>Select all</span>
                   </button>
+                  <button
+                    type="button"
+                    className={`context-menu-item${multiSelectMode ? ' is-active' : ''}`}
+                    role="menuitem"
+                    aria-checked={multiSelectMode}
+                    onClick={() => {
+                      setCtxMenu(null);
+                      setMultiSelectMode((v) => {
+                        const next = !v;
+                        if (!next) setSelectedEntries([]);
+                        return next;
+                      });
+                    }}
+                  >
+                    <IcGridSelect />
+                    <span>{multiSelectMode ? 'Exit multi select' : 'Multi select'}</span>
+                  </button>
                 </>
               ) : null}
               {ctxMenu.kind === 'row' ? (
@@ -1466,19 +1475,38 @@ export function WorkspacePage({
                       <div className="context-menu-sep" role="separator" />
                     </>
                   ) : null}
-                  <div className="context-menu-meta">{selectedEntries.length} selected</div>
                   <button
                     type="button"
-                    className="context-menu-item"
+                    className={`context-menu-item${multiSelectMode ? ' is-active' : ''}`}
                     role="menuitem"
+                    aria-checked={multiSelectMode}
                     onClick={() => {
                       setCtxMenu(null);
-                      setSelectedEntries([]);
+                      setMultiSelectMode((v) => {
+                        const next = !v;
+                        if (!next) setSelectedEntries([]);
+                        return next;
+                      });
                     }}
                   >
-                    <IcCircleX />
-                    <span>Clear selection</span>
+                    <IcGridSelect />
+                    <span>{multiSelectMode ? 'Exit multi select' : 'Multi select'}</span>
                   </button>
+                  {multiSelectMode ? (
+                    <button
+                      type="button"
+                      className="context-menu-item"
+                      role="menuitem"
+                      onClick={() => {
+                        setCtxMenu(null);
+                        selectAllInView();
+                      }}
+                    >
+                      <IcGridSelect />
+                      <span>Select all</span>
+                    </button>
+                  ) : null}
+                  <div className="context-menu-sep" role="separator" />
                   <button
                     type="button"
                     className="context-menu-item"
