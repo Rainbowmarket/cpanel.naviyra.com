@@ -16,6 +16,7 @@ import {
   Shield,
   Terminal,
   Archive,
+  Database,
   X,
 } from "lucide-react";
 import { BrandLogo } from "@/components/ui/brand-logo";
@@ -38,6 +39,7 @@ const navGroups = [
     items: [
       { href: "/dashboard/mail", label: "Mail", icon: Mail },
       { href: "/dashboard/ftp", label: "FTP", icon: Upload },
+      { href: "/dashboard/databases", label: "Databases", icon: Database },
       { href: "/dashboard/ssl", label: "SSL", icon: Lock },
       { href: "/dashboard/dns", label: "DNS", icon: Network },
     ],

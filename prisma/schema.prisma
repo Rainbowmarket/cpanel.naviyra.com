@@ -165,6 +165,7 @@ model Domain {
   subdomains   Subdomain[]
   mailDomain   MailDomain?
   ftpAccounts  FtpAccount[]
+  postgresDatabases PostgresDatabase[]
   sslCerts     SslCertificate[]
   dnsZone      DnsZone?
   visitorLogs  VisitorLog[]
@@ -237,6 +238,20 @@ model FtpAccount {
   username     String   @unique
   passwordHash String
   homeDir      String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  domainId String
+  domain   Domain @relation(fields: [domainId], references: [id], onDelete: Cascade)
+}
+
+model PostgresDatabase {
+  id           String   @id @default(cuid())
+  label        String
+  dbName       String   @unique
+  roleName     String   @unique
+  passwordHash String
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -434,11 +449,12 @@ model BackupWorkerConfig {
   enabled        Boolean        @default(false)
   schedule       BackupSchedule @default(DAILY_03)
   retainCount    Int            @default(7)
-  includePanelDb Boolean        @default(true)
-  includeSites   Boolean        @default(true)
-  includeDns     Boolean        @default(true)
-  includeMail    Boolean        @default(false)
-  backupRoot     String         @default("/var/backups/naviyra")
+  includePanelDb    Boolean        @default(true)
+  includeSites      Boolean        @default(true)
+  includeDns        Boolean        @default(true)
+  includeMail       Boolean        @default(false)
+  includeDatabases  Boolean        @default(true)
+  backupRoot        String         @default("/var/backups/naviyra")
   timerInstalled Boolean        @default(false)
   lastRunAt      DateTime?
   lastStatus     JobStatus?

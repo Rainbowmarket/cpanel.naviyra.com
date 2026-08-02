@@ -17,6 +17,14 @@ export type AgentAction =
   | { action: "create_mail_alias"; alias: string; forwardTo: string }
   | { action: "create_ftp_account"; username: string; password: string; homeDir: string }
   | { action: "delete_ftp_account"; username: string }
+  | {
+      action: "create_postgres_database";
+      dbName: string;
+      roleName: string;
+      password: string;
+    }
+  | { action: "delete_postgres_database"; dbName: string; roleName: string }
+  | { action: "reset_postgres_password"; roleName: string; password: string }
   | { action: "list_files"; path: string }
   | { action: "read_file"; path: string }
   | { action: "write_file"; path: string; content: string }
@@ -73,6 +81,8 @@ export type AgentAction =
       includeSites: boolean;
       includeDns: boolean;
       includeMail: boolean;
+      includeDatabases?: boolean;
+      databases?: Array<{ domain?: string; dbName: string; roleName: string }>;
     }
   | {
       action: "run_domain_backup";
@@ -82,6 +92,8 @@ export type AgentAction =
       includeSites: boolean;
       includeDns: boolean;
       includeMail: boolean;
+      includeDatabases?: boolean;
+      databases?: Array<{ domain?: string; dbName: string; roleName: string }>;
     }
   | {
       action: "restore_backup";
@@ -91,6 +103,7 @@ export type AgentAction =
       restoreSites?: boolean;
       restoreDns?: boolean;
       restoreMail?: boolean;
+      restoreDatabases?: boolean;
     }
   | {
       action: "restore_domain_backup";
@@ -100,6 +113,7 @@ export type AgentAction =
       restoreSites?: boolean;
       restoreDns?: boolean;
       restoreMail?: boolean;
+      restoreDatabases?: boolean;
     }
   | {
       action: "delete_backup";

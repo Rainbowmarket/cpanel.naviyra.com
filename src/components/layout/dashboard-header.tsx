@@ -13,6 +13,7 @@ const routeLabels: Record<string, string> = {
   "/dashboard/subdomains": "Subdomains",
   "/dashboard/mail": "Mail",
   "/dashboard/ftp": "FTP",
+  "/dashboard/databases": "Databases",
   "/dashboard/ssl": "SSL",
   "/dashboard/dns": "DNS",
   "/dashboard/security": "Security",

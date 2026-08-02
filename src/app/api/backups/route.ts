@@ -51,6 +51,7 @@ const patchSchema = z.object({
   includeSites: z.boolean().optional(),
   includeDns: z.boolean().optional(),
   includeMail: z.boolean().optional(),
+  includeDatabases: z.boolean().optional(),
   backupRoot: z.string().min(1).optional(),
 });
 

@@ -69,6 +69,11 @@ import {
   createFtpAccountOnServer,
   deleteFtpAccountOnServer,
 } from "./ftp";
+import {
+  createPostgresDatabaseOnServer,
+  deletePostgresDatabaseOnServer,
+  resetPostgresPasswordOnServer,
+} from "./postgres";
 import type { VhostOptions } from "./nginx";
 const exec = promisify(execFile);
 const PORT = Number(process.env.AGENT_PORT ?? 4000);
@@ -411,6 +416,34 @@ async function handleAction(payload: Action) {
       return { success: true, data };
     }
 
+    case "create_postgres_database": {
+      const data = await createPostgresDatabaseOnServer({
+        dbName: String(payload.dbName),
+        roleName: String(payload.roleName),
+        password: String(payload.password),
+        dryRun: DRY_RUN,
+      });
+      return { success: true, data };
+    }
+
+    case "delete_postgres_database": {
+      const data = await deletePostgresDatabaseOnServer({
+        dbName: String(payload.dbName),
+        roleName: String(payload.roleName),
+        dryRun: DRY_RUN,
+      });
+      return { success: true, data };
+    }
+
+    case "reset_postgres_password": {
+      const data = await resetPostgresPasswordOnServer({
+        roleName: String(payload.roleName),
+        password: String(payload.password),
+        dryRun: DRY_RUN,
+      });
+      return { success: true, data };
+    }
+
     case "sync_dns_zone": {
       const data = payload as SyncDnsZonePayload & Action;
       const result = await applyDnsZone(
@@ -705,6 +738,13 @@ async function handleAction(payload: Action) {
     }
 
     case "run_backup": {
+      const databases = Array.isArray(payload.databases)
+        ? (payload.databases as Array<{
+            domain?: string;
+            dbName: string;
+            roleName: string;
+          }>)
+        : [];
       const result = await runBackup({
         backupRoot: String(payload.backupRoot || "/var/backups/naviyra"),
         retainCount: Number(payload.retainCount ?? 7),
@@ -712,12 +752,21 @@ async function handleAction(payload: Action) {
         includeSites: payload.includeSites !== false,
         includeDns: payload.includeDns !== false,
         includeMail: Boolean(payload.includeMail),
+        includeDatabases: payload.includeDatabases !== false,
+        databases,
         dryRun: DRY_RUN,
       });
       return { success: true, data: result };
     }
 
     case "run_domain_backup": {
+      const databases = Array.isArray(payload.databases)
+        ? (payload.databases as Array<{
+            domain?: string;
+            dbName: string;
+            roleName: string;
+          }>)
+        : [];
       const result = await runDomainBackup({
         domain: String(payload.domain),
         backupRoot: String(payload.backupRoot || "/var/backups/naviyra"),
@@ -725,6 +774,8 @@ async function handleAction(payload: Action) {
         includeSites: payload.includeSites !== false,
         includeDns: payload.includeDns !== false,
         includeMail: payload.includeMail !== false,
+        includeDatabases: payload.includeDatabases !== false,
+        databases,
         dryRun: DRY_RUN,
       });
       return { success: true, data: result };
@@ -740,6 +791,7 @@ async function handleAction(payload: Action) {
         restoreSites: Boolean(payload.restoreSites),
         restoreDns: Boolean(payload.restoreDns),
         restoreMail: Boolean(payload.restoreMail),
+        restoreDatabases: Boolean(payload.restoreDatabases),
         dryRun: DRY_RUN,
       });
       return { success: true, data: result };
@@ -755,6 +807,7 @@ async function handleAction(payload: Action) {
         restoreSites: Boolean(payload.restoreSites),
         restoreDns: Boolean(payload.restoreDns),
         restoreMail: Boolean(payload.restoreMail),
+        restoreDatabases: Boolean(payload.restoreDatabases),
         dryRun: DRY_RUN,
       });
       return { success: true, data: result };

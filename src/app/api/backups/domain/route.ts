@@ -9,12 +9,14 @@ const schema = z
     includeSites: z.boolean().optional(),
     includeDns: z.boolean().optional(),
     includeMail: z.boolean().optional(),
+    includeDatabases: z.boolean().optional(),
   })
   .refine(
     (v) =>
       v.includeSites !== false ||
       v.includeDns !== false ||
-      v.includeMail !== false,
+      v.includeMail !== false ||
+      v.includeDatabases !== false,
     { message: "Select at least one component to back up" }
   );
 
@@ -26,6 +28,7 @@ export async function POST(request: Request) {
       includeSites: body.includeSites,
       includeDns: body.includeDns,
       includeMail: body.includeMail,
+      includeDatabases: body.includeDatabases,
     });
     return NextResponse.json(result);
   } catch (error) {

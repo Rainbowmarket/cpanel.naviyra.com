@@ -10,9 +10,15 @@ const schema = z
     restoreSites: z.boolean().optional().default(false),
     restoreDns: z.boolean().optional().default(false),
     restoreMail: z.boolean().optional().default(false),
+    restoreDatabases: z.boolean().optional().default(false),
   })
   .refine(
-    (v) => v.restorePanelDb || v.restoreSites || v.restoreDns || v.restoreMail,
+    (v) =>
+      v.restorePanelDb ||
+      v.restoreSites ||
+      v.restoreDns ||
+      v.restoreMail ||
+      v.restoreDatabases,
     { message: "Select at least one component to restore" }
   );
 

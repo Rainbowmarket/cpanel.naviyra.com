@@ -7,11 +7,11 @@ import {
   Archive,
   CheckCircle2,
   Globe,
-  HardDrive,
   Play,
   RefreshCw,
   RotateCcw,
   Save,
+  Settings2,
   Trash2,
 } from "lucide-react";
 import { Select } from "@/components/ui/select";
@@ -30,6 +30,7 @@ type BackupConfig = {
   includeSites: boolean;
   includeDns: boolean;
   includeMail: boolean;
+  includeDatabases: boolean;
   backupRoot: string;
   timerInstalled: boolean;
   lastRunAt: string | null;
@@ -57,6 +58,7 @@ type RestoreSelection = {
   restoreSites: boolean;
   restoreDns: boolean;
   restoreMail: boolean;
+  restoreDatabases: boolean;
 };
 
 const scheduleOptions = [
@@ -129,7 +131,8 @@ function defaultRestoreSelection(
     has("sites") ||
     has("dns") ||
     has("bind-zones") ||
-    has("mail");
+    has("mail") ||
+    has("postgres-databases");
   return {
     restorePanelDb: domainOnly
       ? false
@@ -139,6 +142,7 @@ function defaultRestoreSelection(
     restoreSites: anyKnown ? has("sites") : true,
     restoreDns: anyKnown ? has("dns") || has("bind-zones") : true,
     restoreMail: has("mail"),
+    restoreDatabases: has("postgres-databases"),
   };
 }
 
@@ -186,6 +190,7 @@ export default function BackupsPage() {
   const [domainIncludeSites, setDomainIncludeSites] = useState(true);
   const [domainIncludeDns, setDomainIncludeDns] = useState(true);
   const [domainIncludeMail, setDomainIncludeMail] = useState(true);
+  const [domainIncludeDatabases, setDomainIncludeDatabases] = useState(true);
   const [domainRunning, setDomainRunning] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -198,9 +203,11 @@ export default function BackupsPage() {
     restoreSites: true,
     restoreDns: true,
     restoreMail: false,
+    restoreDatabases: true,
   });
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [optionsOpen, setOptionsOpen] = useState(false);
 
   const restoreMeta = useMemo(
     () => (restoreRun ? parseSummary(restoreRun.summary) : { included: [] }),
@@ -259,6 +266,7 @@ export default function BackupsPage() {
         includeSites: config.includeSites,
         includeDns: config.includeDns,
         includeMail: config.includeMail,
+        includeDatabases: config.includeDatabases,
         backupRoot: config.backupRoot,
       }),
     });
@@ -306,7 +314,12 @@ export default function BackupsPage() {
       setError("Select a domain to back up");
       return;
     }
-    if (!domainIncludeSites && !domainIncludeDns && !domainIncludeMail) {
+    if (
+      !domainIncludeSites &&
+      !domainIncludeDns &&
+      !domainIncludeMail &&
+      !domainIncludeDatabases
+    ) {
       setError("Select at least one component for the domain backup");
       return;
     }
@@ -321,6 +334,7 @@ export default function BackupsPage() {
         includeSites: domainIncludeSites,
         includeDns: domainIncludeDns,
         includeMail: domainIncludeMail,
+        includeDatabases: domainIncludeDatabases,
       }),
     });
     const data = await res.json();
@@ -356,11 +370,13 @@ export default function BackupsPage() {
     const selected = restoreIsDomain
       ? restoreSelection.restoreSites ||
         restoreSelection.restoreDns ||
-        restoreSelection.restoreMail
+        restoreSelection.restoreMail ||
+        restoreSelection.restoreDatabases
       : restoreSelection.restorePanelDb ||
         restoreSelection.restoreSites ||
         restoreSelection.restoreDns ||
-        restoreSelection.restoreMail;
+        restoreSelection.restoreMail ||
+        restoreSelection.restoreDatabases;
     if (!selected) {
       setError("Select at least one component to restore");
       return;
@@ -380,6 +396,7 @@ export default function BackupsPage() {
         restoreSites: restoreSelection.restoreSites,
         restoreDns: restoreSelection.restoreDns,
         restoreMail: restoreSelection.restoreMail,
+        restoreDatabases: restoreSelection.restoreDatabases,
       }),
     });
     const data = await res.json();
@@ -441,270 +458,48 @@ export default function BackupsPage() {
   }));
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <PageHeader
         title="Backups"
-        description="Per-domain archives of website files, DNS, and mail."
+        description="Backup history"
+        actionLabel="Backup options"
+        onAction={() => setOptionsOpen(true)}
+        actionIcon={<Settings2 className="h-3.5 w-3.5" />}
       />
 
-      <div className="flex flex-wrap gap-2">
-        <div className="rounded-lg border border-slate-800 bg-slate-950/80 px-3.5 py-2.5">
-          <p className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
-            Last status
-          </p>
-          <p className={`text-sm font-semibold ${statusTone(config.lastStatus)}`}>
-            {config.lastStatus ?? "Never run"}
-          </p>
-          <p className="text-[11px] text-slate-500">
-            {config.lastRunAt
-              ? new Date(config.lastRunAt).toLocaleString()
-              : "—"}
-          </p>
-        </div>
-        <div className="rounded-lg border border-slate-800 bg-slate-950/80 px-3.5 py-2.5">
-          <p className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
-            Schedule
-          </p>
-          <p className="text-sm font-semibold text-white">
-            {config.enabled ? "On" : "Off"}
-          </p>
-          <p className="text-[11px] text-slate-500">
-            {config.timerInstalled ? "Timer installed" : "Timer not installed"}
-          </p>
-        </div>
-        <div className="min-w-0 flex-1 basis-48 rounded-lg border border-slate-800 bg-slate-950/80 px-3.5 py-2.5">
-          <p className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
-            Last archive
-          </p>
-          <p
-            className="truncate font-mono text-xs text-slate-300"
-            title={config.lastArchive ?? undefined}
-          >
-            {config.lastArchive ?? "—"}
-          </p>
-        </div>
-      </div>
-
       {config.lastError ? (
-        <p className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+        <p className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-sm text-red-400">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
           {config.lastError}
         </p>
       ) : null}
       {error ? (
-        <p className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+        <p className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-sm text-red-400">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
           {error}
         </p>
       ) : null}
       {message ? (
-        <p className="flex items-start gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+        <p className="flex items-start gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5 text-sm text-emerald-300">
           <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
           {message}
         </p>
       ) : null}
 
-      <section className="rounded-xl border border-slate-800 bg-slate-950/80 p-5">
-        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="flex items-center gap-2 text-sm font-semibold text-white">
-              <Globe className="h-4 w-4 text-emerald-400" />
-              Backup one domain
-            </h2>
-            <p className="mt-1 text-xs text-slate-500">
-              Manual snapshot for a single domain — does not touch the panel DB.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={handleDomainBackup}
-            disabled={domainRunning || !domainId}
-            className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
-          >
-            {domainRunning ? (
-              <RefreshCw className="h-4 w-4 animate-spin" />
-            ) : (
-              <Archive className="h-4 w-4" />
-            )}
-            {domainRunning ? "Backing up…" : "Run backup"}
-          </button>
-        </div>
-
-        <div className="space-y-3">
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-slate-400">
-              Domain
-            </label>
-            {domainOptions.length === 0 ? (
-              <p className="text-sm text-slate-500">No domains available.</p>
-            ) : (
-              <Select
-                value={domainId}
-                onChange={setDomainId}
-                options={domainOptions}
-              />
-            )}
-          </div>
-          <div>
-            <p className="mb-1.5 text-xs font-medium text-slate-400">Include</p>
-            <div className="flex flex-wrap gap-2">
-              <IncludeChip
-                checked={domainIncludeSites}
-                onChange={setDomainIncludeSites}
-                label="Website files"
-              />
-              <IncludeChip
-                checked={domainIncludeDns}
-                onChange={setDomainIncludeDns}
-                label="DNS zone"
-              />
-              <IncludeChip
-                checked={domainIncludeMail}
-                onChange={setDomainIncludeMail}
-                label="Mail"
-              />
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <form
-        onSubmit={handleSave}
-        className="rounded-xl border border-slate-800 bg-slate-950/80 p-5"
-      >
-        <div className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/80 pb-4">
-          <div>
-            <h2 className="text-sm font-semibold text-white">
-              Automatic schedule
-            </h2>
-            <p className="mt-1 text-xs text-slate-500">
-              Backs up every domain on a timer (separate archives).
-            </p>
-          </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={config.enabled}
-            onClick={() => setConfig({ ...config, enabled: !config.enabled })}
-            className={`relative h-7 w-12 shrink-0 rounded-full transition ${
-              config.enabled ? "bg-emerald-500" : "bg-slate-700"
-            }`}
-          >
-            <span
-              className={`absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white shadow transition ${
-                config.enabled ? "translate-x-5" : "translate-x-0"
-              }`}
-            />
-            <span className="sr-only">
-              {config.enabled ? "Disable" : "Enable"} daily backups
-            </span>
-          </button>
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-[1fr_8rem]">
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-slate-400">
-              When
-            </label>
-            <Select
-              value={config.schedule}
-              onChange={(v) =>
-                setConfig({ ...config, schedule: v as BackupSchedule })
-              }
-              options={scheduleOptions}
-            />
-          </div>
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-slate-400">
-              Keep last
-            </label>
-            <input
-              type="number"
-              min={1}
-              max={60}
-              value={config.retainCount}
-              onChange={(e) =>
-                setConfig({
-                  ...config,
-                  retainCount: Number(e.target.value) || 7,
-                })
-              }
-              className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
-            />
-          </div>
-        </div>
-
-        <div className="mt-4">
-          <label className="mb-1.5 block text-xs font-medium text-slate-400">
-            Backup folder
-          </label>
-          <input
-            value={config.backupRoot}
-            onChange={(e) =>
-              setConfig({ ...config, backupRoot: e.target.value })
-            }
-            className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 font-mono text-sm text-white"
-          />
-        </div>
-
-        <div className="mt-4">
-          <p className="mb-1.5 text-xs font-medium text-slate-400">Include</p>
-          <div className="flex flex-wrap gap-2">
-            <IncludeChip
-              checked={config.includeSites}
-              onChange={(v) => setConfig({ ...config, includeSites: v })}
-              label="Website files"
-            />
-            <IncludeChip
-              checked={config.includeDns}
-              onChange={(v) => setConfig({ ...config, includeDns: v })}
-              label="DNS zone"
-            />
-            <IncludeChip
-              checked={config.includeMail}
-              onChange={(v) => setConfig({ ...config, includeMail: v })}
-              label="Mail"
-            />
-          </div>
-        </div>
-
-        <div className="mt-5 flex flex-wrap gap-2 border-t border-slate-800/80 pt-4">
-          <button
-            type="submit"
-            disabled={saving}
-            className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
-          >
-            {saving ? (
-              <RefreshCw className="h-4 w-4 animate-spin" />
-            ) : (
-              <Save className="h-4 w-4" />
-            )}
-            Save schedule
-          </button>
-          <button
-            type="button"
-            onClick={handleRunNow}
-            disabled={running}
-            className="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-50"
-          >
-            {running ? (
-              <RefreshCw className="h-4 w-4 animate-spin" />
-            ) : (
-              <Play className="h-4 w-4" />
-            )}
-            Run all now
-          </button>
-        </div>
-      </form>
-
       <div>
-        <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-white">
-          <Archive className="h-4 w-4 text-slate-400" />
-          Recent runs
-        </h2>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-white">
+            <Archive className="h-4 w-4 text-slate-400" />
+            History
+          </h2>
+          <span className="text-[11px] text-slate-500">
+            Schedule {config.enabled ? "on" : "off"}
+            {config.lastStatus ? ` · ${config.lastStatus}` : ""}
+          </span>
+        </div>
         {runs.length === 0 ? (
           <p className="rounded-xl border border-dashed border-slate-800 px-5 py-10 text-center text-sm text-slate-500">
-            No backup runs yet.
+            No backup runs yet. Use Backup options to create one.
           </p>
         ) : (
           <div className="overflow-hidden rounded-xl border border-slate-800">
@@ -714,12 +509,12 @@ export default function BackupsPage() {
               return (
                 <div
                   key={run.id}
-                  className={`flex flex-wrap items-start justify-between gap-3 bg-slate-950/80 px-4 py-3.5 ${
+                  className={`flex flex-wrap items-start justify-between gap-3 bg-slate-950/80 px-3 py-3 sm:px-4 sm:py-3.5 ${
                     idx > 0 ? "border-t border-slate-800" : ""
                   }`}
                 >
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
                       <span
                         className={`text-sm font-medium ${statusTone(run.status)}`}
                       >
@@ -741,31 +536,26 @@ export default function BackupsPage() {
                         : ""}
                     </p>
                     {run.archivePath ? (
-                      <p className="mt-1 flex items-center gap-1.5 truncate font-mono text-xs text-slate-400">
-                        <HardDrive className="h-3.5 w-3.5 shrink-0" />
-                        <span className="truncate">
-                          {run.archivePath} · {formatBytes(run.sizeBytes)}
-                        </span>
-                      </p>
-                    ) : null}
-                    {meta.included.length > 0 ? (
-                      <p className="mt-1 text-xs text-slate-500">
-                        {meta.included.join(" · ")}
+                      <p
+                        className="mt-1 truncate font-mono text-[11px] text-slate-400"
+                        title={`${run.archivePath} · ${formatBytes(run.sizeBytes)}`}
+                      >
+                        {run.archivePath} · {formatBytes(run.sizeBytes)}
                       </p>
                     ) : null}
                     {run.error ? (
                       <p className="mt-1 text-xs text-red-400">{run.error}</p>
                     ) : null}
                   </div>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
                     {run.status === "COMPLETED" && run.archivePath ? (
                       <button
                         type="button"
                         onClick={() => openRestore(run)}
                         disabled={restoreBusy || deletingId === run.id}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+                        className="inline-flex items-center gap-1 rounded-md border border-slate-700 px-2.5 py-1.5 text-[11px] text-slate-200 hover:bg-slate-800 disabled:opacity-50"
                       >
-                        <RotateCcw className="h-3.5 w-3.5" />
+                        <RotateCcw className="h-3 w-3" />
                         Restore
                       </button>
                     ) : null}
@@ -773,12 +563,12 @@ export default function BackupsPage() {
                       type="button"
                       onClick={() => handleDelete(run)}
                       disabled={deletingId === run.id || restoreBusy}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/30 px-3 py-1.5 text-xs text-red-400 hover:bg-red-500/10 disabled:opacity-50"
+                      className="inline-flex items-center gap-1 rounded-md border border-red-500/30 px-2.5 py-1.5 text-[11px] text-red-400 hover:bg-red-500/10 disabled:opacity-50"
                     >
                       {deletingId === run.id ? (
-                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                        <RefreshCw className="h-3 w-3 animate-spin" />
                       ) : (
-                        <Trash2 className="h-3.5 w-3.5" />
+                        <Trash2 className="h-3 w-3" />
                       )}
                       Delete
                     </button>
@@ -789,6 +579,192 @@ export default function BackupsPage() {
           </div>
         )}
       </div>
+
+      <Modal
+        open={optionsOpen}
+        onClose={() => setOptionsOpen(false)}
+        title="Backup options"
+        description="Run a domain backup or configure the automatic schedule."
+        className="max-w-lg"
+      >
+        <div className="space-y-5">
+          <section className="space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-white">
+                <Globe className="h-4 w-4 text-emerald-400" />
+                One domain
+              </h3>
+              <button
+                type="button"
+                onClick={handleDomainBackup}
+                disabled={domainRunning || !domainId}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/15 px-3 py-1.5 text-xs font-medium text-emerald-300 hover:bg-emerald-500/25 disabled:opacity-50"
+              >
+                {domainRunning ? (
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Archive className="h-3.5 w-3.5" />
+                )}
+                {domainRunning ? "Running…" : "Run backup"}
+              </button>
+            </div>
+            {domainOptions.length === 0 ? (
+              <p className="text-sm text-slate-500">No domains available.</p>
+            ) : (
+              <Select
+                value={domainId}
+                onChange={setDomainId}
+                options={domainOptions}
+              />
+            )}
+            <div className="flex flex-wrap gap-2">
+              <IncludeChip
+                checked={domainIncludeSites}
+                onChange={setDomainIncludeSites}
+                label="Website files"
+              />
+              <IncludeChip
+                checked={domainIncludeDns}
+                onChange={setDomainIncludeDns}
+                label="DNS zone"
+              />
+              <IncludeChip
+                checked={domainIncludeMail}
+                onChange={setDomainIncludeMail}
+                label="Mail"
+              />
+              <IncludeChip
+                checked={domainIncludeDatabases}
+                onChange={setDomainIncludeDatabases}
+                label="PostgreSQL"
+              />
+            </div>
+          </section>
+
+          <form
+            onSubmit={handleSave}
+            className="space-y-3 border-t border-slate-800 pt-4"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-white">
+                Automatic schedule
+              </h3>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={config.enabled}
+                onClick={() =>
+                  setConfig({ ...config, enabled: !config.enabled })
+                }
+                className={`relative h-7 w-12 shrink-0 rounded-full transition ${
+                  config.enabled ? "bg-emerald-500" : "bg-slate-700"
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white shadow transition ${
+                    config.enabled ? "translate-x-5" : "translate-x-0"
+                  }`}
+                />
+              </button>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-[1fr_7rem]">
+              <div>
+                <label className="mb-1 block text-xs text-slate-400">When</label>
+                <Select
+                  value={config.schedule}
+                  onChange={(v) =>
+                    setConfig({ ...config, schedule: v as BackupSchedule })
+                  }
+                  options={scheduleOptions}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-slate-400">
+                  Keep last
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={60}
+                  value={config.retainCount}
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      retainCount: Number(e.target.value) || 7,
+                    })
+                  }
+                  className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs text-slate-400">
+                Backup folder
+              </label>
+              <input
+                value={config.backupRoot}
+                onChange={(e) =>
+                  setConfig({ ...config, backupRoot: e.target.value })
+                }
+                className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 font-mono text-xs text-white"
+              />
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <IncludeChip
+                checked={config.includeSites}
+                onChange={(v) => setConfig({ ...config, includeSites: v })}
+                label="Website files"
+              />
+              <IncludeChip
+                checked={config.includeDns}
+                onChange={(v) => setConfig({ ...config, includeDns: v })}
+                label="DNS zone"
+              />
+              <IncludeChip
+                checked={config.includeMail}
+                onChange={(v) => setConfig({ ...config, includeMail: v })}
+                label="Mail"
+              />
+              <IncludeChip
+                checked={config.includeDatabases}
+                onChange={(v) => setConfig({ ...config, includeDatabases: v })}
+                label="PostgreSQL"
+              />
+            </div>
+
+            <div className="flex flex-wrap justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={handleRunNow}
+                disabled={running}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+              >
+                {running ? (
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Play className="h-3.5 w-3.5" />
+                )}
+                Run all now
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/15 px-3 py-1.5 text-sm font-medium text-emerald-300 hover:bg-emerald-500/25 disabled:opacity-50"
+              >
+                {saving ? (
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Save className="h-3.5 w-3.5" />
+                )}
+                Save schedule
+              </button>
+            </div>
+          </form>
+        </div>
+      </Modal>
 
       <Modal
         open={Boolean(restoreRun)}
@@ -824,6 +800,12 @@ export default function BackupsPage() {
                 ["restoreSites", "Website files", "sites", true],
                 ["restoreDns", "DNS / BIND zones", "dns", true],
                 ["restoreMail", "Mail vhosts", "mail", true],
+                [
+                  "restoreDatabases",
+                  "PostgreSQL databases",
+                  "postgres-databases",
+                  true,
+                ],
               ] as const
             )
               .filter(([, , , show]) => show)

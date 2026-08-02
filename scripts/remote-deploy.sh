@@ -183,6 +183,10 @@ echo "== FTP (vsftpd) =="
 chmod +x scripts/install-ftp.sh
 ./scripts/install-ftp.sh || true
 
+echo "== PostgreSQL (customer DBs) =="
+chmod +x scripts/install-postgres.sh
+./scripts/install-postgres.sh "$PANEL" || true
+
 echo "== panel mail host from .env (PANEL_HOSTNAME / MAIL_*) =="
 ./scripts/provision-panel-mail.sh "$PANEL" || true
 

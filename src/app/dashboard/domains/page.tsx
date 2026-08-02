@@ -1,9 +1,15 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertCircle, FolderOpen, Globe, Lock, RefreshCw, Settings2 } from "lucide-react";
+import {
+  AlertCircle,
+  FolderOpen,
+  Globe,
+  Lock,
+  RefreshCw,
+  Settings2,
+} from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { Modal, modalInputClass, modalLabelClass } from "@/components/ui/modal";
 import { ModalActions, PageHeader } from "@/components/ui/page-header";
@@ -47,19 +53,18 @@ function StatusBadge({ status, error }: { status: string; error?: string | null 
   };
 
   return (
-    <div className="flex flex-col gap-1">
+    <span className="inline-flex flex-col gap-0.5">
       <span
-        className={`inline-flex w-fit items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${styles[status] ?? styles.SUSPENDED}`}
+        className={`inline-flex w-fit items-center rounded-md px-1.5 py-0.5 text-[10px] font-medium ring-1 ${styles[status] ?? styles.SUSPENDED}`}
       >
         {status}
       </span>
-      {status === "ERROR" && error && (
-        <span className="flex max-w-xs items-start gap-1 text-xs text-red-400/80">
-          <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+      {status === "ERROR" && error ? (
+        <span className="max-w-[14rem] truncate text-[10px] text-red-400/80" title={error}>
           {error}
         </span>
-      )}
-    </div>
+      ) : null}
+    </span>
   );
 }
 
@@ -250,143 +255,143 @@ export default function DomainsPage() {
         ) : null}
       </Modal>
 
-      {sslError && (
+      {sslError ? (
         <p className="flex items-center gap-2 text-sm text-red-400">
           <AlertCircle className="h-4 w-4 shrink-0" />
           {sslError}
         </p>
-      )}
+      ) : null}
 
-      <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/50">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-slate-900/80 text-slate-400">
-            <tr>
-              <th className="px-5 py-3.5 font-medium">Domain</th>
-              {isAdmin ? (
-                <th className="px-5 py-3.5 font-medium">Owner</th>
-              ) : null}
-              <th className="px-5 py-3.5 font-medium">App</th>
-              <th className="px-5 py-3.5 font-medium">Status</th>
-              <th className="px-5 py-3.5 font-medium">Document Root</th>
-              <th className="px-5 py-3.5 font-medium text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {domains.map((d) => {
-              const ssl = d.sslCerts[0];
-              return (
-                <tr key={d.id} className="border-t border-slate-800/80 hover:bg-slate-900/30">
-                  <td className="px-5 py-4 font-medium text-white">
-                    <a
-                      href={`https://${d.name}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="hover:text-emerald-400 hover:underline"
-                      title={`Open https://${d.name}`}
-                    >
-                      {d.name}
-                    </a>
-                  </td>
-                  {isAdmin ? (
-                    <td className="px-5 py-4 text-xs text-slate-400">
-                      <p className="truncate text-slate-300">
-                        {d.user?.name ?? "—"}
-                      </p>
-                      <p className="truncate">{d.user?.email ?? ""}</p>
-                    </td>
-                  ) : null}
-                  <td className="px-5 py-4 text-slate-300">
-                    <span className="rounded-md bg-slate-800 px-2 py-0.5 text-xs">
-                      {d.appType ?? "PHP"}
-                    </span>
-                    {d.upstreamPort ? (
-                      <span className="ml-2 font-mono text-xs text-slate-500">
-                        :{d.upstreamPort}
-                      </span>
-                    ) : null}
-                  </td>
-                  <td className="px-5 py-4">
-                    <StatusBadge status={d.status} error={d.lastError} />
-                  </td>
-                  <td className="max-w-xs truncate px-5 py-4 font-mono text-xs text-slate-400">
-                    {d.documentRoot}
-                  </td>
-                  <td className="px-5 py-4 text-right">
-                    <div className="flex flex-wrap items-center justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setRuntimeDomain(d)}
-                        className="flex items-center gap-1.5 rounded-lg border border-sky-500/30 px-3 py-1.5 text-xs text-sky-400 hover:bg-sky-500/10"
-                      >
-                        <Settings2 className="h-3.5 w-3.5" />
-                        Runtime
-                      </button>
-                      {ssl?.status === "ACTIVE" ? (
-                        <button
-                          type="button"
-                          onClick={() => handleRenewSsl(ssl.id, d.id)}
-                          disabled={sslLoading === d.id}
-                          className="flex items-center gap-1.5 rounded-lg border border-emerald-500/30 px-3 py-1.5 text-xs text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-50"
-                        >
-                          <RefreshCw
-                            className={`h-3.5 w-3.5 ${sslLoading === d.id ? "animate-spin" : ""}`}
-                          />
-                          Renew SSL
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => handleIssueSsl(d.id)}
-                          disabled={sslLoading === d.id || d.status !== "ACTIVE"}
-                          className="flex items-center gap-1.5 rounded-lg border border-emerald-500/30 px-3 py-1.5 text-xs text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-50"
-                        >
-                          <Lock className="h-3.5 w-3.5" />
-                          {ssl ? "Re-issue SSL" : "Issue SSL"}
-                        </button>
-                      )}
-                      <a
-                        href={`/file-manager?target=d:${d.id}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-emerald-400 hover:bg-slate-800"
-                      >
-                        <FolderOpen className="h-3.5 w-3.5" />
-                        Open files
-                      </a>
-                      {d.status === "ERROR" && (
-                        <button
-                          type="button"
-                          onClick={() => handleRetry(d.id)}
-                          disabled={retrying === d.id}
-                          className="flex items-center gap-1.5 rounded-lg border border-amber-500/30 px-3 py-1.5 text-xs text-amber-400 hover:bg-amber-500/10 disabled:opacity-50"
-                        >
-                          <RefreshCw
-                            className={`h-3.5 w-3.5 ${retrying === d.id ? "animate-spin" : ""}`}
-                          />
-                          Retry
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(d.id)}
-                        className="flex items-center gap-1.5 rounded-lg border border-red-500/30 px-3 py-1.5 text-xs text-red-400 hover:bg-red-500/10"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-            {domains.length === 0 && (
-              <tr>
-                <td colSpan={5} className="px-5 py-12 text-center text-slate-500">
-                  No domains yet. Click Add Domain to create one.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+      <div className="space-y-2">
+        {domains.map((d) => {
+          const ssl = d.sslCerts[0];
+          const btn =
+            "inline-flex items-center justify-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-medium transition disabled:opacity-50";
+          return (
+            <div
+              key={d.id}
+              className="rounded-xl border border-slate-800 bg-slate-950/80 p-3 sm:p-4"
+            >
+              <a
+                href={`https://${d.name}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block truncate text-sm font-medium text-white hover:text-emerald-400"
+                title={d.name}
+              >
+                {d.name}
+              </a>
+
+              <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                <StatusBadge status={d.status} error={d.lastError} />
+                <span className="rounded-md bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-300">
+                  {d.appType ?? "PHP"}
+                  {d.upstreamPort ? ` :${d.upstreamPort}` : ""}
+                </span>
+                {ssl ? (
+                  <span
+                    className={`rounded-md px-1.5 py-0.5 text-[10px] font-medium ring-1 ${
+                      ssl.status === "ACTIVE"
+                        ? "bg-emerald-500/15 text-emerald-300 ring-emerald-500/30"
+                        : ssl.status === "FAILED"
+                          ? "bg-red-500/15 text-red-300 ring-red-500/30"
+                          : "bg-amber-500/15 text-amber-300 ring-amber-500/30"
+                    }`}
+                  >
+                    SSL {ssl.status}
+                  </span>
+                ) : (
+                  <span className="rounded-md bg-slate-500/15 px-1.5 py-0.5 text-[10px] text-slate-400 ring-1 ring-slate-500/30">
+                    No SSL
+                  </span>
+                )}
+                {isAdmin && d.user?.email ? (
+                  <span
+                    className="max-w-[12rem] truncate rounded-md bg-slate-900 px-1.5 py-0.5 text-[10px] text-slate-400"
+                    title={d.user.email}
+                  >
+                    {d.user.name || d.user.email}
+                  </span>
+                ) : null}
+              </div>
+
+              <p
+                className="mt-1.5 truncate font-mono text-[11px] text-slate-500"
+                title={d.documentRoot}
+              >
+                {d.documentRoot}
+              </p>
+
+              <div className="mt-2.5 grid grid-cols-2 gap-1.5 sm:flex sm:flex-wrap sm:justify-end">
+                <button
+                  type="button"
+                  onClick={() => setRuntimeDomain(d)}
+                  className={`${btn} border-sky-500/30 text-sky-400 hover:bg-sky-500/10`}
+                >
+                  <Settings2 className="h-3 w-3" />
+                  Runtime
+                </button>
+                {ssl?.status === "ACTIVE" ? (
+                  <button
+                    type="button"
+                    onClick={() => handleRenewSsl(ssl.id, d.id)}
+                    disabled={sslLoading === d.id}
+                    className={`${btn} border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10`}
+                  >
+                    <RefreshCw
+                      className={`h-3 w-3 ${sslLoading === d.id ? "animate-spin" : ""}`}
+                    />
+                    Renew SSL
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => handleIssueSsl(d.id)}
+                    disabled={sslLoading === d.id || d.status !== "ACTIVE"}
+                    className={`${btn} border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10`}
+                  >
+                    <Lock className="h-3 w-3" />
+                    {ssl ? "Re-issue SSL" : "Issue SSL"}
+                  </button>
+                )}
+                <a
+                  href={`/file-manager?target=d:${d.id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`${btn} border-slate-700 text-emerald-400 hover:bg-slate-800`}
+                >
+                  <FolderOpen className="h-3 w-3" />
+                  Files
+                </a>
+                {d.status === "ERROR" ? (
+                  <button
+                    type="button"
+                    onClick={() => handleRetry(d.id)}
+                    disabled={retrying === d.id}
+                    className={`${btn} border-amber-500/30 text-amber-400 hover:bg-amber-500/10`}
+                  >
+                    <RefreshCw
+                      className={`h-3 w-3 ${retrying === d.id ? "animate-spin" : ""}`}
+                    />
+                    Retry
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => handleDelete(d.id)}
+                  className={`${btn} border-red-500/30 text-red-400 hover:bg-red-500/10`}
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          );
+        })}
+        {domains.length === 0 ? (
+          <p className="rounded-xl border border-dashed border-slate-800 px-5 py-10 text-center text-sm text-slate-500">
+            No domains yet. Click Add Domain to create one.
+          </p>
+        ) : null}
       </div>
     </div>
   );

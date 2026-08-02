@@ -17,6 +17,12 @@ export type BackupSchedulePreset =
   | "DAILY_03"
   | "WEEKLY_SUN";
 
+export type BackupDatabaseRef = {
+  domain?: string;
+  dbName: string;
+  roleName: string;
+};
+
 export type RunBackupOptions = {
   backupRoot: string;
   retainCount: number;
@@ -24,6 +30,8 @@ export type RunBackupOptions = {
   includeSites: boolean;
   includeDns: boolean;
   includeMail: boolean;
+  includeDatabases?: boolean;
+  databases?: BackupDatabaseRef[];
   dryRun?: boolean;
 };
 
@@ -41,6 +49,7 @@ export type RestoreBackupOptions = {
   restoreSites?: boolean;
   restoreDns?: boolean;
   restoreMail?: boolean;
+  restoreDatabases?: boolean;
   dryRun?: boolean;
 };
 
@@ -117,6 +126,211 @@ async function pathExists(target: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function assertSafePgIdent(ident: string, label: string): string {
+  const value = ident.trim().toLowerCase();
+  if (!/^[a-z_][a-z0-9_]*$/.test(value)) {
+    throw new Error(`Invalid PostgreSQL ${label}: ${ident}`);
+  }
+  return value;
+}
+
+function quotePgIdent(ident: string): string {
+  return `"${assertSafePgIdent(ident, "identifier")}"`;
+}
+
+function quotePgLiteral(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
+async function runPsqlAsPostgres(sql: string, database?: string) {
+  const args = ["-u", "postgres", "psql", "-v", "ON_ERROR_STOP=1"];
+  if (database) args.push("-d", database);
+  args.push("-c", sql);
+  await exec("sudo", args, { maxBuffer: 2 * 1024 * 1024 });
+}
+
+async function dumpPostgresDatabases(
+  workDir: string,
+  databases: BackupDatabaseRef[]
+): Promise<boolean> {
+  if (isWindows || databases.length === 0) return false;
+
+  const destRoot = path.join(workDir, "postgres-databases");
+  await fs.mkdir(destRoot, { recursive: true });
+  const written: BackupDatabaseRef[] = [];
+
+  for (const raw of databases) {
+    const dbName = assertSafePgIdent(raw.dbName, "database name");
+    const roleName = assertSafePgIdent(raw.roleName, "role name");
+    const domain = raw.domain?.trim().toLowerCase() || undefined;
+    const dumpPath = path.join(destRoot, `${dbName}.dump`);
+    const tmpDump = path.join(
+      "/tmp",
+      `naviyra-pgdump-${dbName}-${stamp()}.dump`
+    );
+    try {
+      // postgres OS user cannot write under /var/backups — dump to /tmp first
+      await exec(
+        "sudo",
+        ["-u", "postgres", "pg_dump", "-Fc", "-f", tmpDump, dbName],
+        { maxBuffer: 64 * 1024 * 1024 }
+      );
+      await exec("sudo", ["mv", tmpDump, dumpPath]);
+      await exec("sudo", ["chmod", "644", dumpPath]).catch(() => undefined);
+      written.push({ dbName, roleName, domain });
+    } catch (error) {
+      await fs.rm(tmpDump, { force: true }).catch(() => undefined);
+      console.warn(
+        `[backup] pg_dump failed for ${dbName}:`,
+        error instanceof Error ? error.message : error
+      );
+    }
+  }
+
+  if (written.length === 0) return false;
+
+  await fs.writeFile(
+    path.join(destRoot, "manifest.json"),
+    JSON.stringify({ databases: written }, null, 2),
+    "utf8"
+  );
+  return true;
+}
+
+async function ensurePostgresRoleAndDatabase(
+  dbName: string,
+  roleName: string
+): Promise<void> {
+  const db = quotePgIdent(dbName);
+  const role = quotePgIdent(roleName);
+  const tempPass = quotePgLiteral(
+    `restore_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`
+  );
+
+  await runPsqlAsPostgres(
+    `DO $$ BEGIN
+       CREATE ROLE ${role} LOGIN PASSWORD ${tempPass};
+     EXCEPTION WHEN duplicate_object THEN
+       NULL;
+     END $$;`
+  );
+
+  const { stdout } = await exec(
+    "sudo",
+    [
+      "-u",
+      "postgres",
+      "psql",
+      "-tAc",
+      `SELECT 1 FROM pg_database WHERE datname = ${quotePgLiteral(dbName)}`,
+    ],
+    { maxBuffer: 1024 * 1024 }
+  );
+  if (stdout.trim() !== "1") {
+    await runPsqlAsPostgres(
+      `CREATE DATABASE ${db} OWNER ${role} ENCODING 'UTF8' TEMPLATE template0;`
+    );
+  } else {
+    await runPsqlAsPostgres(`ALTER DATABASE ${db} OWNER TO ${role};`);
+  }
+  await runPsqlAsPostgres(`GRANT ALL PRIVILEGES ON DATABASE ${db} TO ${role};`);
+}
+
+async function restorePostgresDatabasesFromDir(
+  extractDir: string
+): Promise<boolean> {
+  if (isWindows) return false;
+  const destRoot = path.join(extractDir, "postgres-databases");
+  if (!(await pathExists(destRoot))) return false;
+
+  let databases: BackupDatabaseRef[] = [];
+  const manifestPath = path.join(destRoot, "manifest.json");
+  if (await pathExists(manifestPath)) {
+    try {
+      const parsed = JSON.parse(await fs.readFile(manifestPath, "utf8")) as {
+        databases?: BackupDatabaseRef[];
+      };
+      databases = Array.isArray(parsed.databases) ? parsed.databases : [];
+    } catch {
+      databases = [];
+    }
+  }
+
+  if (databases.length === 0) {
+    const files = await fs.readdir(destRoot);
+    databases = files
+      .filter((f) => f.endsWith(".dump"))
+      .map((f) => {
+        const dbName = f.slice(0, -".dump".length);
+        return { dbName, roleName: dbName };
+      });
+  }
+
+  let restoredAny = false;
+  for (const entry of databases) {
+    const dbName = assertSafePgIdent(entry.dbName, "database name");
+    const roleName = assertSafePgIdent(
+      entry.roleName || entry.dbName,
+      "role name"
+    );
+    const dumpPath = path.join(destRoot, `${dbName}.dump`);
+    if (!(await pathExists(dumpPath))) continue;
+
+    await ensurePostgresRoleAndDatabase(dbName, roleName);
+    await runPsqlAsPostgres(
+      `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = ${quotePgLiteral(dbName)} AND pid <> pg_backend_pid();`
+    ).catch(() => undefined);
+
+    const tmpDump = path.join(
+      "/tmp",
+      `naviyra-pgrestore-${dbName}-${stamp()}.dump`
+    );
+    await exec("sudo", ["cp", "-f", dumpPath, tmpDump]);
+    await exec("sudo", ["chown", "postgres:postgres", tmpDump]);
+    await exec("sudo", ["chmod", "600", tmpDump]);
+
+    try {
+      await exec(
+        "sudo",
+        [
+          "-u",
+          "postgres",
+          "pg_restore",
+          "--clean",
+          "--if-exists",
+          "--no-owner",
+          `--role=${roleName}`,
+          `-d`,
+          dbName,
+          tmpDump,
+        ],
+        { maxBuffer: 64 * 1024 * 1024 }
+      ).catch(async (error) => {
+        // pg_restore often exits non-zero on warnings; verify DB still exists
+        const { stdout } = await exec(
+          "sudo",
+          [
+            "-u",
+            "postgres",
+            "psql",
+            "-tAc",
+            `SELECT 1 FROM pg_database WHERE datname = ${quotePgLiteral(dbName)}`,
+          ],
+          { maxBuffer: 1024 * 1024 }
+        );
+        if (stdout.trim() !== "1") {
+          throw error;
+        }
+      });
+      restoredAny = true;
+    } finally {
+      await fs.rm(tmpDump, { force: true }).catch(() => undefined);
+    }
+  }
+
+  return restoredAny;
 }
 
 export async function runBackup(
@@ -201,6 +415,13 @@ export async function runBackup(
           /* skip if permission denied */
         }
       }
+    }
+
+    if (
+      options.includeDatabases &&
+      (await dumpPostgresDatabases(workDir, options.databases ?? []))
+    ) {
+      included.push("postgres-databases");
     }
 
     if (included.length === 0) {
@@ -290,6 +511,7 @@ export async function restoreBackup(
     const wantSites = options.restoreSites === true;
     const wantDns = options.restoreDns === true;
     const wantMail = options.restoreMail === true;
+    const wantDatabases = options.restoreDatabases === true;
 
     if (wantSites && (await pathExists(path.join(extractDir, "sites")))) {
       const sitesDest = isWindows ? SITES_ROOT : "/var/www";
@@ -355,6 +577,10 @@ export async function restoreBackup(
       await fs.mkdir(mailDir, { recursive: true });
       await exec("cp", ["-a", `${path.join(extractDir, "mail")}/.`, mailDir]);
       restored.push("mail");
+    }
+
+    if (wantDatabases && (await restorePostgresDatabasesFromDir(extractDir))) {
+      restored.push("postgres-databases");
     }
 
     if (wantDb && (await pathExists(path.join(extractDir, "panel-db")))) {
@@ -506,6 +732,8 @@ export type RunDomainBackupOptions = {
   includeSites: boolean;
   includeDns: boolean;
   includeMail: boolean;
+  includeDatabases?: boolean;
+  databases?: BackupDatabaseRef[];
   dryRun?: boolean;
 };
 
@@ -516,6 +744,7 @@ export type RestoreDomainBackupOptions = {
   restoreSites?: boolean;
   restoreDns?: boolean;
   restoreMail?: boolean;
+  restoreDatabases?: boolean;
   dryRun?: boolean;
 };
 
@@ -637,9 +866,22 @@ export async function runDomainBackup(
       }
     }
 
+    if (
+      options.includeDatabases &&
+      (await dumpPostgresDatabases(
+        workDir,
+        (options.databases ?? []).map((db) => ({
+          ...db,
+          domain: db.domain || domain,
+        }))
+      ))
+    ) {
+      included.push("postgres-databases");
+    }
+
     if (included.length === 0) {
       throw new Error(
-        `Nothing to back up for ${domain} — site/DNS/mail not found or disabled`
+        `Nothing to back up for ${domain} — site/DNS/mail/databases not found or disabled`
       );
     }
 
@@ -734,6 +976,7 @@ export async function restoreDomainBackup(
     const wantSites = options.restoreSites === true;
     const wantDns = options.restoreDns === true;
     const wantMail = options.restoreMail === true;
+    const wantDatabases = options.restoreDatabases === true;
 
     if (wantSites && (await pathExists(path.join(extractDir, "sites", domain)))) {
       const sitesDest = domainSitesPath(domain);
@@ -831,6 +1074,10 @@ export async function restoreDomainBackup(
         mailDir,
       ]);
       restored.push("mail");
+    }
+
+    if (wantDatabases && (await restorePostgresDatabasesFromDir(extractDir))) {
+      restored.push("postgres-databases");
     }
 
     if (restored.length === 0) {

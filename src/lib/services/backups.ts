@@ -14,6 +14,7 @@ export type BackupConfigUpdate = {
   includeSites?: boolean;
   includeDns?: boolean;
   includeMail?: boolean;
+  includeDatabases?: boolean;
   backupRoot?: string;
 };
 
@@ -27,6 +28,30 @@ function workerToken(): string {
 
 function panelPort(): number {
   return Number(process.env.PANEL_PORT || 3100);
+}
+
+async function listDatabasesForDomain(domainId: string) {
+  const rows = await prisma.postgresDatabase.findMany({
+    where: { domainId, isActive: true },
+    select: { dbName: true, roleName: true },
+  });
+  return rows.map((r) => ({ dbName: r.dbName, roleName: r.roleName }));
+}
+
+async function listAllDatabases() {
+  const rows = await prisma.postgresDatabase.findMany({
+    where: { isActive: true },
+    select: {
+      dbName: true,
+      roleName: true,
+      domain: { select: { name: true } },
+    },
+  });
+  return rows.map((r) => ({
+    dbName: r.dbName,
+    roleName: r.roleName,
+    domain: r.domain.name,
+  }));
 }
 
 export async function getOrCreateBackupConfig() {
@@ -43,6 +68,7 @@ export async function getOrCreateBackupConfig() {
       includeSites: true,
       includeDns: true,
       includeMail: true,
+      includeDatabases: true,
       backupRoot:
         process.platform === "win32"
           ? "data/backups"
@@ -79,6 +105,9 @@ export async function updateBackupConfig(input: BackupConfigUpdate) {
         : {}),
       ...(input.includeMail !== undefined
         ? { includeMail: input.includeMail }
+        : {}),
+      ...(input.includeDatabases !== undefined
+        ? { includeDatabases: input.includeDatabases }
         : {}),
       ...(input.backupRoot?.trim()
         ? { backupRoot: input.backupRoot.trim() }
@@ -133,6 +162,8 @@ export async function runBackupNow(source: "manual" | "timer" = "manual") {
     },
   });
 
+  const databases = config.includeDatabases ? await listAllDatabases() : [];
+
   const agentResult = await callAgent(
     {
       action: "run_backup",
@@ -142,6 +173,8 @@ export async function runBackupNow(source: "manual" | "timer" = "manual") {
       includeSites: config.includeSites,
       includeDns: config.includeDns,
       includeMail: config.includeMail,
+      includeDatabases: config.includeDatabases,
+      databases,
     },
     getAgentApiKey()
   );
@@ -207,6 +240,7 @@ export async function runDomainBackupNow(
     includeSites?: boolean;
     includeDns?: boolean;
     includeMail?: boolean;
+    includeDatabases?: boolean;
     source?: string;
   }
 ) {
@@ -219,11 +253,19 @@ export async function runDomainBackupNow(
   const includeSites = opts?.includeSites !== false;
   const includeDns = opts?.includeDns !== false;
   const includeMail = opts?.includeMail !== false;
+  const includeDatabases = opts?.includeDatabases !== false;
   const source = opts?.source?.trim() || "domain";
 
-  if (!includeSites && !includeDns && !includeMail) {
+  if (!includeSites && !includeDns && !includeMail && !includeDatabases) {
     throw new Error("Select at least one component to back up");
   }
+
+  const databases = includeDatabases
+    ? (await listDatabasesForDomain(domain.id)).map((db) => ({
+        ...db,
+        domain: domain.name,
+      }))
+    : [];
 
   const run = await prisma.backupRun.create({
     data: {
@@ -241,6 +283,8 @@ export async function runDomainBackupNow(
       includeSites,
       includeDns,
       includeMail,
+      includeDatabases,
+      databases,
     },
     getAgentApiKey()
   );
@@ -304,10 +348,15 @@ export async function runAllDomainBackupsNow(
     return { skipped: true as const, reason: "No domains to back up" };
   }
 
-  if (!config.includeSites && !config.includeDns && !config.includeMail) {
+  if (
+    !config.includeSites &&
+    !config.includeDns &&
+    !config.includeMail &&
+    !config.includeDatabases
+  ) {
     return {
       skipped: true as const,
-      reason: "Enable at least one of: sites, DNS, or mail",
+      reason: "Enable at least one of: sites, DNS, mail, or databases",
     };
   }
 
@@ -327,6 +376,7 @@ export async function runAllDomainBackupsNow(
       includeSites: config.includeSites,
       includeDns: config.includeDns,
       includeMail: config.includeMail,
+      includeDatabases: config.includeDatabases,
       source,
     });
     runs.push(run);
@@ -386,6 +436,7 @@ export async function restoreBackupRun(
     restoreSites?: boolean;
     restoreDns?: boolean;
     restoreMail?: boolean;
+    restoreDatabases?: boolean;
   }
 ) {
   const config = await getOrCreateBackupConfig();
@@ -398,11 +449,12 @@ export async function restoreBackupRun(
   const restoreSites = Boolean(opts?.restoreSites);
   const restoreDns = Boolean(opts?.restoreDns);
   const restoreMail = Boolean(opts?.restoreMail);
+  const restoreDatabases = Boolean(opts?.restoreDatabases);
 
   const domainMeta = isDomainArchive(run.archivePath, run.summary);
 
   if (domainMeta) {
-    if (!restoreSites && !restoreDns && !restoreMail) {
+    if (!restoreSites && !restoreDns && !restoreMail && !restoreDatabases) {
       throw new Error("Select at least one component to restore");
     }
 
@@ -415,6 +467,7 @@ export async function restoreBackupRun(
         restoreSites,
         restoreDns,
         restoreMail,
+        restoreDatabases,
       },
       getAgentApiKey()
     );
@@ -430,7 +483,13 @@ export async function restoreBackupRun(
     };
   }
 
-  if (!restorePanelDb && !restoreSites && !restoreDns && !restoreMail) {
+  if (
+    !restorePanelDb &&
+    !restoreSites &&
+    !restoreDns &&
+    !restoreMail &&
+    !restoreDatabases
+  ) {
     throw new Error("Select at least one component to restore");
   }
 
@@ -443,6 +502,7 @@ export async function restoreBackupRun(
       restoreSites,
       restoreDns,
       restoreMail,
+      restoreDatabases,
     },
     getAgentApiKey()
   );
