@@ -245,7 +245,10 @@ Then from this machine:
 npm run deploy
 ```
 
-This packs sources (excludes `node_modules`, `.next`, `.env`, `data`), uploads to the server, and runs `scripts/remote-deploy.sh` (`/opt/naviyra-panel` install, build, systemd restart). On Windows it uses PuTTY `pscp`/`plink` when a password is set; on Linux/macOS use OpenSSH keys or `sshpass`.
+This packs sources (excludes `node_modules`, `.next`, `.env`, `data`), uploads to the server, and runs `scripts/remote-deploy.sh` (`/opt/naviyra-panel` install, build, systemd restart).
+
+**Auth (preferred):** leave `DEPLOY_PASSWORD` empty and use SSH keys — no password on the machine at all.  
+**Password auth:** Windows uses PuTTY `-pwfile` (not `-pw`); Linux/macOS uses `sshpass -e` + `SSHPASS` so the password is not visible in process argv. PuTTY ≥ 0.78 required for `-pwfile`.
 
 ## Production build (optional)
 

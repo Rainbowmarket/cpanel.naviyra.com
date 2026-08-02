@@ -1,12 +1,18 @@
 /**
  * Production deploy: pack sources → upload → run scripts/remote-deploy.sh
  *
- * Reads from .env (never prints secrets):
+ * Local packaging/upload only — not part of the web panel.
+ *
+ * Reads from .env (never printed to stdout/logs):
  *   DEPLOY_HOST       (or SERVER_PUBLIC_IP)
  *   DEPLOY_USER       (default root)
- *   DEPLOY_PASSWORD   (required for password auth; omit if using SSH keys)
+ *   DEPLOY_PASSWORD   (optional; omit to use SSH keys — preferred)
  *   DEPLOY_PORT       (default 22)
- *   DEPLOY_PATH       (remote panel dir, default /opt/naviyra-panel — used by remote script)
+ *
+ * Password handling avoids argv visibility (ps / Task Manager):
+ *   - OpenSSH + sshpass: SSHPASS env + `sshpass -e` (never `-p`)
+ *   - PuTTY: `-pwfile` (temp file, deleted after); requires PuTTY ≥ 0.78
+ * Prefer leaving DEPLOY_PASSWORD empty and using SSH key auth.
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -48,7 +54,10 @@ function which(cmd) {
     { encoding: "utf8", shell: false }
   );
   if (r.status !== 0) return null;
-  const line = (r.stdout || "").split(/\r?\n/).map((s) => s.trim()).find(Boolean);
+  const line = (r.stdout || "")
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .find(Boolean);
   return line || null;
 }
 
@@ -66,10 +75,21 @@ function findPutty(exe) {
   return candidates.find((p) => fs.existsSync(p)) || null;
 }
 
+function puttySupportsPwfile(plink) {
+  const r = spawnSync(plink, ["--help"], {
+    encoding: "utf8",
+    shell: false,
+    windowsHide: true,
+  });
+  const help = `${r.stdout || ""}\n${r.stderr || ""}`;
+  return help.includes("-pwfile");
+}
+
 function run(cmd, args, opts = {}) {
   const r = spawnSync(cmd, args, {
     stdio: "inherit",
     shell: false,
+    windowsHide: true,
     ...opts,
   });
   if (r.error) die(`${cmd}: ${r.error.message}`);
@@ -86,6 +106,30 @@ function packArchive(archivePath) {
   console.log(`Archive: ${archivePath} (${mb} MB)`);
 }
 
+/** Write password to a short-lived temp file; wipe + unlink when done. */
+function withPasswordFile(password, fn) {
+  const file = path.join(
+    os.tmpdir(),
+    `naviyra-deploy-pw-${process.pid}-${Date.now()}.tmp`
+  );
+  try {
+    fs.writeFileSync(file, password, { encoding: "utf8", mode: 0o600 });
+    return fn(file);
+  } finally {
+    try {
+      const wipe = Buffer.alloc(Math.max(password.length, 64), 0);
+      fs.writeFileSync(file, wipe);
+      fs.unlinkSync(file);
+    } catch {
+      try {
+        fs.unlinkSync(file);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+}
+
 function deployWithPutty({ host, user, password, port, archivePath, scriptPath }) {
   const pscp = findPutty("pscp.exe");
   const plink = findPutty("plink.exe");
@@ -95,42 +139,52 @@ function deployWithPutty({ host, user, password, port, archivePath, scriptPath }
     );
   }
   if (!password) {
-    die("DEPLOY_PASSWORD is required when using PuTTY password auth.");
+    die(
+      "PuTTY password auth needs DEPLOY_PASSWORD, or leave it empty and use OpenSSH key auth."
+    );
+  }
+  if (!puttySupportsPwfile(plink)) {
+    die(
+      "This PuTTY build has no -pwfile (need ≥ 0.78).\n" +
+        "Upgrade PuTTY, or leave DEPLOY_PASSWORD empty and deploy with SSH keys."
+    );
   }
 
   const target = `${user}@${host}`;
   console.log(`Uploading to ${target}:${port} …`);
-  // Accept host key once (echo y) — batch mode still needs known_hosts or first accept
-  run(pscp, [
-    "-P",
-    String(port),
-    "-pw",
-    password,
-    "-batch",
-    archivePath,
-    `${target}:/tmp/naviyra-panel.tgz`,
-  ]);
-  run(pscp, [
-    "-P",
-    String(port),
-    "-pw",
-    password,
-    "-batch",
-    scriptPath,
-    `${target}:/tmp/remote-deploy.sh`,
-  ]);
 
-  console.log("Running remote deploy (npm install + build + restart)…");
-  run(plink, [
-    "-ssh",
-    target,
-    "-P",
-    String(port),
-    "-pw",
-    password,
-    "-batch",
-    "chmod +x /tmp/remote-deploy.sh && bash /tmp/remote-deploy.sh",
-  ]);
+  withPasswordFile(password, (pwfile) => {
+    run(pscp, [
+      "-P",
+      String(port),
+      "-pwfile",
+      pwfile,
+      "-batch",
+      archivePath,
+      `${target}:/tmp/naviyra-panel.tgz`,
+    ]);
+    run(pscp, [
+      "-P",
+      String(port),
+      "-pwfile",
+      pwfile,
+      "-batch",
+      scriptPath,
+      `${target}:/tmp/remote-deploy.sh`,
+    ]);
+
+    console.log("Running remote deploy (npm install + build + restart)…");
+    run(plink, [
+      "-ssh",
+      target,
+      "-P",
+      String(port),
+      "-pwfile",
+      pwfile,
+      "-batch",
+      "chmod +x /tmp/remote-deploy.sh && bash /tmp/remote-deploy.sh",
+    ]);
+  });
 }
 
 function deployWithOpenSsh({ host, user, password, port, archivePath, scriptPath }) {
@@ -149,18 +203,31 @@ function deployWithOpenSsh({ host, user, password, port, archivePath, scriptPath
           "Install sshpass, use PuTTY on Windows, or leave DEPLOY_PASSWORD empty and use SSH keys."
       );
     }
+    // sshpass -e reads SSHPASS from the environment — not visible in process argv
+    const env = { ...process.env, SSHPASS: password };
     console.log(`Uploading to ${target}:${port} …`);
-    run(sshpass, ["-p", password, "scp", ...sshBase, archivePath, `${target}:/tmp/naviyra-panel.tgz`]);
-    run(sshpass, ["-p", password, "scp", ...sshBase, scriptPath, `${target}:/tmp/remote-deploy.sh`]);
+    run(
+      sshpass,
+      ["-e", "scp", ...sshBase, archivePath, `${target}:/tmp/naviyra-panel.tgz`],
+      { env }
+    );
+    run(
+      sshpass,
+      ["-e", "scp", ...sshBase, scriptPath, `${target}:/tmp/remote-deploy.sh`],
+      { env }
+    );
     console.log("Running remote deploy (npm install + build + restart)…");
-    run(sshpass, [
-      "-p",
-      password,
-      "ssh",
-      ...sshBase,
-      target,
-      "chmod +x /tmp/remote-deploy.sh && bash /tmp/remote-deploy.sh",
-    ]);
+    run(
+      sshpass,
+      [
+        "-e",
+        "ssh",
+        ...sshBase,
+        target,
+        "chmod +x /tmp/remote-deploy.sh && bash /tmp/remote-deploy.sh",
+      ],
+      { env }
+    );
     return;
   }
 
@@ -197,9 +264,10 @@ function main() {
   const opts = { host, user, password, port, archivePath, scriptPath };
   const preferPutty =
     process.platform === "win32" &&
-    (Boolean(password) || findPutty("pscp.exe"));
+    Boolean(password) &&
+    Boolean(findPutty("pscp.exe"));
 
-  if (preferPutty && findPutty("pscp.exe")) {
+  if (preferPutty) {
     deployWithPutty(opts);
   } else {
     deployWithOpenSsh(opts);
