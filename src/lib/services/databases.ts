@@ -388,3 +388,105 @@ export async function createPostgresDatabaseTable(input: {
     columns: number;
   };
 }
+
+export async function deletePostgresDatabaseTable(input: {
+  id: string;
+  userId: string;
+  role?: string;
+  schema?: string;
+  table: string;
+}) {
+  const record = await prisma.postgresDatabase.findFirstOrThrow({
+    where: {
+      id: input.id,
+      ...(input.role === "ADMIN" ? {} : { domain: { userId: input.userId } }),
+    },
+    include: {
+      domain: {
+        select: {
+          server: { select: { agentKey: true } },
+        },
+      },
+    },
+  });
+
+  const agentResult = await callAgent(
+    {
+      action: "delete_postgres_table",
+      dbName: record.dbName,
+      schema: input.schema || "public",
+      table: input.table,
+    },
+    record.domain.server.agentKey
+  );
+  if (!agentResult.success) {
+    throw new Error(
+      agentResult.error ?? "Failed to delete PostgreSQL table on server"
+    );
+  }
+
+  return agentResult.data as {
+    dbName: string;
+    schema: string;
+    table: string;
+  };
+}
+
+export async function alterPostgresDatabaseTable(input: {
+  id: string;
+  userId: string;
+  role?: string;
+  schema?: string;
+  table: string;
+  newName?: string;
+  addColumns?: Array<{
+    name: string;
+    type: string;
+    nullable?: boolean;
+    primaryKey?: boolean;
+    defaultValue?: string | null;
+  }>;
+  dropColumns?: string[];
+}) {
+  const record = await prisma.postgresDatabase.findFirstOrThrow({
+    where: {
+      id: input.id,
+      ...(input.role === "ADMIN" ? {} : { domain: { userId: input.userId } }),
+    },
+    include: {
+      domain: {
+        select: {
+          server: { select: { agentKey: true } },
+        },
+      },
+    },
+  });
+
+  const agentResult = await callAgent(
+    {
+      action: "alter_postgres_table",
+      dbName: record.dbName,
+      roleName: record.roleName,
+      schema: input.schema || "public",
+      table: input.table,
+      newName: input.newName,
+      addColumns: input.addColumns,
+      dropColumns: input.dropColumns,
+    },
+    record.domain.server.agentKey
+  );
+  if (!agentResult.success) {
+    throw new Error(
+      agentResult.error ?? "Failed to alter PostgreSQL table on server"
+    );
+  }
+
+  return agentResult.data as {
+    dbName: string;
+    schema: string;
+    table: string;
+    added: number;
+    dropped: number;
+    renamed: boolean;
+  };
+}

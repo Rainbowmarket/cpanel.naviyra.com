@@ -72,7 +72,9 @@ import {
 import {
   createPostgresDatabaseOnServer,
   createPostgresTableOnServer,
+  alterPostgresTableOnServer,
   deletePostgresDatabaseOnServer,
+  deletePostgresTableOnServer,
   inspectPostgresSchemaOnServer,
   previewPostgresTableOnServer,
   resetPostgresPasswordOnServer,
@@ -483,6 +485,42 @@ async function handleAction(payload: Action) {
         schema: payload.schema ? String(payload.schema) : "public",
         table: String(payload.table),
         columns,
+        dryRun: DRY_RUN,
+      });
+      return { success: true, data };
+    }
+
+    case "delete_postgres_table": {
+      const data = await deletePostgresTableOnServer({
+        dbName: String(payload.dbName),
+        schema: payload.schema ? String(payload.schema) : "public",
+        table: String(payload.table),
+        dryRun: DRY_RUN,
+      });
+      return { success: true, data };
+    }
+
+    case "alter_postgres_table": {
+      const addColumns = Array.isArray(payload.addColumns)
+        ? (payload.addColumns as Array<{
+            name: string;
+            type: string;
+            nullable?: boolean;
+            primaryKey?: boolean;
+            defaultValue?: string | null;
+          }>)
+        : [];
+      const dropColumns = Array.isArray(payload.dropColumns)
+        ? payload.dropColumns.map((c: unknown) => String(c))
+        : [];
+      const data = await alterPostgresTableOnServer({
+        dbName: String(payload.dbName),
+        roleName: String(payload.roleName),
+        schema: payload.schema ? String(payload.schema) : "public",
+        table: String(payload.table),
+        newName: payload.newName ? String(payload.newName) : undefined,
+        addColumns,
+        dropColumns,
         dryRun: DRY_RUN,
       });
       return { success: true, data };

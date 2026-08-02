@@ -47,6 +47,28 @@ export type AgentAction =
         defaultValue?: string | null;
       }>;
     }
+  | {
+      action: "delete_postgres_table";
+      dbName: string;
+      schema?: string;
+      table: string;
+    }
+  | {
+      action: "alter_postgres_table";
+      dbName: string;
+      roleName: string;
+      schema?: string;
+      table: string;
+      newName?: string;
+      addColumns?: Array<{
+        name: string;
+        type: string;
+        nullable?: boolean;
+        primaryKey?: boolean;
+        defaultValue?: string | null;
+      }>;
+      dropColumns?: string[];
+    }
   | { action: "list_files"; path: string }
   | { action: "read_file"; path: string }
   | { action: "write_file"; path: string; content: string }

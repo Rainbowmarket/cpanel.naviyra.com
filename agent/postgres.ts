@@ -626,3 +626,163 @@ export async function createPostgresTableOnServer(input: {
     dryRun: false as const,
   };
 }
+
+function columnDefinitionSql(raw: CreatePostgresColumnInput): string {
+  const name = assertSafeIdent(raw.name, "column name").toLowerCase();
+  const typeSql = normalizeColumnType(String(raw.type || ""));
+  const isSerial = typeSql === "serial" || typeSql === "bigserial";
+  const nullable = raw.nullable !== false && !raw.primaryKey;
+  const defaultSql = isSerial
+    ? null
+    : normalizeDefaultSql(raw.defaultValue ?? null);
+  let piece = `${quoteIdent(name)} ${typeSql}`;
+  if (!nullable) piece += " NOT NULL";
+  if (defaultSql) piece += ` DEFAULT ${defaultSql}`;
+  return piece;
+}
+
+export async function deletePostgresTableOnServer(input: {
+  dbName: string;
+  schema?: string;
+  table: string;
+  dryRun: boolean;
+}) {
+  const dbName = assertSafeIdent(input.dbName.trim().toLowerCase(), "database name");
+  const schema = assertSafeIdent(input.schema?.trim() || "public", "schema name");
+  const table = assertSafeIdent(input.table.trim(), "table name");
+  const qualified = `${quoteIdent(schema)}.${quoteIdent(table)}`;
+
+  await appendMap(`drop_table ${dbName}.${schema}.${table}`);
+
+  if (process.platform === "win32" || input.dryRun) {
+    return { dbName, schema, table, dryRun: true as const };
+  }
+
+  if (!(await databaseExists(dbName))) {
+    throw new Error(`Database '${dbName}' was not found on the server`);
+  }
+
+  await runPsql(`DROP TABLE IF EXISTS ${qualified} CASCADE;`, false, dbName);
+  return { dbName, schema, table, dryRun: false as const };
+}
+
+export async function alterPostgresTableOnServer(input: {
+  dbName: string;
+  roleName: string;
+  schema?: string;
+  table: string;
+  newName?: string;
+  addColumns?: CreatePostgresColumnInput[];
+  dropColumns?: string[];
+  dryRun: boolean;
+}) {
+  const dbName = assertSafeIdent(input.dbName.trim().toLowerCase(), "database name");
+  const roleName = assertSafeIdent(
+    input.roleName.trim().toLowerCase(),
+    "role name"
+  );
+  const schema = assertSafeIdent(input.schema?.trim() || "public", "schema name");
+  let table = assertSafeIdent(input.table.trim(), "table name");
+  const addColumns = Array.isArray(input.addColumns) ? input.addColumns : [];
+  const dropColumns = Array.isArray(input.dropColumns) ? input.dropColumns : [];
+  const newNameRaw = input.newName?.trim();
+
+  if (!newNameRaw && addColumns.length === 0 && dropColumns.length === 0) {
+    throw new Error("Nothing to change — rename, add columns, or drop columns");
+  }
+  if (addColumns.length > 20) {
+    throw new Error("Add at most 20 columns at once");
+  }
+  if (dropColumns.length > 40) {
+    throw new Error("Drop at most 40 columns at once");
+  }
+
+  await appendMap(
+    `alter_table ${dbName}.${schema}.${table} rename=${newNameRaw || "-"} add=${addColumns.length} drop=${dropColumns.length}`
+  );
+
+  if (process.platform === "win32" || input.dryRun) {
+    return {
+      dbName,
+      schema,
+      table: newNameRaw || table,
+      added: addColumns.length,
+      dropped: dropColumns.length,
+      renamed: Boolean(newNameRaw && newNameRaw !== table),
+      dryRun: true as const,
+    };
+  }
+
+  if (!(await databaseExists(dbName))) {
+    throw new Error(`Database '${dbName}' was not found on the server`);
+  }
+
+  let qualified = `${quoteIdent(schema)}.${quoteIdent(table)}`;
+
+  for (const col of dropColumns) {
+    const colName = assertSafeIdent(col, "column name");
+    await runPsql(
+      `ALTER TABLE ${qualified} DROP COLUMN IF EXISTS ${quoteIdent(colName)} CASCADE;`,
+      false,
+      dbName
+    );
+  }
+
+  for (const col of addColumns) {
+    const def = columnDefinitionSql(col);
+    await runPsql(`ALTER TABLE ${qualified} ADD COLUMN ${def};`, false, dbName);
+    const colName = assertSafeIdent(col.name, "column name").toLowerCase();
+    try {
+      const seqName = (await psqlJsonQuery(
+        dbName,
+        `SELECT to_json(pg_get_serial_sequence(${quoteLiteral(`${schema}.${table}`)}, ${quoteLiteral(colName)}))`
+      )) as string | null;
+      if (seqName) {
+        await runPsql(
+          `ALTER SEQUENCE ${seqName} OWNER TO ${quoteIdent(roleName)};`,
+          false,
+          dbName
+        );
+        await runPsql(
+          `GRANT ALL ON SEQUENCE ${seqName} TO ${quoteIdent(roleName)};`,
+          false,
+          dbName
+        );
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (newNameRaw && newNameRaw !== table) {
+    const next = assertSafeIdent(newNameRaw, "table name");
+    if (!/^[a-z][a-z0-9_]*$/.test(next.toLowerCase())) {
+      throw new Error(
+        "Table name must start with a letter and use letters, digits, or _"
+      );
+    }
+    await runPsql(
+      `ALTER TABLE ${qualified} RENAME TO ${quoteIdent(next)};`,
+      false,
+      dbName
+    );
+    table = next;
+    qualified = `${quoteIdent(schema)}.${quoteIdent(table)}`;
+  }
+
+  await runPsql(
+    `ALTER TABLE ${qualified} OWNER TO ${quoteIdent(roleName)};`,
+    false,
+    dbName
+  ).catch(() => undefined);
+
+  return {
+    dbName,
+    schema,
+    table,
+    added: addColumns.length,
+    dropped: dropColumns.length,
+    renamed: Boolean(newNameRaw),
+    dryRun: false as const,
+  };
+}

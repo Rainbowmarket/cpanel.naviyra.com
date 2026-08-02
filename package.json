@@ -21,7 +21,8 @@
     "package:win": "node scripts/package/build.mjs --target win",
     "package:deb": "node scripts/package/build.mjs --target deb",
     "package:appimage": "node scripts/package/build.mjs --target appimage",
-    "package": "node scripts/package/build.mjs --target all"
+    "package": "node scripts/package/build.mjs --target all",
+    "zip": "node scripts/make-zip.mjs"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

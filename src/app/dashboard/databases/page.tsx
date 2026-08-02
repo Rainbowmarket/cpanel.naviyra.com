@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { Copy, Database, KeyRound, Table2 } from "lucide-react";
+import { Copy, Database, KeyRound, Pencil, Table2, Trash2 } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { Modal, modalInputClass, modalLabelClass } from "@/components/ui/modal";
 import { ModalActions, PageHeader } from "@/components/ui/page-header";
@@ -128,6 +128,12 @@ export default function DatabasesPage() {
   ]);
   const [createError, setCreateError] = useState("");
   const [creatingTable, setCreatingTable] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editTableName, setEditTableName] = useState("");
+  const [editDropColumns, setEditDropColumns] = useState<string[]>([]);
+  const [editAddColumns, setEditAddColumns] = useState<CreateColumnDraft[]>([]);
+  const [editError, setEditError] = useState("");
+  const [editingTable, setEditingTable] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -303,14 +309,109 @@ export default function DatabasesPage() {
     const key = `${table.schema}.${table.name}`;
     setSelectedTableKey(key);
     setCreateTableOpen(false);
+    setEditOpen(false);
     await loadTablePreview(browseDb.id, table.schema, table.name);
   }
 
   function openCreateTableForm() {
     setCreateTableOpen(true);
+    setEditOpen(false);
     setCreateTableName("");
     setCreateColumns([emptyCreateColumn(true), emptyCreateColumn(false)]);
     setCreateError("");
+  }
+
+  function openEditTableForm(table: SchemaTable) {
+    setCreateTableOpen(false);
+    setEditOpen(true);
+    setEditTableName(table.name);
+    setEditDropColumns([]);
+    setEditAddColumns([]);
+    setEditError("");
+  }
+
+  async function handleDeleteTable(table: SchemaTable) {
+    if (!browseDb) return;
+    const ok = await confirm(
+      `Delete table ${table.schema}.${table.name}? This cannot be undone.`,
+      {
+        title: "Delete table",
+        danger: true,
+        confirmLabel: "Delete table",
+      }
+    );
+    if (!ok) return;
+    const qs = new URLSearchParams({
+      schema: table.schema,
+      table: table.name,
+    });
+    const res = await fetch(
+      `/api/databases/${encodeURIComponent(browseDb.id)}/tables?${qs}`,
+      { method: "DELETE" }
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      await alert(
+        typeof data.error === "string"
+          ? data.error
+          : "Failed to delete table on server",
+        { title: "Error" }
+      );
+      return;
+    }
+    setEditOpen(false);
+    await reloadSchema(browseDb);
+  }
+
+  async function handleEditTable(e: FormEvent) {
+    e.preventDefault();
+    if (!browseDb) return;
+    const selected = schemaTables.find(
+      (t) => `${t.schema}.${t.name}` === selectedTableKey
+    );
+    if (!selected) return;
+    setEditError("");
+    setEditingTable(true);
+    try {
+      const newName = editTableName.trim();
+      const res = await fetch(
+        `/api/databases/${encodeURIComponent(browseDb.id)}/tables`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            schema: selected.schema,
+            table: selected.name,
+            newName:
+              newName && newName !== selected.name ? newName : undefined,
+            dropColumns: editDropColumns,
+            addColumns: editAddColumns.map((col) => ({
+              name: col.name.trim(),
+              type: col.type,
+              nullable: col.primaryKey ? false : col.nullable,
+              primaryKey: false,
+              defaultValue: col.defaultValue.trim() || null,
+            })),
+          }),
+        }
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        setEditError(
+          typeof data.error === "string"
+            ? data.error
+            : "Failed to edit table on server"
+        );
+        return;
+      }
+      setEditOpen(false);
+      await reloadSchema(
+        browseDb,
+        String(data.table || newName || selected.name)
+      );
+    } finally {
+      setEditingTable(false);
+    }
   }
 
   async function handleCreateTable(e: FormEvent) {
@@ -562,6 +663,8 @@ export default function DatabasesPage() {
           setPreviewError("");
           setCreateTableOpen(false);
           setCreateError("");
+          setEditOpen(false);
+          setEditError("");
         }}
         title={browseDb ? `Browse · ${browseDb.label}` : "Browse database"}
         description={
@@ -741,7 +844,201 @@ export default function DatabasesPage() {
               </form>
             ) : null}
 
-            {schemaTables.length === 0 && !createTableOpen ? (
+            {editOpen ? (
+              <form
+                onSubmit={handleEditTable}
+                className="space-y-3 rounded-lg border border-slate-800 bg-slate-950/70 p-3"
+              >
+                {(() => {
+                  const selected = schemaTables.find(
+                    (t) => `${t.schema}.${t.name}` === selectedTableKey
+                  );
+                  if (!selected) {
+                    return (
+                      <p className="text-sm text-slate-500">
+                        Select a table to edit.
+                      </p>
+                    );
+                  }
+                  const remaining = selected.columns.filter(
+                    (c) => !editDropColumns.includes(c.name)
+                  );
+                  return (
+                    <>
+                      <div>
+                        <label className={modalLabelClass}>Table name</label>
+                        <input
+                          value={editTableName}
+                          onChange={(e) => setEditTableName(e.target.value)}
+                          className={modalInputClass}
+                          required
+                          pattern="[A-Za-z_][A-Za-z0-9_]*"
+                          maxLength={63}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <p className="text-xs font-medium text-slate-400">
+                          Existing columns
+                        </p>
+                        {selected.columns.map((col) => {
+                          const marked = editDropColumns.includes(col.name);
+                          return (
+                            <div
+                              key={col.name}
+                              className={`flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-xs ${
+                                marked
+                                  ? "border-red-500/40 bg-red-500/10 text-red-300"
+                                  : "border-slate-800 text-slate-300"
+                              }`}
+                            >
+                              <span className="font-mono">
+                                {col.isPrimaryKey ? "PK " : ""}
+                                {col.name}
+                                <span className="ml-2 text-slate-500">
+                                  {col.udtName || col.dataType}
+                                </span>
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setEditDropColumns((prev) =>
+                                    marked
+                                      ? prev.filter((n) => n !== col.name)
+                                      : [...prev, col.name]
+                                  )
+                                }
+                                className="rounded border border-slate-700 px-2 py-1 text-[11px] hover:bg-slate-800"
+                              >
+                                {marked ? "Keep" : "Drop"}
+                              </button>
+                            </div>
+                          );
+                        })}
+                        {remaining.length === 0 ? (
+                          <p className="text-xs text-amber-300">
+                            All columns are marked to drop — add at least one new
+                            column, or keep one existing column.
+                          </p>
+                        ) : null}
+                      </div>
+                      <div className="space-y-2">
+                        <p className="text-xs font-medium text-slate-400">
+                          Add columns
+                        </p>
+                        {editAddColumns.map((col, idx) => (
+                          <div
+                            key={idx}
+                            className="grid gap-2 rounded-md border border-slate-800 p-2 sm:grid-cols-[1fr_8rem_auto_1fr_auto]"
+                          >
+                            <input
+                              value={col.name}
+                              onChange={(e) => {
+                                const next = [...editAddColumns];
+                                next[idx] = { ...col, name: e.target.value };
+                                setEditAddColumns(next);
+                              }}
+                              placeholder="column"
+                              className={modalInputClass}
+                              required
+                              pattern="[A-Za-z_][A-Za-z0-9_]*"
+                            />
+                            <select
+                              value={col.type}
+                              onChange={(e) => {
+                                const next = [...editAddColumns];
+                                next[idx] = { ...col, type: e.target.value };
+                                setEditAddColumns(next);
+                              }}
+                              className={modalInputClass}
+                            >
+                              {COLUMN_TYPE_OPTIONS.map((opt) => (
+                                <option key={opt.value} value={opt.value}>
+                                  {opt.label}
+                                </option>
+                              ))}
+                            </select>
+                            <label className="flex items-center gap-1 text-[11px] text-slate-400">
+                              <input
+                                type="checkbox"
+                                checked={col.nullable}
+                                onChange={(e) => {
+                                  const next = [...editAddColumns];
+                                  next[idx] = {
+                                    ...col,
+                                    nullable: e.target.checked,
+                                  };
+                                  setEditAddColumns(next);
+                                }}
+                              />
+                              Null
+                            </label>
+                            <input
+                              value={col.defaultValue}
+                              onChange={(e) => {
+                                const next = [...editAddColumns];
+                                next[idx] = {
+                                  ...col,
+                                  defaultValue: e.target.value,
+                                };
+                                setEditAddColumns(next);
+                              }}
+                              placeholder="default (optional)"
+                              className={modalInputClass}
+                            />
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setEditAddColumns(
+                                  editAddColumns.filter((_, i) => i !== idx)
+                                )
+                              }
+                              className="rounded-lg border border-slate-700 px-2 py-1 text-[11px] text-slate-400 hover:bg-slate-800"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setEditAddColumns([
+                              ...editAddColumns,
+                              emptyCreateColumn(false),
+                            ])
+                          }
+                          className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
+                        >
+                          Add column
+                        </button>
+                      </div>
+                      {editError ? (
+                        <p className="text-sm text-red-400">{editError}</p>
+                      ) : (
+                        <p className="text-xs text-slate-500">
+                          Changes run as real ALTER TABLE / DROP COLUMN on the
+                          server.
+                        </p>
+                      )}
+                      <ModalActions
+                        onCancel={() => {
+                          setEditOpen(false);
+                          setEditError("");
+                        }}
+                        submitLabel={
+                          editingTable ? "Saving…" : "Save table changes"
+                        }
+                        submitting={editingTable}
+                        submitDisabled={
+                          remaining.length === 0 && editAddColumns.length === 0
+                        }
+                      />
+                    </>
+                  );
+                })()}
+              </form>
+            ) : null}
+
+            {schemaTables.length === 0 && !createTableOpen && !editOpen ? (
               <p className="rounded-lg border border-dashed border-slate-800 px-4 py-8 text-center text-sm text-slate-500">
                 No tables yet. Click Create table to add one on the server.
               </p>
@@ -793,15 +1090,37 @@ export default function DatabasesPage() {
                     return (
                       <>
                         <div>
-                          <p className="text-sm font-medium text-white">
-                            {selected.schema}.{selected.name}
-                          </p>
-                          <p className="mt-0.5 text-xs text-slate-500">
-                            {selected.columns.length} columns
-                            {selected.approxRows != null
-                              ? ` · ~${selected.approxRows} rows`
-                              : ""}
-                          </p>
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div>
+                              <p className="text-sm font-medium text-white">
+                                {selected.schema}.{selected.name}
+                              </p>
+                              <p className="mt-0.5 text-xs text-slate-500">
+                                {selected.columns.length} columns
+                                {selected.approxRows != null
+                                  ? ` · ~${selected.approxRows} rows`
+                                  : ""}
+                              </p>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() => openEditTableForm(selected)}
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                                Edit table
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteTable(selected)}
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/30 px-3 py-1.5 text-xs text-red-400 hover:bg-red-500/10"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                                Delete table
+                              </button>
+                            </div>
+                          </div>
                           <div className="mt-3 overflow-x-auto rounded-lg border border-slate-800">
                             <table className="min-w-full text-left text-xs">
                               <thead className="bg-slate-900 text-slate-400">
