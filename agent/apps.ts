@@ -16,10 +16,10 @@ export const APP_PORT_MAX = 12999;
 
 const UNIT_DIR = "/etc/systemd/system";
 
-export type AppType = "STATIC" | "PHP" | "PYTHON" | "GO";
+export type AppType = "STATIC" | "PHP" | "PYTHON" | "GO" | "NODE";
 
 export function isProxyAppType(appType: string | undefined | null): boolean {
-  return appType === "PYTHON" || appType === "GO";
+  return appType === "PYTHON" || appType === "GO" || appType === "NODE";
 }
 
 export function unitNameForSite(siteId: string): string {
@@ -83,11 +83,11 @@ async function portFree(port: number): Promise<boolean> {
 export async function allocateUpstreamPort(
   preferred?: number | null
 ): Promise<number> {
+  // Always honor an explicit in-range port (may already be bound by this app).
   if (
     preferred &&
     preferred >= APP_PORT_MIN &&
-    preferred <= APP_PORT_MAX &&
-    (await portFree(preferred))
+    preferred <= APP_PORT_MAX
   ) {
     return preferred;
   }

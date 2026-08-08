@@ -20,6 +20,8 @@ const routeLabels: Record<string, string> = {
   "/dashboard/terminal": "Terminal",
   "/dashboard/users": "Users",
   "/dashboard/backups": "Backups",
+  "/dashboard/speed-test": "Speed Test",
+  "/dashboard/docs": "Docs",
   "/dashboard/files": "Files",
   "/file-manager": "File Manager",
 };
@@ -27,6 +29,14 @@ const routeLabels: Record<string, string> = {
 function getBreadcrumbs(pathname: string) {
   if (pathname === "/dashboard") {
     return [{ href: "/dashboard", label: "Overview", current: true }];
+  }
+
+  if (pathname.startsWith("/dashboard/docs/")) {
+    return [
+      { href: "/dashboard", label: "Overview", current: false },
+      { href: "/dashboard/docs", label: "Docs", current: false },
+      { href: pathname, label: "Article", current: true },
+    ];
   }
 
   const label = routeLabels[pathname];

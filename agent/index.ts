@@ -17,11 +17,16 @@ import {
   getBindNamedDir,
   getBindReloadCmd,
   getBindZonesDir,
+  PROJECT_ROOT,
   resolveDocumentRoot,
   resolveSslDocumentRoot,
   resolveSubdomainRoot,
   SITES_ROOT,
 } from "./paths";
+import {
+  assertSafeDocumentRoot,
+  sanitizeHostnameForPath,
+} from "./hostname";
 import { applyDnsZone, removeDnsZone, type SyncDnsZonePayload } from "./dns";
 import {
   createMailAccount as createVirtualMailbox,
@@ -39,6 +44,7 @@ import {
   expandSslHosts,
   isMailHostname,
   issueLetsEncrypt,
+  readCertDates,
   removeNginxSite,
   resolveVhostOptions,
   writeAndEnableNginxSite,
@@ -103,6 +109,31 @@ function unauthorized(res: http.ServerResponse) {
   res.end(JSON.stringify({ success: false, error: "Unauthorized" }));
 }
 
+async function writeUploadedFile(
+  filePath: string,
+  content: Buffer,
+  removeZip: boolean
+) {
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(filePath, content);
+  if (isZipFileName(filePath)) {
+    const destDir = path.dirname(filePath);
+    const result = await extractZipArchive(filePath, destDir, {
+      removeZip,
+    });
+    return {
+      success: true as const,
+      data: {
+        path: filePath,
+        extracted: true,
+        extractedTo: result.extractedTo,
+        removedZip: result.removedZip,
+      },
+    };
+  }
+  return { success: true as const, data: { path: filePath } };
+}
+
 async function ensureConfigDir() {
   await fs.mkdir(CONFIG_ROOT, { recursive: true });
 }
@@ -123,27 +154,29 @@ async function writeVhostConfig(
   extras?: Partial<VhostOptions>
 ) {
   await ensureConfigDir();
-  const configPath = path.join(CONFIG_ROOT, `${domain}.conf`);
+  const safeDomain = sanitizeHostnameForPath(domain);
+  const safeRoot = assertSafeDocumentRoot(documentRoot);
+  const configPath = path.join(CONFIG_ROOT, `${safeDomain}.conf`);
   const appType = extras?.appType ?? (phpEnabled ? "PHP" : "STATIC");
-  const content = `# Naviyra vhost\n# domain: ${domain}\n# root: ${documentRoot}\n# appType: ${appType}\n# php: ${phpEnabled}\n`;
+  const content = `# Naviyra vhost\n# domain: ${safeDomain}\n# root: ${safeRoot}\n# appType: ${appType}\n# php: ${phpEnabled}\n`;
   await fs.writeFile(configPath, content, "utf8");
 
   if (!isWindows) {
-    await ensureDefaultIndex(documentRoot, domain);
+    await ensureDefaultIndex(safeRoot, safeDomain);
     const vhostOpts = await resolveVhostOptions(phpEnabled, {
       appType,
       upstreamPort: extras?.upstreamPort ?? null,
       spaMode: extras?.spaMode,
     });
-    const certDir = `/etc/letsencrypt/live/${domain}`;
+    const certDir = `/etc/letsencrypt/live/${safeDomain}`;
     const hasCert =
       fsSync.existsSync(path.join(certDir, "fullchain.pem")) &&
       fsSync.existsSync(path.join(certDir, "privkey.pem"));
-    const hosts = expandSslHosts(domain, ["www"]);
+    const hosts = expandSslHosts(safeDomain, ["www"]);
     const conf = hasCert
-      ? buildHttpsVhost(hosts, documentRoot, certDir, vhostOpts)
-      : buildHttpVhost(hosts, documentRoot, vhostOpts);
-    await writeAndEnableNginxSite(domain, conf, DRY_RUN);
+      ? buildHttpsVhost(hosts, safeRoot, certDir, vhostOpts)
+      : buildHttpVhost(hosts, safeRoot, vhostOpts);
+    await writeAndEnableNginxSite(safeDomain, conf, DRY_RUN);
   }
 }
 
@@ -161,10 +194,37 @@ async function handleAction(payload: Action) {
         },
       };
 
+    case "runtime_versions": {
+      const versions: { node: string | null; python: string | null; go: string | null } = {
+        node: null,
+        python: null,
+        go: null,
+      };
+      try {
+        const { stdout } = await exec("node", ["-v"]);
+        versions.node = stdout.trim() || null;
+      } catch {
+        /* missing */
+      }
+      try {
+        const { stdout } = await exec("python3", ["--version"]);
+        versions.python = stdout.trim() || null;
+      } catch {
+        /* missing */
+      }
+      try {
+        const { stdout } = await exec("go", ["version"]);
+        versions.go = stdout.trim() || null;
+      } catch {
+        /* missing */
+      }
+      return { success: true, data: versions };
+    }
+
     case "create_domain": {
-      const domain = String(payload.domain);
+      const domain = sanitizeHostnameForPath(String(payload.domain));
       const documentRoot = resolveDocumentRoot(
-        String(payload.documentRoot),
+        String(payload.documentRoot ?? ""),
         domain
       );
       const appType = String(payload.appType ?? (payload.phpEnabled === false ? "STATIC" : "PHP"));
@@ -191,7 +251,7 @@ async function handleAction(payload: Action) {
     }
 
     case "delete_domain": {
-      const domain = String(payload.domain);
+      const domain = sanitizeHostnameForPath(String(payload.domain));
       const configPath = path.join(CONFIG_ROOT, `${domain}.conf`);
       await fs.rm(configPath, { force: true });
       if (!isWindows) {
@@ -201,10 +261,10 @@ async function handleAction(payload: Action) {
     }
 
     case "create_subdomain": {
-      const domain = String(payload.domain);
+      const domain = sanitizeHostnameForPath(String(payload.domain));
       const subdomain = String(payload.subdomain);
       const documentRoot = resolveSubdomainRoot(
-        String(payload.documentRoot),
+        String(payload.documentRoot ?? ""),
         domain,
         subdomain
       );
@@ -214,7 +274,7 @@ async function handleAction(payload: Action) {
         ? Number(payload.upstreamPort)
         : null;
       await fs.mkdir(documentRoot, { recursive: true });
-      const hostname = `${subdomain}.${domain}`;
+      const hostname = sanitizeHostnameForPath(`${subdomain}.${domain}`);
       if (!isWindows) {
         await ensureDefaultIndex(documentRoot, hostname);
         const certDir = `/etc/letsencrypt/live/${hostname}`;
@@ -252,11 +312,14 @@ async function handleAction(payload: Action) {
     }
 
     case "delete_subdomain": {
-      const domain = String(payload.domain);
+      const domain = sanitizeHostnameForPath(String(payload.domain));
       const subdomain = String(payload.subdomain);
-      const hostname = `${subdomain}.${domain}`;
+      const hostname = sanitizeHostnameForPath(`${subdomain}.${domain}`);
       if (payload.deleteFiles && payload.documentRoot) {
-        await fs.rm(String(payload.documentRoot), { recursive: true, force: true });
+        await fs.rm(assertSafeDocumentRoot(String(payload.documentRoot)), {
+          recursive: true,
+          force: true,
+        });
       }
       if (!isWindows) {
         await removeNginxSite(hostname, DRY_RUN);
@@ -265,8 +328,10 @@ async function handleAction(payload: Action) {
     }
 
     case "ensure_mail_proxy": {
-      const hostname = String(payload.hostname ?? "").trim().toLowerCase();
-      if (!hostname || !isMailHostname(hostname)) {
+      const hostname = sanitizeHostnameForPath(
+        String(payload.hostname ?? "").trim().toLowerCase()
+      );
+      if (!isMailHostname(hostname)) {
         return { success: false, error: "hostname must be a mail.* host" };
       }
       if (!isWindows) {
@@ -284,7 +349,7 @@ async function handleAction(payload: Action) {
 
     case "issue_ssl":
     case "renew_ssl": {
-      const domain = String(payload.domain);
+      const domain = sanitizeHostnameForPath(String(payload.domain));
       const subdomains = Array.isArray(payload.subdomains)
         ? payload.subdomains.map(String)
         : [];
@@ -338,6 +403,37 @@ async function handleAction(payload: Action) {
           expiresAt: result.expiresAt,
         },
       };
+    }
+
+    case "ssl_cert_info": {
+      const domain = String(payload.domain ?? "").trim().toLowerCase();
+      if (!domain) {
+        return { success: false, error: "domain required" };
+      }
+      if (isWindows || DRY_RUN) {
+        return {
+          success: true,
+          data: { exists: false, issuedAt: null, expiresAt: null },
+        };
+      }
+      const certDir = `/etc/letsencrypt/live/${domain}`;
+      try {
+        const dates = await readCertDates(certDir);
+        return {
+          success: true,
+          data: {
+            exists: true,
+            issuedAt: dates.issuedAt,
+            expiresAt: dates.expiresAt,
+            certDir: dates.certDir,
+          },
+        };
+      } catch {
+        return {
+          success: true,
+          data: { exists: false, issuedAt: null, expiresAt: null, certDir },
+        };
+      }
     }
 
     case "create_mail_account": {
@@ -601,7 +697,8 @@ async function handleAction(payload: Action) {
     }
 
     case "create_directory": {
-      await fs.mkdir(String(payload.path), { recursive: true });
+      const dir = assertSafeDocumentRoot(String(payload.path));
+      await fs.mkdir(dir, { recursive: true });
       return { success: true };
     }
 
@@ -634,25 +731,11 @@ async function handleAction(payload: Action) {
     }
 
     case "upload_file": {
-      const filePath = String(payload.path);
-      await fs.mkdir(path.dirname(filePath), { recursive: true });
-      await fs.writeFile(filePath, Buffer.from(String(payload.contentBase64), "base64"));
-      if (isZipFileName(filePath)) {
-        const destDir = path.dirname(filePath);
-        const result = await extractZipArchive(filePath, destDir, {
-          removeZip: payload.removeZip !== false,
-        });
-        return {
-          success: true,
-          data: {
-            path: filePath,
-            extracted: true,
-            extractedTo: result.extractedTo,
-            removedZip: result.removedZip,
-          },
-        };
-      }
-      return { success: true, data: { path: filePath } };
+      return await writeUploadedFile(
+        String(payload.path),
+        Buffer.from(String(payload.contentBase64), "base64"),
+        payload.removeZip !== false
+      );
     }
 
     case "extract_zip": {
@@ -731,8 +814,8 @@ async function handleAction(payload: Action) {
 
     case "configure_site_app": {
       const siteId = String(payload.siteId);
-      const siteName = String(payload.siteName);
-      const documentRoot = String(payload.documentRoot);
+      const siteName = sanitizeHostnameForPath(String(payload.siteName));
+      const documentRoot = assertSafeDocumentRoot(String(payload.documentRoot));
       const appType = String(payload.appType ?? "STATIC");
       const phpEnabled = appType === "PHP";
       let upstreamPort =
@@ -806,6 +889,18 @@ async function handleAction(payload: Action) {
       const siteId = String(payload.siteId);
       const result = await restartAppUnit(siteId, DRY_RUN);
       return { success: true, data: result };
+    }
+
+    case "refresh_websocket_proxies": {
+      if (isWindows || DRY_RUN) {
+        return {
+          success: true,
+          data: { skipped: true, reason: "linux live only" },
+        };
+      }
+      const script = path.join(PROJECT_ROOT, "scripts", "install-websocket-map.sh");
+      await runCmd("bash", [script]);
+      return { success: true, data: { installed: true } };
     }
 
     case "app_status": {
@@ -953,6 +1048,39 @@ const server = http.createServer(async (req, res) => {
         JSON.stringify({
           success: false,
           error: error instanceof Error ? error.message : "Agent error",
+        })
+      );
+    }
+    return;
+  }
+
+  // Binary file upload (avoids base64 JSON bloat for large ZIPs)
+  if (req.method === "POST" && req.url === "/upload-file") {
+    if (!bearerTokenMatches(req.headers.authorization, API_KEY)) {
+      return unauthorized(res);
+    }
+    const filePath = String(req.headers["x-naviyra-path"] ?? "").trim();
+    if (!filePath || filePath.includes("\0")) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Missing X-Naviyra-Path" }));
+      return;
+    }
+    const removeZip = String(req.headers["x-naviyra-remove-zip"] ?? "1") !== "0";
+    try {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+      const content = Buffer.concat(chunks);
+      const result = await writeUploadedFile(filePath, content, removeZip);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(result));
+    } catch (error) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          success: false,
+          error: error instanceof Error ? error.message : "Upload error",
         })
       );
     }

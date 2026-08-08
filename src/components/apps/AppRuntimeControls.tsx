@@ -1,28 +1,49 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { AlertCircle, Play, Square, RotateCw } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { modalInputClass, modalLabelClass } from "@/components/ui/modal";
+import {
+  parseAppModeFromEnv,
+  type AppMode,
+} from "@/lib/apps/runtime-helpers";
 
-export type AppType = "STATIC" | "PHP" | "PYTHON" | "GO";
+export type AppType = "STATIC" | "PHP" | "PYTHON" | "GO" | "NODE";
 
 const APP_TYPE_OPTIONS = [
   { value: "STATIC", label: "React / Static (SPA)" },
   { value: "PHP", label: "PHP" },
+  { value: "NODE", label: "Node.js" },
   { value: "PYTHON", label: "Python" },
   { value: "GO", label: "Go" },
 ];
 
+const APP_MODE_OPTIONS = [
+  { value: "production", label: "Production" },
+  { value: "development", label: "Development" },
+];
+
 export function isProxyAppType(t: string) {
-  return t === "PYTHON" || t === "GO";
+  return t === "PYTHON" || t === "GO" || t === "NODE";
+}
+
+function defaultStartHint(appType: AppType, startupFile: string): string {
+  const file = startupFile.trim() || (
+    appType === "NODE" ? "server.js" : appType === "PYTHON" ? "app.py" : "app"
+  );
+  if (appType === "NODE") return `node ${file}`;
+  if (appType === "PYTHON") return `python3 ${file}`;
+  return file.startsWith("./") ? file : `./${file}`;
 }
 
 type Props = {
   kind: "domain" | "subdomain";
   id: string;
+  applicationUrl: string;
   appType: AppType;
   startCommand?: string | null;
+  appStartupFile?: string | null;
   appWorkingDir?: string | null;
   upstreamPort?: number | null;
   appStatus?: string | null;
@@ -33,8 +54,10 @@ type Props = {
 export function AppRuntimeControls({
   kind,
   id,
+  applicationUrl,
   appType: initialType,
   startCommand: initialCmd,
+  appStartupFile: initialStartup,
   appWorkingDir: initialDir,
   upstreamPort,
   appStatus,
@@ -42,13 +65,33 @@ export function AppRuntimeControls({
   onUpdated,
 }: Props) {
   const [appType, setAppType] = useState<AppType>(initialType);
+  const [appMode, setAppMode] = useState<AppMode>(
+    parseAppModeFromEnv(initialEnv)
+  );
+  const [appStartupFile, setAppStartupFile] = useState(initialStartup ?? "");
   const [startCommand, setStartCommand] = useState(initialCmd ?? "");
   const [appWorkingDir, setAppWorkingDir] = useState(initialDir ?? ".");
   const [appEnv, setAppEnv] = useState(initialEnv ?? "");
+  const [showAdvanced, setShowAdvanced] = useState(Boolean(initialCmd?.trim()));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [status, setStatus] = useState(appStatus ?? "STOPPED");
   const [port, setPort] = useState(upstreamPort ?? null);
+  const [nodeVersion, setNodeVersion] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (appType !== "NODE") return;
+    let cancelled = false;
+    fetch("/api/apps/runtime-info")
+      .then((r) => r.json())
+      .then((data) => {
+        if (!cancelled && data.node) setNodeVersion(String(data.node));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [appType]);
 
   async function saveConfig(e: FormEvent) {
     e.preventDefault();
@@ -62,7 +105,13 @@ export function AppRuntimeControls({
           kind,
           id,
           appType,
-          startCommand: isProxyAppType(appType) ? startCommand : undefined,
+          appMode: isProxyAppType(appType) ? appMode : undefined,
+          appStartupFile: isProxyAppType(appType)
+            ? appStartupFile.trim() || null
+            : null,
+          startCommand: isProxyAppType(appType)
+            ? startCommand.trim() || undefined
+            : undefined,
           appWorkingDir: isProxyAppType(appType) ? appWorkingDir : undefined,
           appEnv: isProxyAppType(appType) ? appEnv || null : null,
         }),
@@ -71,6 +120,7 @@ export function AppRuntimeControls({
       if (!res.ok) throw new Error(data.error ?? "Save failed");
       setPort(data.site?.upstreamPort ?? null);
       setStatus(data.site?.appStatus ?? "STOPPED");
+      if (data.site?.startCommand) setStartCommand(data.site.startCommand);
       onUpdated?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
@@ -112,48 +162,113 @@ export function AppRuntimeControls({
           {appType === "STATIC" &&
             "Upload a built React SPA (dist/build contents) to the document root."}
           {appType === "PHP" && "Serves PHP via PHP-FPM with index.php front controller."}
+          {appType === "NODE" &&
+            `System Node.js${nodeVersion ? ` (${nodeVersion})` : ""} — set application root and startup file, then Start.`}
           {appType === "PYTHON" &&
-            "Example: python3 -m uvicorn main:app --host 127.0.0.1 --port $PORT"}
+            "Set application root and startup file, or an advanced start command (e.g. uvicorn)."}
           {appType === "GO" &&
-            "Upload a compiled binary. Example: ./app (must listen on $PORT / 127.0.0.1)."}
+            "Upload a compiled binary under application root; set startup file or ./binary command."}
         </p>
       </div>
 
       {isProxyAppType(appType) ? (
         <>
           <div>
-            <label className={modalLabelClass}>Start command</label>
-            <input
-              className={modalInputClass}
-              value={startCommand}
-              onChange={(e) => setStartCommand(e.target.value)}
-              placeholder={
-                appType === "PYTHON"
-                  ? "python3 -m uvicorn main:app --host 127.0.0.1 --port 12000"
-                  : "./app"
-              }
-              required
+            <label className={modalLabelClass}>Application mode</label>
+            <Select
+              value={appMode}
+              onChange={(v) => setAppMode(v as AppMode)}
+              options={APP_MODE_OPTIONS}
             />
+            <p className="mt-1 text-xs text-slate-500">
+              Sets NODE_ENV and APP_ENV without removing other env vars.
+            </p>
           </div>
+
           <div>
-            <label className={modalLabelClass}>Working directory</label>
+            <label className={modalLabelClass}>Application root</label>
             <input
               className={modalInputClass}
               value={appWorkingDir}
               onChange={(e) => setAppWorkingDir(e.target.value)}
-              placeholder="."
+              placeholder="backend"
+              required
             />
-            <p className="mt-1 text-xs text-slate-500">Relative to document root</p>
+            <p className="mt-1 text-xs text-slate-500">
+              Physical folder for app files; upload code here (relative to site
+              document root). Use <span className="font-mono">.</span> for the
+              site root.
+            </p>
           </div>
+
+          <div>
+            <label className={modalLabelClass}>Application URL</label>
+            <input
+              className={`${modalInputClass} text-slate-400`}
+              value={applicationUrl}
+              readOnly
+              tabIndex={-1}
+            />
+          </div>
+
+          <div>
+            <label className={modalLabelClass}>Application startup file</label>
+            <input
+              className={modalInputClass}
+              value={appStartupFile}
+              onChange={(e) => setAppStartupFile(e.target.value)}
+              placeholder={
+                appType === "NODE"
+                  ? "server.js"
+                  : appType === "PYTHON"
+                    ? "app.py"
+                    : "app"
+              }
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              Relative to application root. Default start:{" "}
+              <span className="font-mono">
+                {defaultStartHint(appType, appStartupFile)}
+              </span>
+            </p>
+          </div>
+
+          <div>
+            <button
+              type="button"
+              className="text-xs text-sky-400 hover:text-sky-300"
+              onClick={() => setShowAdvanced((v) => !v)}
+            >
+              {showAdvanced ? "Hide" : "Show"} advanced start command
+            </button>
+            {showAdvanced ? (
+              <div className="mt-2">
+                <label className={modalLabelClass}>Start command (optional)</label>
+                <input
+                  className={modalInputClass}
+                  value={startCommand}
+                  onChange={(e) => setStartCommand(e.target.value)}
+                  placeholder={defaultStartHint(appType, appStartupFile)}
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  Leave empty to use the startup file default. Use{" "}
+                  <span className="font-mono">$PORT</span> if needed; PORT and
+                  HOST=127.0.0.1 are also set in the environment.
+                </p>
+              </div>
+            ) : null}
+          </div>
+
           <div>
             <label className={modalLabelClass}>Env vars (KEY=VALUE per line)</label>
             <textarea
               className={`${modalInputClass} min-h-[72px] font-mono text-xs`}
               value={appEnv}
               onChange={(e) => setAppEnv(e.target.value)}
-              placeholder={"APP_ENV=production\n"}
+              placeholder={"DATABASE_URL=…\n"}
             />
           </div>
+
           <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
             <span>
               Port:{" "}

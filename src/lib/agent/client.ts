@@ -3,6 +3,7 @@ import { requireAgentApiKey } from "@/lib/secrets";
 
 export type AgentAction =
   | { action: "ping" }
+  | { action: "runtime_versions" }
   | { action: "create_domain"; domain: string; documentRoot: string; phpEnabled?: boolean; appType?: string; upstreamPort?: number | null }
   | { action: "delete_domain"; domain: string }
   | { action: "create_subdomain"; domain: string; subdomain: string; documentRoot: string; phpEnabled?: boolean; appType?: string; upstreamPort?: number | null }
@@ -10,6 +11,7 @@ export type AgentAction =
   | { action: "ensure_mail_proxy"; hostname: string }
   | { action: "issue_ssl"; domain: string; subdomains?: string[]; documentRoot?: string; phpEnabled?: boolean; appType?: string; upstreamPort?: number | null }
   | { action: "renew_ssl"; domain: string; documentRoot?: string; phpEnabled?: boolean; appType?: string; upstreamPort?: number | null }
+  | { action: "ssl_cert_info"; domain: string }
   | { action: "create_mail_account"; email: string; password: string; quotaMb?: number }
   | { action: "delete_mail_account"; email: string }
   | { action: "reset_mail_password"; email: string; password: string }
@@ -117,6 +119,7 @@ export type AgentAction =
   | { action: "app_restart"; siteId: string }
   | { action: "app_status"; siteId: string }
   | { action: "app_remove"; siteId: string }
+  | { action: "refresh_websocket_proxies" }
   | {
       action: "run_backup";
       backupRoot: string;
@@ -257,6 +260,68 @@ export async function callAgent<T = unknown>(
   }
 
   return remote;
+}
+
+/** Upload raw bytes to the agent (no base64). Falls back to upload_file JSON. */
+export async function uploadFileToAgent(
+  filePath: string,
+  content: Buffer,
+  options?: { removeZip?: boolean; serverAgentKey?: string }
+): Promise<
+  AgentResponse<{
+    path: string;
+    extracted?: boolean;
+    extractedTo?: string;
+    removedZip?: boolean;
+  }>
+> {
+  const removeZip = options?.removeZip !== false;
+  try {
+    const response = await fetch(`${AGENT_URL}/upload-file`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${getApiKey(options?.serverAgentKey)}`,
+        "Content-Type": "application/octet-stream",
+        "X-Naviyra-Path": filePath,
+        "X-Naviyra-Remove-Zip": removeZip ? "1" : "0",
+      },
+      body: new Uint8Array(content),
+      cache: "no-store",
+      signal: AbortSignal.timeout(600000),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || `Agent HTTP ${response.status}`);
+    }
+    const result = (await response.json()) as AgentResponse<{
+      path: string;
+      extracted?: boolean;
+      extractedTo?: string;
+      removedZip?: boolean;
+    }>;
+    if (result.success) return { ...result, via: "agent" };
+    throw new Error(result.error || "Upload failed");
+  } catch (error) {
+    if (!isAgentUnreachable(error instanceof Error ? error.message : "")) {
+      // Agent reached but rejected — try JSON fallback only if path missing endpoint
+      const msg = error instanceof Error ? error.message : String(error);
+      if (!/404|Not found/i.test(msg)) {
+        return {
+          success: false,
+          error: msg,
+        };
+      }
+    }
+    return callAgent(
+      {
+        action: "upload_file",
+        path: filePath,
+        contentBase64: content.toString("base64"),
+        removeZip,
+      },
+      options?.serverAgentKey
+    );
+  }
 }
 
 export async function pingAgent(): Promise<boolean> {

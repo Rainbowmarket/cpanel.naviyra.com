@@ -2,7 +2,12 @@ import { prisma } from "@/lib/prisma";
 import { callAgent } from "@/lib/agent/client";
 import { getPanelBaseDomain } from "@/lib/base-domain";
 import { assertAllowedPanelSubdomainLabel } from "@/lib/panel-host";
-import { getAgentApiKey, getDefaultSubdomainRoot } from "@/lib/paths";
+import {
+  getAgentApiKey,
+  getDefaultSubdomainRoot,
+  resolveAllowedDocumentRoot,
+} from "@/lib/paths";
+import { assertValidSubdomainLabels } from "@/lib/hostname";
 import { ensurePanelBaseDomain } from "@/lib/services/domains";
 import { addSubdomainDnsRecord, removeSubdomainDnsRecord } from "@/lib/services/dns";
 import { phpEnabledForAppType, removeSiteAppUnit } from "@/lib/services/apps";
@@ -18,13 +23,7 @@ export function normalizeSubdomainName(raw: string): string {
 }
 
 export function assertValidSubdomainLabel(name: string) {
-  if (!name) throw new Error("Subdomain name is required");
-  if (name.length > 190) throw new Error("Subdomain name is too long");
-  if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/.test(name)) {
-    throw new Error(
-      "Invalid subdomain. Use letters, numbers, hyphens (e.g. blog or api.v1)."
-    );
-  }
+  assertValidSubdomainLabels(name);
 }
 
 /**
@@ -238,9 +237,9 @@ export async function createSubdomain(input: {
     );
   }
 
-  const documentRoot =
-    input.documentRoot?.trim() ||
-    getDefaultSubdomainRoot(domain.name, label);
+  const documentRoot = input.documentRoot?.trim()
+    ? resolveAllowedDocumentRoot(input.documentRoot.trim())
+    : getDefaultSubdomainRoot(domain.name, label);
 
   const appType: AppType = input.appType ?? domain.appType;
 
@@ -308,15 +307,17 @@ export async function updateSubdomainPath(
     include: { domain: { include: { server: true } } },
   });
 
+  const safeRoot = resolveAllowedDocumentRoot(documentRoot);
+
   await prisma.subdomain.update({
     where: { id: subdomain.id },
-    data: { documentRoot, status: "PENDING", lastError: null },
+    data: { documentRoot: safeRoot, status: "PENDING", lastError: null },
   });
 
   const agentResult = await callAgent(
     {
       action: "create_directory",
-      path: documentRoot,
+      path: safeRoot,
     },
     subdomain.domain.server.agentKey || getAgentApiKey()
   );

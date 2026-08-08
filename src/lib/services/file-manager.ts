@@ -1,6 +1,6 @@
 import path from "node:path";
 import { prisma } from "@/lib/prisma";
-import { callAgent } from "@/lib/agent/client";
+import { callAgent, uploadFileToAgent } from "@/lib/agent/client";
 import { isPathUnderRoot, resolvePathWithinRoot } from "@/lib/file-manager-path";
 import {
   type AccessActor,
@@ -285,25 +285,22 @@ export async function fileManagerUpload(
   actor: AccessActor | string,
   dirPath: string,
   fileName: string,
-  contentBase64: string
+  content: Buffer
 ) {
   const ctx = await getTargetContext(target, actor);
   const dirReal = resolveUnderRoot(dirPath, ctx.documentRoot);
   assertPathAllowed(dirReal, ctx.documentRoot);
   const filePath = path.join(dirReal, path.basename(fileName));
   assertPathAllowed(filePath, ctx.documentRoot);
-  const result = await agentCall<{
-    path: string;
-    extracted?: boolean;
-    extractedTo?: string;
-    removedZip?: boolean;
-  }>(ctx.agentKey, {
-    action: "upload_file",
-    path: filePath,
-    contentBase64,
+  const response = await uploadFileToAgent(filePath, content, {
     removeZip: true,
+    serverAgentKey: ctx.agentKey,
   });
-  if (result.extracted) {
+  if (!response.success) {
+    throw new Error(response.error || "Upload failed");
+  }
+  const result = response.data;
+  if (result?.extracted) {
     return `ZIP uploaded and extracted to: ${result.extractedTo ?? dirReal}`;
   }
   return `File uploaded successfully to: ${filePath}`;

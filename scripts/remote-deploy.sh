@@ -160,12 +160,24 @@ echo "== npm install =="
 npm install
 (cd agent && npm install)
 
+# Prisma 7 @prisma/dev requires zeptomatch via CJS; ESM 2.x breaks generate on Node 20.
+if [ -d scripts/zeptomatch-cjs ]; then
+  ZM_DEST="node_modules/@prisma/dev/node_modules/zeptomatch"
+  mkdir -p "$(dirname "$ZM_DEST")"
+  rm -rf "$ZM_DEST"
+  cp -a scripts/zeptomatch-cjs "$ZM_DEST"
+fi
+
 echo "== prisma =="
 npx prisma generate
 npx prisma db push
 
 echo "== build =="
 npm run build
+
+echo "== app runtimes (Node/PHP/Python/Go) =="
+chmod +x scripts/install-runtimes.sh scripts/ensure-node.sh 2>/dev/null || true
+./scripts/install-runtimes.sh || true
 
 echo "== backup worker units =="
 chmod +x scripts/install-backup-worker.sh scripts/backup-worker.sh
@@ -187,12 +199,27 @@ echo "== PostgreSQL (customer DBs) =="
 chmod +x scripts/install-postgres.sh
 ./scripts/install-postgres.sh "$PANEL" || true
 
+echo "== WebSocket proxy map + harden customer vhosts =="
+chmod +x scripts/install-websocket-map.sh
+./scripts/install-websocket-map.sh "$PANEL" || true
+npx tsx --tsconfig tsconfig.json scripts/regen-proxy-websocket-vhosts.ts || echo "regen_proxy_ws=warn"
+
 echo "== panel mail host from .env (PANEL_HOSTNAME / MAIL_*) =="
 ./scripts/provision-panel-mail.sh "$PANEL" || true
 
 # Terminal WS include if panel nginx exists
 if [ -f /etc/nginx/sites-available/naviyra.uk ] || [ -f /etc/nginx/sites-enabled/naviyra-uk ]; then
   true
+fi
+
+# After extract / before restart — raise panel nginx upload limit
+if [ -f /etc/nginx/sites-enabled/naviyra.uk ] || [ -f /etc/nginx/sites-available/naviyra.uk ]; then
+  for conf in /etc/nginx/sites-enabled/naviyra.uk /etc/nginx/sites-available/naviyra.uk; do
+    [ -f "$conf" ] || continue
+    sed -i 's/client_max_body_size [0-9]\+[MmKkGg]\?;/client_max_body_size 512M;/' "$conf" || true
+    grep -q 'client_max_body_size' "$conf" || sed -i '/server_name /a\    client_max_body_size 512M;' "$conf" || true
+  done
+  nginx -t && systemctl reload nginx || true
 fi
 
 systemctl daemon-reload

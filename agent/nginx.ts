@@ -7,6 +7,7 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { buildPhpDenyBlock, buildPhpLocationBlock, resolvePhpFpmPass } from "./php-fpm";
+import { sanitizeHostnameForPath } from "./hostname";
 
 const exec = promisify(execFile);
 
@@ -20,9 +21,9 @@ export type VhostOptions = {
   phpFpmPass?: string | null;
   /** React/Vite SPA: fallback unknown paths to /index.html */
   spaMode?: boolean;
-  /** STATIC | PHP | PYTHON | GO */
+  /** STATIC | PHP | PYTHON | GO | NODE */
   appType?: string;
-  /** Local upstream for PYTHON/GO proxy apps */
+  /** Local upstream for PYTHON/GO/NODE proxy apps */
   upstreamPort?: number | null;
 };
 
@@ -86,8 +87,10 @@ function proxyPassBlock(): string {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_read_timeout 300s;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        proxy_connect_timeout 10s;
     }
 `;
 }
@@ -167,8 +170,9 @@ function appProxyLocationBlock(port: number): string {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_read_timeout 300s;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
         proxy_connect_timeout 10s;
     }
 `;
@@ -243,7 +247,7 @@ function phpBlockForOptions(options: VhostOptions): string {
 
 function resolveSpaMode(documentRoot: string, options: VhostOptions): boolean {
   if (options.appType === "STATIC") return true;
-  if (options.appType === "PHP" || options.appType === "PYTHON" || options.appType === "GO") {
+  if (options.appType === "PHP" || options.appType === "PYTHON" || options.appType === "GO" || options.appType === "NODE") {
     return false;
   }
   if (options.spaMode != null) return Boolean(options.spaMode);
@@ -345,7 +349,7 @@ export async function resolveVhostOptions(
   if (extras?.appType === "STATIC") {
     return { ...base, phpEnabled: false, phpFpmPass: null, spaMode: true, appType: "STATIC" };
   }
-  if (extras?.appType === "PYTHON" || extras?.appType === "GO") {
+  if (extras?.appType === "PYTHON" || extras?.appType === "GO" || extras?.appType === "NODE") {
     return {
       ...base,
       phpEnabled: false,
@@ -419,22 +423,23 @@ export async function writeAndEnableNginxSite(
   content: string,
   dryRun: boolean
 ) {
-  if (isPanelHostname(siteName)) {
+  const safeName = sanitizeHostnameForPath(siteName);
+  if (isPanelHostname(safeName)) {
     console.warn(
-      `[nginx] Refusing to overwrite panel hostname vhost: ${siteName}`
+      `[nginx] Refusing to overwrite panel hostname vhost: ${safeName}`
     );
     return {
-      available: path.join(SITES_AVAILABLE, siteName),
-      enabled: path.join(SITES_ENABLED, siteName),
+      available: path.join(SITES_AVAILABLE, safeName),
+      enabled: path.join(SITES_ENABLED, safeName),
       skipped: true as const,
     };
   }
 
-  const available = path.join(SITES_AVAILABLE, siteName);
-  const enabled = path.join(SITES_ENABLED, siteName);
+  const available = path.join(SITES_AVAILABLE, safeName);
+  const enabled = path.join(SITES_ENABLED, safeName);
 
   if (dryRun) {
-    console.log(`[DRY RUN] write nginx site ${siteName}`);
+    console.log(`[DRY RUN] write nginx site ${safeName}`);
     return { available, enabled };
   }
 
@@ -456,18 +461,19 @@ export async function writeAndEnableNginxSite(
 }
 
 export async function removeNginxSite(siteName: string, dryRun: boolean) {
-  if (isPanelHostname(siteName)) {
+  const safeName = sanitizeHostnameForPath(siteName);
+  if (isPanelHostname(safeName)) {
     console.warn(
-      `[nginx] Refusing to remove panel hostname vhost: ${siteName}`
+      `[nginx] Refusing to remove panel hostname vhost: ${safeName}`
     );
     return;
   }
   if (dryRun) {
-    console.log(`[DRY RUN] remove nginx site ${siteName}`);
+    console.log(`[DRY RUN] remove nginx site ${safeName}`);
     return;
   }
-  await fs.rm(path.join(SITES_ENABLED, siteName), { force: true });
-  await fs.rm(path.join(SITES_AVAILABLE, siteName), { force: true });
+  await fs.rm(path.join(SITES_ENABLED, safeName), { force: true });
+  await fs.rm(path.join(SITES_AVAILABLE, safeName), { force: true });
   try {
     await exec("nginx", ["-t"]);
     await exec("systemctl", ["reload", "nginx"]);
@@ -551,10 +557,12 @@ export async function issueLetsEncrypt(
   phpEnabled = true,
   extras?: Partial<VhostOptions>
 ): Promise<{ issuedAt: string; expiresAt: string; certDir: string }> {
-  const hosts = expandSslHosts(domain, extraLabels);
-  const certDir = `/etc/letsencrypt/live/${domain}`;
-  const siteName = domain;
+  const safeDomain = sanitizeHostnameForPath(domain);
+  const hosts = expandSslHosts(safeDomain, extraLabels);
+  const certDir = `/etc/letsencrypt/live/${safeDomain}`;
+  const siteName = safeDomain;
   const vhostOpts = await resolveVhostOptions(phpEnabled, extras);
+  const panelHost = isPanelHostname(safeDomain);
 
   if (dryRun) {
     const now = new Date();
@@ -568,18 +576,20 @@ export async function issueLetsEncrypt(
   }
 
   await fs.mkdir(ACME_WEBROOT, { recursive: true });
-  await ensureDefaultIndex(documentRoot, domain);
 
-  const httpConf = isMailHostname(domain)
-    ? buildMailProxyHttpVhost(hosts)
-    : buildHttpVhost(hosts, documentRoot, vhostOpts);
-
-  // Ensure HTTP vhost exists for ACME challenge before requesting cert
-  await writeAndEnableNginxSite(siteName, httpConf, false);
+  // Panel apex (e.g. naviyra.uk) already has a reverse-proxy vhost.
+  // Only run certbot — never replace the panel nginx config with a site document-root.
+  if (!panelHost) {
+    await ensureDefaultIndex(documentRoot, safeDomain);
+    const httpConf = isMailHostname(safeDomain)
+      ? buildMailProxyHttpVhost(hosts)
+      : buildHttpVhost(hosts, documentRoot, vhostOpts);
+    await writeAndEnableNginxSite(siteName, httpConf, false);
+  }
 
   const email =
     process.env.LETSENCRYPT_EMAIL?.trim() ||
-    `admin@${domain.split(".").slice(-2).join(".")}`;
+    `admin@${safeDomain.split(".").slice(-2).join(".")}`;
 
   const args = [
     "certonly",
@@ -587,7 +597,7 @@ export async function issueLetsEncrypt(
     "--agree-tos",
     "--keep-until-expiring",
     "--cert-name",
-    domain,
+    safeDomain,
     "--webroot",
     "-w",
     ACME_WEBROOT,
@@ -598,18 +608,36 @@ export async function issueLetsEncrypt(
 
   await exec("certbot", args);
 
-  const httpsConf = isMailHostname(domain)
-    ? buildMailProxyHttpsVhost(hosts, certDir)
-    : buildHttpsVhost(hosts, documentRoot, certDir, vhostOpts);
+  if (!panelHost) {
+    const httpsConf = isMailHostname(safeDomain)
+      ? buildMailProxyHttpsVhost(hosts, certDir)
+      : buildHttpsVhost(hosts, documentRoot, certDir, vhostOpts);
+    await writeAndEnableNginxSite(siteName, httpsConf, false);
+  }
 
-  await writeAndEnableNginxSite(siteName, httpsConf, false);
+  return readCertDates(certDir);
+}
 
-  const now = new Date();
-  const expires = new Date(now);
-  expires.setDate(expires.getDate() + 90);
-  return {
-    issuedAt: now.toISOString(),
-    expiresAt: expires.toISOString(),
-    certDir,
-  };
+/** Read issued/expiry dates from an existing Let's Encrypt fullchain. */
+export async function readCertDates(
+  certDir: string
+): Promise<{ issuedAt: string; expiresAt: string; certDir: string }> {
+  const fullchain = path.join(certDir, "fullchain.pem");
+  if (!(await fileExists(fullchain))) {
+    throw new Error(`Certificate not found at ${fullchain}`);
+  }
+  const { stdout } = await exec("openssl", [
+    "x509",
+    "-in",
+    fullchain,
+    "-noout",
+    "-dates",
+  ]);
+  const before = /notBefore=(.+)/.exec(stdout)?.[1]?.trim();
+  const after = /notAfter=(.+)/.exec(stdout)?.[1]?.trim();
+  const issuedAt = before ? new Date(before).toISOString() : new Date().toISOString();
+  const expiresAt = after
+    ? new Date(after).toISOString()
+    : new Date(Date.now() + 90 * 864e5).toISOString();
+  return { issuedAt, expiresAt, certDir };
 }

@@ -622,10 +622,27 @@ html[data-file-manager],
 
 .upload-job-meta {
   display: flex;
-  gap: 12px;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
   font-size: 11px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+
+.upload-job-pct {
+  font-weight: 600;
+  color: var(--text);
+  min-width: 2.75em;
+}
+
+.upload-job-size {
+  color: var(--muted);
+}
+
+.upload-job-speed {
+  color: var(--accent, #22c55e);
+  font-weight: 500;
 }
 
 .upload-job-eta {
@@ -635,6 +652,13 @@ html[data-file-manager],
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.upload-job-eta--error {
+  color: #f87171;
+  white-space: normal;
+  text-align: left;
+  flex-basis: 100%;
 }
 
 .context-menu {

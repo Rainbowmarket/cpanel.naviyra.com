@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { callAgent } from "@/lib/agent/client";
+import { requireSessionUser } from "@/lib/auth";
 import {
   getPermissionLabel,
   getPlatformName,
@@ -13,6 +14,12 @@ function isLiveMode(): boolean {
 }
 
 export async function GET() {
+  try {
+    await requireSessionUser();
+  } catch {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const ping = await callAgent({ action: "ping" });
   const agentOnline = ping.success;
   const agentMode = ping.via ?? (agentOnline ? "agent" : "offline");

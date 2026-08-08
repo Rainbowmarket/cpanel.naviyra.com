@@ -519,7 +519,19 @@ sudo bash scripts/install-runtimes.sh
 | **Python** | Set start command (e.g. `python3 -m uvicorn main:app --host 127.0.0.1 --port 12000`). Panel writes a systemd unit and nginx reverse-proxies to `127.0.0.1:$PORT`. |
 | **Go** | Upload a **compiled** binary; start command like `./app`. Process must listen on `PORT` / `127.0.0.1`. |
 
-In **Domains** / **Subdomains**, use **Runtime** to change app type and Start / Stop / Restart Python or Go apps. Ports are allocated in **12000–12999** and stay localhost-only.
+In **Domains** / **Subdomains**, use **Runtime** to change app type and Start / Stop / Restart Node, Python, or Go apps. Set **Application root** (folder under the site document root) and **Application startup file** (e.g. `server.js`). Ports are allocated in **12000–12999** and stay localhost-only.
+
+### WebSockets (proxy apps)
+
+Python / Go (and any site reverse-proxied to `127.0.0.1:$PORT`) support browser **WebSocket** upgrades:
+
+- Nginx sets `Upgrade` / `$connection_upgrade` and long proxy timeouts (1 hour)
+- Clients connect to `wss://your-domain/...` on the same host as the app
+- Your process must listen on the assigned localhost port and handle the Upgrade itself (e.g. Socket.IO, `ws`, FastAPI WebSocket)
+
+Static and PHP document-root sites are not reverse-proxied; put a WebSocket backend on a **proxy app** subdomain (or switch the site runtime) if you need `wss://`.
+
+Deploy installs `/etc/nginx/conf.d/naviyra-websocket-map.conf` and refreshes existing proxy vhosts (`scripts/install-websocket-map.sh`).
 
 ## License
 

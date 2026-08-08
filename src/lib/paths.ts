@@ -1,30 +1,27 @@
 import path from "node:path";
 import { getPanelBaseDomain } from "@/lib/base-domain";
+import {
+  assertSafeDocumentRoot,
+  defaultDomainDocumentRoot,
+  defaultSubdomainDocumentRoot,
+} from "@/lib/hostname";
 import { requireAgentApiKey } from "@/lib/secrets";
 
 /** Cross-platform website root for a domain. */
 export function getDefaultDocumentRoot(domain: string): string {
-  if (process.platform === "win32") {
-    return path.join(process.cwd(), "sites", domain, "public_html");
-  }
-  return `/var/www/${domain}/public_html`;
+  return defaultDomainDocumentRoot(domain);
 }
 
 export function getDefaultSubdomainRoot(
   domain: string,
   subdomain: string
 ): string {
-  if (process.platform === "win32") {
-    return path.join(
-      process.cwd(),
-      "sites",
-      domain,
-      "subdomains",
-      subdomain,
-      "public_html"
-    );
-  }
-  return `/var/www/${domain}/subdomains/${subdomain}/public_html`;
+  return defaultSubdomainDocumentRoot(domain, subdomain);
+}
+
+/** Validate a user-supplied document root against the sites allowlist. */
+export function resolveAllowedDocumentRoot(documentRoot: string): string {
+  return assertSafeDocumentRoot(documentRoot);
 }
 
 export function getAgentApiKey(): string {

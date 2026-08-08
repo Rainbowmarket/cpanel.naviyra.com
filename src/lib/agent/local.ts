@@ -2,6 +2,10 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { AgentAction, AgentResponse } from "./client";
 import { applyDnsZoneLocal, removeDnsZoneLocal } from "@/lib/dns/apply";
+import {
+  assertSafeDocumentRoot,
+  sanitizeHostnameForPath,
+} from "@/lib/hostname";
 
 const CONFIG_ROOT = path.join(process.cwd(), "data", "agent-config");
 
@@ -33,33 +37,40 @@ export async function executeLocalAgent<T = unknown>(
         };
 
       case "create_domain": {
-        await fs.mkdir(payload.documentRoot, { recursive: true });
+        const domain = sanitizeHostnameForPath(payload.domain);
+        const documentRoot = assertSafeDocumentRoot(payload.documentRoot);
+        await fs.mkdir(documentRoot, { recursive: true });
         await fs.writeFile(
-          path.join(CONFIG_ROOT, `${payload.domain}.conf`),
-          `# local vhost\n# ${payload.domain}\n# ${payload.documentRoot}\n`,
+          path.join(CONFIG_ROOT, `${domain}.conf`),
+          `# local vhost\n# ${domain}\n# ${documentRoot}\n`,
           "utf8"
         );
         return {
           success: true,
-          data: { domain: payload.domain, documentRoot: payload.documentRoot } as T,
+          data: { domain, documentRoot } as T,
         };
       }
 
       case "delete_domain": {
-        await fs.rm(path.join(CONFIG_ROOT, `${payload.domain}.conf`), {
+        const domain = sanitizeHostnameForPath(payload.domain);
+        await fs.rm(path.join(CONFIG_ROOT, `${domain}.conf`), {
           force: true,
         });
         return { success: true };
       }
 
       case "create_subdomain": {
-        await fs.mkdir(payload.documentRoot, { recursive: true });
-        return { success: true, data: { documentRoot: payload.documentRoot } as T };
+        const documentRoot = assertSafeDocumentRoot(payload.documentRoot);
+        await fs.mkdir(documentRoot, { recursive: true });
+        return { success: true, data: { documentRoot } as T };
       }
 
     case "delete_subdomain": {
       if (payload.deleteFiles && payload.documentRoot) {
-        await fs.rm(String(payload.documentRoot), { recursive: true, force: true });
+        await fs.rm(assertSafeDocumentRoot(String(payload.documentRoot)), {
+          recursive: true,
+          force: true,
+        });
       }
       return { success: true };
     }

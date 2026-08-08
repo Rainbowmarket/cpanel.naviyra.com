@@ -27,6 +27,7 @@ type Domain = {
   documentRoot: string;
   appType?: AppType;
   startCommand?: string | null;
+  appStartupFile?: string | null;
   appWorkingDir?: string | null;
   upstreamPort?: number | null;
   appStatus?: string | null;
@@ -236,14 +237,16 @@ export default function DomainsPage() {
         open={Boolean(runtimeDomain)}
         onClose={() => setRuntimeDomain(null)}
         title={runtimeDomain ? `App runtime — ${runtimeDomain.name}` : "App runtime"}
-        description="Choose how this site is served and manage Python/Go processes."
+        description="Choose how this site is served and manage Node/Python/Go processes."
       >
         {runtimeDomain ? (
           <AppRuntimeControls
             kind="domain"
             id={runtimeDomain.id}
+            applicationUrl={`https://${runtimeDomain.name}`}
             appType={runtimeDomain.appType ?? "PHP"}
             startCommand={runtimeDomain.startCommand}
+            appStartupFile={runtimeDomain.appStartupFile}
             appWorkingDir={runtimeDomain.appWorkingDir}
             upstreamPort={runtimeDomain.upstreamPort}
             appStatus={runtimeDomain.appStatus}

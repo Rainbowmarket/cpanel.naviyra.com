@@ -1,17 +1,24 @@
+import type { AppStatus, AppType } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { callAgent } from "@/lib/agent/client";
 import { getAgentApiKey } from "@/lib/paths";
-import type { AppStatus, AppType } from "@/generated/prisma/client";
+import {
+  isProxyAppType,
+  mergeAppModeEnv,
+  phpEnabledForAppType,
+  resolveStartCommand,
+  type AppMode,
+} from "@/lib/apps/runtime-helpers";
 
-export const APP_TYPES = ["STATIC", "PHP", "PYTHON", "GO"] as const;
-
-export function isProxyAppType(appType: string): boolean {
-  return appType === "PYTHON" || appType === "GO";
-}
-
-export function phpEnabledForAppType(appType: AppType | string): boolean {
-  return appType === "PHP";
-}
+export {
+  APP_TYPES,
+  isProxyAppType,
+  mergeAppModeEnv,
+  parseAppModeFromEnv,
+  phpEnabledForAppType,
+  resolveStartCommand,
+  type AppMode,
+} from "@/lib/apps/runtime-helpers";
 
 type SiteKind = "domain" | "subdomain";
 
@@ -28,6 +35,7 @@ async function loadSite(kind: SiteKind, id: string, userId: string) {
       documentRoot: domain.documentRoot,
       appType: domain.appType,
       startCommand: domain.startCommand,
+      appStartupFile: domain.appStartupFile,
       appWorkingDir: domain.appWorkingDir,
       upstreamPort: domain.upstreamPort,
       appStatus: domain.appStatus,
@@ -47,6 +55,7 @@ async function loadSite(kind: SiteKind, id: string, userId: string) {
     documentRoot: subdomain.documentRoot,
     appType: subdomain.appType,
     startCommand: subdomain.startCommand,
+    appStartupFile: subdomain.appStartupFile,
     appWorkingDir: subdomain.appWorkingDir,
     upstreamPort: subdomain.upstreamPort,
     appStatus: subdomain.appStatus,
@@ -61,6 +70,7 @@ async function persistSite(
   data: {
     appType?: AppType;
     startCommand?: string | null;
+    appStartupFile?: string | null;
     appWorkingDir?: string;
     upstreamPort?: number | null;
     appStatus?: AppStatus;
@@ -80,18 +90,33 @@ export async function configureSiteApp(
   input: {
     appType: AppType;
     startCommand?: string;
+    appStartupFile?: string | null;
     appWorkingDir?: string;
     appEnv?: string | null;
+    appMode?: AppMode | null;
   }
 ) {
   const site = await loadSite(kind, id, userId);
   const appType = input.appType;
-  const startCommand = input.startCommand?.trim() || site.startCommand || "";
+  const appStartupFile =
+    input.appStartupFile !== undefined
+      ? input.appStartupFile?.trim() || null
+      : site.appStartupFile;
+  const startCommand = resolveStartCommand({
+    appType,
+    startCommand: input.startCommand ?? site.startCommand,
+    appStartupFile,
+  });
   const appWorkingDir = input.appWorkingDir?.trim() || site.appWorkingDir || ".";
-  const appEnv = input.appEnv ?? site.appEnv;
+  let appEnv = input.appEnv !== undefined ? input.appEnv : site.appEnv;
+  if (input.appMode) {
+    appEnv = mergeAppModeEnv(appEnv, input.appMode);
+  }
 
   if (isProxyAppType(appType) && !startCommand) {
-    throw new Error("Start command is required for Python and Go apps");
+    throw new Error(
+      "Start command or application startup file is required for Node, Python, and Go apps"
+    );
   }
 
   const result = await callAgent<{
@@ -123,13 +148,13 @@ export async function configureSiteApp(
   await persistSite(kind, id, {
     appType,
     startCommand: isProxyAppType(appType) ? startCommand : null,
+    appStartupFile: isProxyAppType(appType) ? appStartupFile : null,
     appWorkingDir,
     upstreamPort,
     appEnv: isProxyAppType(appType) ? appEnv : null,
     appStatus: "STOPPED",
   });
 
-  // Domain phpEnabled only exists on Domain model
   if (kind === "domain") {
     await prisma.domain.update({
       where: { id },
@@ -148,7 +173,7 @@ export async function controlSiteApp(
 ) {
   const site = await loadSite(kind, id, userId);
   if (!isProxyAppType(site.appType) && op !== "status") {
-    throw new Error("Start/Stop only applies to Python and Go apps");
+    throw new Error("Start/Stop only applies to Node, Python, and Go apps");
   }
 
   if (op === "status") {

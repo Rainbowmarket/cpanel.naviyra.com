@@ -17,6 +17,8 @@ import {
   Terminal,
   Archive,
   Database,
+  Gauge,
+  BookOpen,
   X,
 } from "lucide-react";
 import { BrandLogo } from "@/components/ui/brand-logo";
@@ -25,7 +27,10 @@ import { cn } from "@/lib/utils";
 const navGroups = [
   {
     label: "Main",
-    items: [{ href: "/dashboard", label: "Overview", icon: LayoutDashboard }],
+    items: [
+      { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
+      { href: "/dashboard/docs", label: "Docs", icon: BookOpen },
+    ],
   },
   {
     label: "Hosting",
@@ -59,6 +64,7 @@ const adminNavGroup = {
   items: [
     { href: "/dashboard/users", label: "Users", icon: Users },
     { href: "/dashboard/backups", label: "Backups", icon: Archive },
+    { href: "/dashboard/speed-test", label: "Speed Test", icon: Gauge },
   ],
 };
 

@@ -28,18 +28,30 @@ export async function GET() {
 }
 
 const createSchema = z.object({
-  name: z.string().min(3),
+  name: z
+    .string()
+    .min(3)
+    .max(253)
+    .regex(
+      /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i,
+      "Invalid hostname"
+    ),
   serverId: z.string(),
-  documentRoot: z.string().optional(),
   phpEnabled: z.boolean().optional(),
-  appType: z.enum(["STATIC", "PHP", "PYTHON", "GO"]).optional(),
+  appType: z.enum(["STATIC", "PHP", "PYTHON", "GO", "NODE"]).optional(),
 });
 
 export async function POST(request: Request) {
   try {
     const user = await requireSessionUser();
     const body = createSchema.parse(await request.json());
-    const domain = await createDomain({ ...body, userId: user.id });
+    const domain = await createDomain({
+      name: body.name,
+      serverId: body.serverId,
+      phpEnabled: body.phpEnabled,
+      appType: body.appType,
+      userId: user.id,
+    });
     return NextResponse.json({ domain }, { status: 201 });
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -48,7 +60,13 @@ export async function POST(request: Request) {
     if (error instanceof Error && error.message === "Unauthorized") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    return NextResponse.json({ error: "Failed to create domain" }, { status: 500 });
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Failed to create domain",
+      },
+      { status: 400 }
+    );
   }
 }
 

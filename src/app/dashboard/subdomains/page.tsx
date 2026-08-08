@@ -32,6 +32,7 @@ type Subdomain = {
   documentRoot: string;
   appType?: AppType;
   startCommand?: string | null;
+  appStartupFile?: string | null;
   appWorkingDir?: string | null;
   upstreamPort?: number | null;
   appStatus?: string | null;
@@ -447,14 +448,16 @@ export default function SubdomainsPage() {
             ? `App runtime — ${runtimeSub.name}.${runtimeSub.domain.name}`
             : "App runtime"
         }
-        description="Choose how this subdomain is served and manage Python/Go processes."
+        description="Choose how this subdomain is served and manage Node/Python/Go processes."
       >
         {runtimeSub ? (
           <AppRuntimeControls
             kind="subdomain"
             id={runtimeSub.id}
+            applicationUrl={`https://${runtimeSub.name}.${runtimeSub.domain.name}`}
             appType={runtimeSub.appType ?? "PHP"}
             startCommand={runtimeSub.startCommand}
+            appStartupFile={runtimeSub.appStartupFile}
             appWorkingDir={runtimeSub.appWorkingDir}
             upstreamPort={runtimeSub.upstreamPort}
             appStatus={runtimeSub.appStatus}

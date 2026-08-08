@@ -3,8 +3,10 @@ import { callAgent } from "@/lib/agent/client";
 import { getAgentApiKey, getDefaultDocumentRoot } from "@/lib/paths";
 import { getPanelBaseDomain } from "@/lib/base-domain";
 import { isPanelHostname, panelHostnameError } from "@/lib/panel-host";
+import { assertValidHostname } from "@/lib/hostname";
 import { deleteDnsZoneForDomain, syncDnsZone } from "@/lib/services/dns";
 import { phpEnabledForAppType, removeSiteAppUnit } from "@/lib/services/apps";
+import { ensurePanelSslSynced } from "@/lib/services/ssl";
 import type { AppType, DomainStatus } from "@/generated/prisma/client";
 
 /**
@@ -63,6 +65,12 @@ export async function listDomains(
     } catch (error) {
       console.error("ensurePanelBaseDomain failed:", error);
     }
+  }
+
+  try {
+    await ensurePanelSslSynced(opts?.role === "ADMIN" ? undefined : userId);
+  } catch (error) {
+    console.error("ensurePanelSslSynced failed:", error);
   }
 
   const where = opts?.role === "ADMIN" ? {} : { userId };
@@ -132,17 +140,16 @@ export async function createDomain(input: {
   userId: string;
   serverId: string;
   name: string;
-  documentRoot?: string;
   phpEnabled?: boolean;
   appType?: AppType;
 }) {
-  const name = input.name.trim().toLowerCase();
+  const name = assertValidHostname(input.name);
   if (isPanelHostname(name)) {
     throw new Error(panelHostnameError(name));
   }
 
-  const documentRoot =
-    input.documentRoot ?? getDefaultDocumentRoot(name);
+  // Document roots are never taken from client input — always derived.
+  const documentRoot = getDefaultDocumentRoot(name);
 
   await prisma.server.findUniqueOrThrow({
     where: { id: input.serverId },

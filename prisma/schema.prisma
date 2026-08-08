@@ -90,6 +90,7 @@ enum AppType {
   PHP
   PYTHON
   GO
+  NODE
 }
 
 enum AppStatus {
@@ -149,6 +150,7 @@ model Domain {
   phpEnabled   Boolean      @default(true)
   appType      AppType      @default(PHP)
   startCommand String?
+  appStartupFile String?
   appWorkingDir String      @default(".")
   upstreamPort Int?
   appStatus    AppStatus    @default(STOPPED)
@@ -180,6 +182,7 @@ model Subdomain {
   status       DomainStatus @default(PENDING)
   appType      AppType      @default(PHP)
   startCommand String?
+  appStartupFile String?
   appWorkingDir String      @default(".")
   upstreamPort Int?
   appStatus    AppStatus    @default(STOPPED)

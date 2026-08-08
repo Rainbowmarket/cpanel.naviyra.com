@@ -9,10 +9,12 @@ import {
 const configSchema = z.object({
   kind: z.enum(["domain", "subdomain"]),
   id: z.string().min(1),
-  appType: z.enum(["STATIC", "PHP", "PYTHON", "GO"]),
+  appType: z.enum(["STATIC", "PHP", "PYTHON", "GO", "NODE"]),
   startCommand: z.string().optional(),
+  appStartupFile: z.string().nullable().optional(),
   appWorkingDir: z.string().optional(),
   appEnv: z.string().nullable().optional(),
+  appMode: z.enum(["development", "production"]).optional(),
 });
 
 const controlSchema = z.object({
@@ -50,8 +52,10 @@ export async function PUT(request: Request) {
     const site = await configureSiteApp(body.kind, body.id, user.id, {
       appType: body.appType,
       startCommand: body.startCommand,
+      appStartupFile: body.appStartupFile,
       appWorkingDir: body.appWorkingDir,
       appEnv: body.appEnv,
+      appMode: body.appMode,
     });
     return NextResponse.json({ site });
   } catch (error) {

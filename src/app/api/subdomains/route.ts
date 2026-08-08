@@ -30,7 +30,7 @@ const createSchema = z
     name: z.string().min(1).optional(),
     fqdn: z.string().min(1).optional(),
     documentRoot: z.string().optional(),
-    appType: z.enum(["STATIC", "PHP", "PYTHON", "GO"]).optional(),
+    appType: z.enum(["STATIC", "PHP", "PYTHON", "GO", "NODE"]).optional(),
   })
   .refine((b) => Boolean(b.fqdn) || (Boolean(b.domainId) && Boolean(b.name)), {
     message: "Provide fqdn or domainId+name",
@@ -116,6 +116,12 @@ export async function PATCH(request: Request) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: error.flatten() }, { status: 400 });
     }
-    return NextResponse.json({ error: "Failed to update subdomain" }, { status: 500 });
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Failed to update subdomain",
+      },
+      { status: 400 }
+    );
   }
 }

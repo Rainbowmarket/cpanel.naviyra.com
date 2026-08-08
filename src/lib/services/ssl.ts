@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { callAgent } from "@/lib/agent/client";
 import { getAgentApiKey } from "@/lib/paths";
-import { isPanelHostname, panelHostnameError } from "@/lib/panel-host";
+import { isPanelHostname } from "@/lib/panel-host";
 import type { SslStatus } from "@/generated/prisma/client";
 
 function getCertificateHostname(cert: {
@@ -46,8 +46,134 @@ async function dedupeSslCertificates(userId?: string) {
   }
 }
 
+/**
+ * Panel hostname already has nginx → panel proxy. Issue/renew cert via certbot
+ * without replacing that vhost, and sync the row into the panel DB.
+ */
+async function syncOrIssuePanelSsl(opts: {
+  domain: {
+    id: string;
+    name: string;
+    documentRoot: string;
+    phpEnabled: boolean;
+    appType: string;
+    upstreamPort: number | null;
+    server: { agentKey: string | null };
+  };
+  userId: string;
+  includeWww?: boolean;
+  autoRenew?: boolean;
+  /** If true, only read existing cert dates (no certbot). */
+  infoOnly?: boolean;
+}) {
+  await dedupeSslCertificates(opts.userId);
+  const agentKey = opts.domain.server.agentKey || getAgentApiKey();
+  const existing = await prisma.sslCertificate.findFirst({
+    where: { domainId: opts.domain.id, subdomainId: null },
+    orderBy: { createdAt: "desc" },
+  });
+
+  const cert = existing
+    ? await prisma.sslCertificate.update({
+        where: { id: existing.id },
+        data: {
+          status: "PENDING",
+          lastError: null,
+          autoRenew: opts.autoRenew ?? existing.autoRenew,
+        },
+      })
+    : await prisma.sslCertificate.create({
+        data: {
+          domainId: opts.domain.id,
+          status: "PENDING",
+          autoRenew: opts.autoRenew ?? true,
+        },
+      });
+
+  if (opts.infoOnly) {
+    const info = await callAgent<{
+      exists?: boolean;
+      issuedAt?: string | null;
+      expiresAt?: string | null;
+    }>({ action: "ssl_cert_info", domain: opts.domain.name }, agentKey);
+
+    if (info.success && info.data?.exists) {
+      return prisma.sslCertificate.update({
+        where: { id: cert.id },
+        data: {
+          status: "ACTIVE",
+          issuedAt: info.data.issuedAt ? new Date(info.data.issuedAt) : null,
+          expiresAt: info.data.expiresAt ? new Date(info.data.expiresAt) : null,
+          lastError: null,
+        },
+        include: {
+          domain: { select: { name: true, id: true } },
+          subdomain: { select: { name: true, id: true } },
+        },
+      });
+    }
+
+    return prisma.sslCertificate.update({
+      where: { id: cert.id },
+      data: {
+        status: "FAILED",
+        lastError:
+          info.error ??
+          "No Let's Encrypt certificate found for the panel hostname yet.",
+      },
+      include: {
+        domain: { select: { name: true, id: true } },
+        subdomain: { select: { name: true, id: true } },
+      },
+    });
+  }
+
+  const subdomains = opts.includeWww !== false ? ["www"] : [];
+  const agentResult = await callAgent(
+    {
+      action: "issue_ssl",
+      domain: opts.domain.name,
+      subdomains,
+      documentRoot: opts.domain.documentRoot,
+      phpEnabled: false,
+      appType: "STATIC",
+      upstreamPort: null,
+    },
+    agentKey
+  );
+
+  return finalizeSslCertificate(cert.id, agentResult);
+}
+
+/** If panel apex has a live cert on disk but no ACTIVE DB row, sync it. */
+export async function ensurePanelSslSynced(userId?: string) {
+  const domains = await prisma.domain.findMany({
+    where: userId ? { userId } : undefined,
+    include: { server: true },
+  });
+  for (const domain of domains) {
+    if (!isPanelHostname(domain.name)) continue;
+    const existing = await prisma.sslCertificate.findFirst({
+      where: { domainId: domain.id, subdomainId: null },
+      orderBy: { createdAt: "desc" },
+    });
+    if (existing?.status === "ACTIVE") continue;
+    try {
+      await syncOrIssuePanelSsl({
+        domain,
+        userId: domain.userId ?? userId ?? "",
+        includeWww: true,
+        infoOnly: true,
+      });
+    } catch (error) {
+      console.error("ensurePanelSslSynced failed:", error);
+    }
+  }
+}
+
 export async function listSslCertificates(userId: string) {
   await dedupeSslCertificates(userId);
+  await ensurePanelSslSynced(userId);
 
   return prisma.sslCertificate.findMany({
     where: { domain: { userId } },
@@ -95,10 +221,13 @@ export async function issueSslCertificate(input: {
   });
 
   if (isPanelHostname(domain.name)) {
-    throw new Error(
-      panelHostnameError(domain.name) +
-        " SSL for the control panel is managed separately."
-    );
+    // Panel apex SSL: renew/sync cert only — never rewrite the panel nginx vhost.
+    return syncOrIssuePanelSsl({
+      domain,
+      userId: input.userId,
+      includeWww: input.includeWww,
+      autoRenew: input.autoRenew,
+    });
   }
 
   await dedupeSslCertificates(input.userId);
@@ -206,6 +335,15 @@ export async function renewSslCertificate(certId: string, userId: string) {
       subdomain: true,
     },
   });
+
+  if (!cert.subdomain && isPanelHostname(cert.domain.name)) {
+    return syncOrIssuePanelSsl({
+      domain: cert.domain,
+      userId,
+      includeWww: true,
+      autoRenew: cert.autoRenew,
+    });
+  }
 
   await prisma.sslCertificate.update({
     where: { id: cert.id },

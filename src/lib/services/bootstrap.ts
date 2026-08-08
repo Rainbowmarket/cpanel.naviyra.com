@@ -2,23 +2,21 @@ import { prisma } from "@/lib/prisma";
 import { persistPanelBaseDomainFromLogin } from "@/lib/base-domain";
 import { getAgentApiKey, getDefaultDocumentRoot, getServerPublicIp } from "@/lib/paths";
 import { isPanelHostname } from "@/lib/panel-host";
+import { assertValidHostname, normalizeHostnameInput } from "@/lib/hostname";
 import { createDomain } from "@/lib/services/domains";
 
 /** Normalize user-entered domain to apex hostname. */
 export function normalizeDomainName(input: string): string {
-  let value = input.trim().toLowerCase();
-  value = value.replace(/^https?:\/\//, "");
-  value = value.split("/")[0] ?? value;
-  value = value.split(":")[0] ?? value;
-  value = value.replace(/^www\./, "");
-  return value;
+  return normalizeHostnameInput(input);
 }
 
-const DOMAIN_RE =
-  /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/i;
-
 export function isValidDomainName(domain: string): boolean {
-  return DOMAIN_RE.test(domain) && domain.length <= 253;
+  try {
+    assertValidHostname(domain);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**

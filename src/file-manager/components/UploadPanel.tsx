@@ -7,10 +7,14 @@ export type UploadJob = {
   progress: number;
   loaded: number;
   total: number;
+  /** Instantaneous / smoothed bytes per second */
+  speedBps: number;
   status: 'uploading' | 'done' | 'error';
   error?: string;
   startedAt: number;
 };
+
+type SpeedSample = { t: number; loaded: number };
 
 function formatBytes(n: number): string {
   if (!Number.isFinite(n) || n < 0) return '—';
@@ -25,18 +29,47 @@ function formatBytes(n: number): string {
   return `${shown} ${units[u]}`;
 }
 
-function formatEta(loaded: number, total: number, startedAt: number): string {
-  if (loaded <= 0 || total <= loaded) return '—';
-  const elapsed = Date.now() - startedAt;
-  if (elapsed < 150) return '…';
-  const rate = loaded / elapsed;
-  const remain = total - loaded;
-  if (rate <= 0) return '—';
-  const ms = remain / rate;
-  if (!Number.isFinite(ms) || ms > 600000) return '—';
+/** Speed with adaptive unit: B/s, KB/s, or MB/s based on magnitude. */
+function formatSpeed(bps: number): string {
+  if (!Number.isFinite(bps) || bps <= 0) return '—';
+  if (bps < 1024) return `${Math.max(1, Math.round(bps))} B/s`;
+  if (bps < 1024 * 1024) {
+    const kb = bps / 1024;
+    return `${kb < 10 ? kb.toFixed(1) : Math.round(kb)} KB/s`;
+  }
+  const mb = bps / (1024 * 1024);
+  return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB/s`;
+}
+
+function formatEta(remainBytes: number, speedBps: number): string {
+  if (!Number.isFinite(remainBytes) || remainBytes <= 0) return 'Done';
+  if (!Number.isFinite(speedBps) || speedBps <= 0) return '…';
+  const ms = (remainBytes / speedBps) * 1000;
+  if (!Number.isFinite(ms) || ms > 24 * 3600 * 1000) return '—';
   const s = Math.ceil(ms / 1000);
   if (s < 60) return `~${s}s left`;
-  return `~${Math.ceil(s / 60)}m left`;
+  const m = Math.floor(s / 60);
+  const remS = s % 60;
+  if (m < 60) return remS > 0 ? `~${m}m ${remS}s left` : `~${m}m left`;
+  const h = Math.floor(m / 60);
+  const remM = m % 60;
+  return remM > 0 ? `~${h}h ${remM}m left` : `~${h}h left`;
+}
+
+/** Rolling-window bytes/sec from recent progress samples. */
+function estimateSpeed(samples: SpeedSample[], loaded: number): number {
+  const now = Date.now();
+  samples.push({ t: now, loaded });
+  while (samples.length > 1 && now - samples[0]!.t > 3000) {
+    samples.shift();
+  }
+  if (samples.length < 2) return 0;
+  const oldest = samples[0]!;
+  const newest = samples[samples.length - 1]!;
+  const dt = (newest.t - oldest.t) / 1000;
+  const dBytes = newest.loaded - oldest.loaded;
+  if (dt < 0.15 || dBytes < 0) return 0;
+  return dBytes / dt;
 }
 
 function newId(): string {
@@ -55,6 +88,7 @@ export function UploadPanel(props: {
 }) {
   const { targetDir, disabled, onAfterUpload, layout = 'sidebar' } = props;
   const inputRef = useRef<HTMLInputElement>(null);
+  const speedSamples = useRef<Map<string, SpeedSample[]>>(new Map());
   const [dragOver, setDragOver] = useState(false);
   const [jobs, setJobs] = useState<UploadJob[]>([]);
 
@@ -71,6 +105,10 @@ export function UploadPanel(props: {
         total: file.size || 1,
       }));
 
+      for (const b of batch) {
+        speedSamples.current.set(b.id, [{ t: b.startedAt, loaded: 0 }]);
+      }
+
       setJobs((prev) => [
         ...prev,
         ...batch.map((b) => ({
@@ -79,6 +117,7 @@ export function UploadPanel(props: {
           progress: 0,
           loaded: 0,
           total: b.total,
+          speedBps: 0,
           status: 'uploading' as const,
           startedAt: b.startedAt,
         })),
@@ -91,25 +130,41 @@ export function UploadPanel(props: {
             await uploadFileToFolder(dir, file, (loaded, tot) => {
               const denom = tot > 0 ? tot : total;
               const pct = Math.min(100, Math.round((loaded / denom) * 100));
+              const samples = speedSamples.current.get(id) ?? [];
+              const speedBps = estimateSpeed(samples, loaded);
+              speedSamples.current.set(id, samples);
               setJobs((prev) =>
                 prev.map((j) =>
-                  j.id === id ? { ...j, loaded, total: denom, progress: pct } : j,
+                  j.id === id
+                    ? { ...j, loaded, total: denom, progress: pct, speedBps }
+                    : j,
                 ),
               );
             });
+            speedSamples.current.delete(id);
             setJobs((prev) =>
               prev.map((j) =>
-                j.id === id ? { ...j, status: 'done' as const, progress: 100, loaded: j.total } : j,
+                j.id === id
+                  ? {
+                      ...j,
+                      status: 'done' as const,
+                      progress: 100,
+                      loaded: j.total,
+                      speedBps: 0,
+                    }
+                  : j,
               ),
             );
             return true;
           } catch (e) {
+            speedSamples.current.delete(id);
             setJobs((prev) =>
               prev.map((j) =>
                 j.id === id
                   ? {
                       ...j,
                       status: 'error' as const,
+                      speedBps: 0,
                       error: e instanceof Error ? e.message : 'Upload failed',
                     }
                   : j,
@@ -200,27 +255,38 @@ export function UploadPanel(props: {
       ) : null}
 
       <ul className="upload-job-list">
-        {jobs.map((job) => (
-          <li key={job.id} className={`upload-job-card ${job.status}`}>
-            <div className="upload-job-name">{job.file.name}</div>
-            <div className="upload-job-bar-wrap">
-              <div className="upload-job-bar" style={{ width: `${Math.min(100, job.progress)}%` }} />
-            </div>
-            <div className="upload-job-meta">
-              <span>{Math.min(100, job.progress)}%</span>
-              <span>{formatBytes(job.total)}</span>
-              <span className="upload-job-eta">
-                {job.status === 'uploading'
-                  ? formatEta(job.loaded, job.total, job.startedAt)
-                  : job.status === 'done'
-                    ? 'Done'
-                    : job.status === 'error'
-                      ? job.error || 'Error'
-                      : '—'}
-              </span>
-            </div>
-          </li>
-        ))}
+        {jobs.map((job) => {
+          const remain = Math.max(0, job.total - job.loaded);
+          return (
+            <li key={job.id} className={`upload-job-card ${job.status}`}>
+              <div className="upload-job-name">{job.file.name}</div>
+              <div className="upload-job-bar-wrap">
+                <div
+                  className="upload-job-bar"
+                  style={{ width: `${Math.min(100, job.progress)}%` }}
+                />
+              </div>
+              <div className="upload-job-meta">
+                <span className="upload-job-pct">{Math.min(100, job.progress)}%</span>
+                <span className="upload-job-size">
+                  {formatBytes(job.loaded)} / {formatBytes(job.total)}
+                </span>
+                {job.status === 'uploading' ? (
+                  <>
+                    <span className="upload-job-speed">{formatSpeed(job.speedBps)}</span>
+                    <span className="upload-job-eta">{formatEta(remain, job.speedBps)}</span>
+                  </>
+                ) : job.status === 'done' ? (
+                  <span className="upload-job-eta">Done</span>
+                ) : (
+                  <span className="upload-job-eta upload-job-eta--error">
+                    {job.error || 'Error'}
+                  </span>
+                )}
+              </div>
+            </li>
+          );
+        })}
       </ul>
     </div>
   );

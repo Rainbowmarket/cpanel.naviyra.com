@@ -190,6 +190,10 @@ export default async function DashboardPage() {
     { label: "Files", href: "/dashboard/files" },
     { label: "Backups", href: "/dashboard/backups" },
     { label: "Security", href: "/dashboard/security" },
+    { label: "Docs", href: "/dashboard/docs" },
+    ...(user.role === "ADMIN"
+      ? [{ label: "Speed Test", href: "/dashboard/speed-test" }]
+      : []),
   ];
 
   return (

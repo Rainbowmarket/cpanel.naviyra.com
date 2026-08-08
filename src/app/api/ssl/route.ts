@@ -55,7 +55,9 @@ export async function POST(request: Request) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: error.flatten() }, { status: 400 });
     }
-    return NextResponse.json({ error: "Failed to issue SSL" }, { status: 500 });
+    const message =
+      error instanceof Error ? error.message : "Failed to issue SSL";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 

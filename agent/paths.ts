@@ -1,6 +1,11 @@
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import {
+  assertSafeDocumentRoot,
+  assertValidSubdomainLabels,
+  sanitizeHostnameForPath,
+} from "./hostname";
 
 const AGENT_DIR = path.dirname(fileURLToPath(import.meta.url));
 export const PROJECT_ROOT = path.join(AGENT_DIR, "..");
@@ -71,25 +76,40 @@ export function normalizeBindReloadCmd(raw: string | undefined | null): string {
   return value;
 }
 
-/** Normalize document root for the current OS. */
-export function resolveDocumentRoot(documentRoot: string, domain: string): string {
+/**
+ * Resolve domain document root. Ignores free-form client paths for apex domains;
+ * always derives from sanitized hostname under the sites allowlist.
+ */
+export function resolveDocumentRoot(_documentRoot: string, domain: string): string {
+  const safeDomain = sanitizeHostnameForPath(domain);
   if (process.platform === "win32") {
-    return path.join(SITES_ROOT, domain, "public_html");
+    return assertSafeDocumentRoot(
+      path.join(SITES_ROOT, safeDomain, "public_html")
+    );
   }
-  if (documentRoot.startsWith("/")) return documentRoot;
-  return `/var/www/${domain}/public_html`;
+  return assertSafeDocumentRoot(`/var/www/${safeDomain}/public_html`);
 }
 
+/**
+ * Resolve subdomain document root. Custom paths are allowed only if they
+ * resolve under the sites allowlist (/var/www or local sites/).
+ */
 export function resolveSubdomainRoot(
   documentRoot: string,
   domain: string,
   subdomain: string
 ): string {
-  if (process.platform === "win32") {
-    return path.join(SITES_ROOT, domain, "subdomains", subdomain, "public_html");
+  const safeDomain = sanitizeHostnameForPath(domain);
+  const safeSub = assertValidSubdomainLabels(subdomain);
+  const fallback =
+    process.platform === "win32"
+      ? path.join(SITES_ROOT, safeDomain, "subdomains", safeSub, "public_html")
+      : `/var/www/${safeDomain}/subdomains/${safeSub}/public_html`;
+
+  if (!documentRoot?.trim()) {
+    return assertSafeDocumentRoot(fallback);
   }
-  if (documentRoot.startsWith("/")) return documentRoot;
-  return `/var/www/${domain}/subdomains/${subdomain}/public_html`;
+  return assertSafeDocumentRoot(documentRoot);
 }
 
 /** Document root for SSL issuance when hostname may be apex or subdomain FQDN. */
@@ -97,16 +117,23 @@ export function resolveSslDocumentRoot(
   hostname: string,
   documentRoot?: string
 ): string {
-  if (documentRoot?.startsWith("/")) return documentRoot;
+  const safeHost = sanitizeHostnameForPath(hostname);
+  if (documentRoot?.trim()) {
+    return assertSafeDocumentRoot(documentRoot);
+  }
   if (process.platform === "win32") {
-    return path.join(SITES_ROOT, hostname, "public_html");
+    return assertSafeDocumentRoot(
+      path.join(SITES_ROOT, safeHost, "public_html")
+    );
   }
 
-  const parts = hostname.split(".");
+  const parts = safeHost.split(".");
   if (parts.length > 2) {
-    const subdomain = parts[0];
+    const subdomain = parts[0]!;
     const apex = parts.slice(1).join(".");
-    return `/var/www/${apex}/subdomains/${subdomain}/public_html`;
+    return assertSafeDocumentRoot(
+      `/var/www/${apex}/subdomains/${subdomain}/public_html`
+    );
   }
-  return `/var/www/${hostname}/public_html`;
+  return assertSafeDocumentRoot(`/var/www/${safeHost}/public_html`);
 }
