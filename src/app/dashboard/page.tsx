@@ -9,6 +9,7 @@ import {
 } from "@/lib/permissions";
 import { getSecurityOverview } from "@/lib/services/security";
 import { collectDiskReport, formatDiskBytes } from "@/lib/system/disk";
+import { ServerResourcesWatch } from "@/components/system/ServerResourcesWatch";
 import { formatDate } from "@/lib/utils";
 import {
   Activity,
@@ -202,7 +203,7 @@ export default async function DashboardPage() {
         <div className="min-w-0">
           <h2 className="text-lg font-bold text-white sm:text-2xl">Dashboard</h2>
           <p className="mt-0.5 text-xs text-slate-400 sm:mt-1 sm:text-sm">
-            Resources, storage, and security.
+            Live CPU/RAM, storage, and security.
           </p>
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -305,6 +306,9 @@ export default async function DashboardPage() {
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+        <div className="space-y-4">
+          <ServerResourcesWatch />
+
         <section className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/80">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 px-4 py-2.5">
             <div className="flex items-center gap-2">
@@ -373,6 +377,7 @@ export default async function DashboardPage() {
             </ul>
           </div>
         </section>
+        </div>
 
         <section className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/80">
           <div className="flex items-center justify-between border-b border-slate-800 px-4 py-2.5">

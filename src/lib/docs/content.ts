@@ -50,6 +50,7 @@ export const DOC_ARTICLES: DocArticle[] = [
           "Upload site files in File Manager (ZIP extracts automatically).",
           "Issue SSL, create mail/FTP/database accounts as needed.",
           "Use Security and Backups to monitor and protect the server.",
+          "Watch live CPU and RAM on Overview (Server load).",
         ],
       },
     ],
@@ -637,6 +638,40 @@ export const DOC_ARTICLES: DocArticle[] = [
         body: [
           "Admin-only.",
           "Failed mirrors (DNS/blocked) do not invalidate strong results from other providers.",
+        ],
+      },
+    ],
+  },
+  {
+    slug: "server-load",
+    title: "Server load (CPU & RAM)",
+    summary: "Watch live CPU and memory on the Overview dashboard.",
+    href: "/dashboard",
+    audience: "all",
+    category: "Tools",
+    sections: [
+      {
+        heading: "How to watch",
+        steps: [
+          "Open Overview (Dashboard).",
+          "Find Server load above Storage.",
+          "Leave Watching on to refresh about every 3 seconds, or Pause / Refresh manually.",
+        ],
+      },
+      {
+        heading: "How to read it",
+        body: [
+          "CPU % is sampled over a short interval across all cores.",
+          "RAM shows used / available / total (Linux uses MemAvailable when present).",
+          "Load averages (1 / 5 / 15 min) appear on Linux next to core count.",
+          "Amber ≈ 75%+, red ≈ 90%+ — consider optimizing apps or upgrading the VPS.",
+        ],
+      },
+      {
+        heading: "Specialties",
+        body: [
+          "Requires a logged-in session (/api/system/resources).",
+          "Polling pauses when the browser tab is hidden.",
         ],
       },
     ],
