@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 
 /** Known insecure defaults that must never be used in production. */
 export const WEAK_AGENT_KEYS = new Set([
@@ -79,4 +79,77 @@ export function requireIngestKey(): string {
   const ingest = process.env.SECURITY_INGEST_KEY?.trim();
   if (ingest && !looksWeak(ingest)) return ingest;
   return requireAgentApiKey();
+}
+
+function parseEncKeyMaterial(raw: string): Buffer | null {
+  const v = raw.trim();
+  if (!v) return null;
+  // 64 hex chars → 32 bytes
+  if (/^[0-9a-fA-F]{64}$/.test(v)) {
+    return Buffer.from(v, "hex");
+  }
+  // base64 → 32 bytes
+  try {
+    const buf = Buffer.from(v, "base64");
+    if (buf.length === 32) return buf;
+  } catch {
+    /* fall through */
+  }
+  // Derive a stable 32-byte key from a long passphrase (dev convenience only)
+  if (v.length >= 32) {
+    return createHash("sha256").update(v).digest();
+  }
+  return null;
+}
+
+/**
+ * AES-256 key for encrypting TOTP secrets at rest.
+ * Production requires TWO_FACTOR_ENC_KEY (openssl rand -hex 32).
+ */
+export function requireTwoFactorEncKey(): Buffer {
+  const configured = process.env.TWO_FACTOR_ENC_KEY?.trim();
+  if (configured) {
+    const key = parseEncKeyMaterial(configured);
+    if (key) return key;
+  }
+
+  if (isProductionRuntime()) {
+    throw new Error(
+      "TWO_FACTOR_ENC_KEY must be set to a 32-byte key in production " +
+        "(openssl rand -hex 32)."
+    );
+  }
+
+  const seed = `2fa-enc|${process.cwd()}|${process.env.USER ?? process.env.USERNAME ?? "dev"}`;
+  return createHash("sha256").update(seed).digest();
+}
+
+/** AES-256-GCM encrypt — returns base64url(iv || tag || ciphertext). */
+export function encryptSecret(plaintext: string): string {
+  const key = requireTwoFactorEncKey();
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const encrypted = Buffer.concat([
+    cipher.update(plaintext, "utf8"),
+    cipher.final(),
+  ]);
+  const tag = cipher.getAuthTag();
+  return Buffer.concat([iv, tag, encrypted]).toString("base64url");
+}
+
+/** Decrypt value produced by encryptSecret. */
+export function decryptSecret(packed: string): string {
+  const key = requireTwoFactorEncKey();
+  const buf = Buffer.from(packed, "base64url");
+  if (buf.length < 12 + 16 + 1) {
+    throw new Error("Invalid encrypted secret");
+  }
+  const iv = buf.subarray(0, 12);
+  const tag = buf.subarray(12, 28);
+  const ciphertext = buf.subarray(28);
+  const decipher = createDecipheriv("aes-256-gcm", key, iv);
+  decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString(
+    "utf8"
+  );
 }

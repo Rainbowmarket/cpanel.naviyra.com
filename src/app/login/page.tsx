@@ -15,6 +15,9 @@ function LoginForm() {
   const [domain, setDomain] = useState("");
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
+  const [needs2fa, setNeeds2fa] = useState(false);
+  const [totpCode, setTotpCode] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (searchParams.get("reset") === "1") {
@@ -39,34 +42,64 @@ function LoginForm() {
     e.preventDefault();
     setError("");
     setInfo("");
+    setSubmitting(true);
 
-    const res = await fetch("/api/auth/login", {
-      method: isSetup ? "POST" : "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(
-        isSetup
-          ? { email, password }
-          : { name, email, password, domain }
-      ),
-    });
+    try {
+      if (needs2fa) {
+        const res = await fetch("/api/auth/2fa/challenge", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code: totpCode }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setError(
+            typeof data.error === "string" ? data.error : "Invalid code"
+          );
+          return;
+        }
+        router.push("/dashboard/domains");
+        router.refresh();
+        return;
+      }
 
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      setError(
-        data.warning ||
-          data.error?.formErrors?.[0] ||
-          (typeof data.error === "string" ? data.error : null) ||
-          (isSetup ? "Invalid credentials" : "Setup failed")
-      );
-      return;
+      const res = await fetch("/api/auth/login", {
+        method: isSetup ? "POST" : "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          isSetup
+            ? { email, password }
+            : { name, email, password, domain }
+        ),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(
+          data.warning ||
+            data.error?.formErrors?.[0] ||
+            (typeof data.error === "string" ? data.error : null) ||
+            (isSetup ? "Invalid credentials" : "Setup failed")
+        );
+        return;
+      }
+
+      if (data.requires2fa) {
+        setNeeds2fa(true);
+        setTotpCode("");
+        setInfo("Enter the 6-digit code from your authenticator app (or a backup code).");
+        return;
+      }
+
+      if (data.warning) {
+        setError(data.warning);
+      }
+
+      router.push("/dashboard/domains");
+      router.refresh();
+    } finally {
+      setSubmitting(false);
     }
-
-    if (data.warning) {
-      setError(data.warning);
-    }
-
-    router.push("/dashboard/domains");
-    router.refresh();
   }
 
   return (
@@ -78,80 +111,120 @@ function LoginForm() {
         </p>
       </div>
       <h1 className="mt-4 text-2xl font-bold text-white">
-        {isSetup ? "Sign in" : "Initial setup"}
+        {needs2fa
+          ? "Two-factor authentication"
+          : isSetup
+            ? "Sign in"
+            : "Initial setup"}
       </h1>
       <p className="mt-1 text-sm text-slate-400">
-        {isSetup
-          ? "Access your hosting control panel"
-          : "Create the admin account and register this server’s main domain"}
+        {needs2fa
+          ? "Confirm it’s you with an authenticator or backup code"
+          : isSetup
+            ? "Access your hosting control panel"
+            : "Create the admin account and register this server’s main domain"}
       </p>
 
       <form onSubmit={handleSubmit} className="mt-8 space-y-4">
-        {!isSetup && (
+        {needs2fa ? (
           <>
             <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Your name"
+              value={totpCode}
+              onChange={(e) => setTotpCode(e.target.value)}
+              placeholder="123456 or backup code"
+              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 font-mono text-white tracking-widest"
+              required
+              autoFocus
+              autoComplete="one-time-code"
+              inputMode="text"
+            />
+            <button
+              type="button"
+              onClick={() => {
+                setNeeds2fa(false);
+                setTotpCode("");
+                setInfo("");
+                setError("");
+              }}
+              className="text-sm text-slate-400 hover:text-white"
+            >
+              ← Back to password
+            </button>
+          </>
+        ) : (
+          <>
+            {!isSetup && (
+              <>
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Your name"
+                  className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-white"
+                  required
+                />
+                <div>
+                  <input
+                    value={domain}
+                    onChange={(e) => setDomain(e.target.value)}
+                    placeholder="Main domain (e.g. yourdomain.com)"
+                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-white"
+                    required
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    spellCheck={false}
+                  />
+                  <p className="mt-1.5 text-xs text-slate-500">
+                    Registers primary server as{" "}
+                    <span className="font-mono text-slate-400">
+                      server1.{domain.trim() || "yourdomain"}
+                    </span>
+                  </p>
+                </div>
+              </>
+            )}
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Email"
               className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-white"
               required
             />
             <div>
               <input
-                value={domain}
-                onChange={(e) => setDomain(e.target.value)}
-                placeholder="Main domain (e.g. yourdomain.com)"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Password"
                 className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-white"
                 required
-                autoCapitalize="off"
-                autoCorrect="off"
-                spellCheck={false}
+                minLength={8}
               />
-              <p className="mt-1.5 text-xs text-slate-500">
-                Registers primary server as{" "}
-                <span className="font-mono text-slate-400">
-                  server1.{domain.trim() || "yourdomain"}
-                </span>
-              </p>
+              {isSetup ? (
+                <div className="mt-2 text-right">
+                  <Link
+                    href="/login/forgot"
+                    className="text-sm text-emerald-400 hover:text-emerald-300"
+                  >
+                    Forgot password?
+                  </Link>
+                </div>
+              ) : null}
             </div>
           </>
         )}
-        <input
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="Email"
-          className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-white"
-          required
-        />
-        <div>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Password"
-            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-white"
-            required
-            minLength={8}
-          />
-          {isSetup ? (
-            <div className="mt-2 text-right">
-              <Link
-                href="/login/forgot"
-                className="text-sm text-emerald-400 hover:text-emerald-300"
-              >
-                Forgot password?
-              </Link>
-            </div>
-          ) : null}
-        </div>
         {info && <p className="text-sm text-emerald-400">{info}</p>}
         {error && <p className="text-sm text-red-400">{error}</p>}
         <button
           type="submit"
-          className="w-full rounded-lg bg-emerald-600 py-2.5 font-medium text-white hover:bg-emerald-500"
+          disabled={submitting}
+          className="w-full rounded-lg bg-emerald-600 py-2.5 font-medium text-white hover:bg-emerald-500 disabled:opacity-60"
         >
-          {isSetup ? "Sign in" : "Create admin & register server"}
+          {needs2fa
+            ? "Verify"
+            : isSetup
+              ? "Sign in"
+              : "Create admin & register server"}
         </button>
       </form>
     </div>

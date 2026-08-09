@@ -73,6 +73,7 @@ export default function SubdomainsPage() {
   const { confirm } = useAlert();
   const [domains, setDomains] = useState<Domain[]>([]);
   const [panelBaseDomain, setPanelBaseDomain] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [subdomains, setSubdomains] = useState<Subdomain[]>([]);
   const [domainId, setDomainId] = useState("");
   const [name, setName] = useState("");
@@ -104,6 +105,9 @@ export default function SubdomainsPage() {
       }
     | { error: string } {
     if (createMode === "custom") {
+      if (!isAdmin) {
+        return { error: "Custom subdomains are available to administrators only" };
+      }
       const fqdn =
         customFqdn.trim().toLowerCase().replace(/^https?:\/\//, "").split("/")[0] ??
         "";
@@ -132,6 +136,7 @@ export default function SubdomainsPage() {
     const data = await res.json();
     const list = data.domains ?? [];
     setDomains(list);
+    setIsAdmin(data.role === "ADMIN");
     setPanelBaseDomain(
       typeof data.panelBaseDomain === "string" ? data.panelBaseDomain : null
     );
@@ -319,11 +324,17 @@ export default function SubdomainsPage() {
         onClose={() => {
           setCreateOpen(false);
           setError("");
+          setCreateMode("standard");
         }}
         title="Add Subdomain"
-        description="Create a standard or custom subdomain under your domains."
+        description={
+          isAdmin
+            ? "Create a standard or custom subdomain under your domains."
+            : "Create a subdomain under one of your domains."
+        }
       >
         <form onSubmit={handleCreate} className="space-y-4">
+          {isAdmin ? (
           <div className="flex gap-2 rounded-lg border border-slate-800 bg-slate-900/50 p-1">
             <button
               type="button"
@@ -348,8 +359,9 @@ export default function SubdomainsPage() {
               Custom subdomain
             </button>
           </div>
+          ) : null}
 
-          {createMode === "standard" ? (
+          {createMode === "standard" || !isAdmin ? (
             <>
               <div>
                 <label className={modalLabelClass}>Domain</label>

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireSessionUser } from "@/lib/auth";
+import { requireAdminUser } from "@/lib/auth";
 import {
   createTerminalSession,
   endTerminalSession,
@@ -8,12 +8,15 @@ import {
 
 export async function GET() {
   try {
-    const user = await requireSessionUser();
+    const user = await requireAdminUser();
     const sessions = await listTerminalSessions(user.id);
     return NextResponse.json({ success: true, sessions });
   } catch (error) {
     if (error instanceof Error && error.message === "Unauthorized") {
       return NextResponse.json({ success: false, message: "Not authenticated" }, { status: 401 });
+    }
+    if (error instanceof Error && error.message === "Forbidden") {
+      return NextResponse.json({ success: false, message: "Admin only" }, { status: 403 });
     }
     return NextResponse.json(
       { success: false, message: error instanceof Error ? error.message : "Failed" },
@@ -24,7 +27,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireAdminUser();
     const body = (await request.json().catch(() => ({}))) as {
       targetId?: string;
       action?: string;
@@ -42,9 +45,16 @@ export async function POST(request: Request) {
     if (error instanceof Error && error.message === "Unauthorized") {
       return NextResponse.json({ success: false, message: "Not authenticated" }, { status: 401 });
     }
+    if (error instanceof Error && error.message === "Forbidden") {
+      return NextResponse.json({ success: false, message: "Admin only" }, { status: 403 });
+    }
     const message = error instanceof Error ? error.message : "Failed to create terminal session";
     const status =
-      message.includes("Select a domain") || message.includes("Invalid hosting") ? 400 : 500;
+      message.includes("Select a domain") ||
+      message.includes("Invalid hosting") ||
+      message.includes("administrators only")
+        ? 400
+        : 500;
     return NextResponse.json({ success: false, message }, { status });
   }
 }

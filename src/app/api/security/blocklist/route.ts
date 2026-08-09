@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireSessionUser } from "@/lib/auth";
+import { requireAdminUser, requireSessionUser } from "@/lib/auth";
 import { requireAgentApiKey } from "@/lib/secrets";
 import {
   autoBlockTtlMs,
@@ -23,7 +23,7 @@ async function authorizeExpire(request: Request): Promise<void> {
   if (bearerTokenMatches(request.headers.get("authorization"), workerToken())) {
     return;
   }
-  await requireSessionUser();
+  await requireAdminUser();
 }
 
 export async function GET() {
@@ -58,11 +58,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, ...result });
     }
 
-    await requireSessionUser();
+    await requireAdminUser();
     const parsed = blockSchema.parse(body);
     await blockIp(parsed.ip, parsed.reason, "manual");
     return NextResponse.json({ ok: true }, { status: 201 });
   } catch (error) {
+    if (error instanceof Error && error.message === "Forbidden") {
+      return NextResponse.json({ error: "Admin only" }, { status: 403 });
+    }
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: error.flatten() }, { status: 400 });
     }
@@ -75,12 +78,15 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    await requireSessionUser();
+    await requireAdminUser();
     const ip = new URL(request.url).searchParams.get("ip");
     if (!ip) return NextResponse.json({ error: "ip required" }, { status: 400 });
     await unblockIp(ip);
     return NextResponse.json({ ok: true });
   } catch (error) {
+    if (error instanceof Error && error.message === "Forbidden") {
+      return NextResponse.json({ error: "Admin only" }, { status: 403 });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to unblock" },
       { status: 400 }

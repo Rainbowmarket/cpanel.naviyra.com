@@ -159,12 +159,16 @@ export async function fileActions(
 
 export async function deleteItem(isFile: boolean, targetPath: string) {
   const action = isFile ? "deleteFile" : "deleteDirectory";
-  const q = new URLSearchParams({
-    target: getFileManagerTarget(),
-    action,
-    p: targetPath,
+  const r = await fetch("/api/file-manager/delete", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      target: getFileManagerTarget(),
+      action,
+      p: targetPath,
+    }),
   });
-  const r = await fetch(`/api/file-manager/delete?${q}`, { credentials: "include" });
   const text = await r.text();
   if (!r.ok) throw new Error(text || `HTTP ${r.status}`);
   return text;
@@ -175,13 +179,17 @@ export async function createItem(
   dirPath: string,
   name: string
 ) {
-  const q = new URLSearchParams({
-    target: getFileManagerTarget(),
-    action: kind,
-    p: dirPath,
-    name,
+  const r = await fetch("/api/file-manager/create", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      target: getFileManagerTarget(),
+      action: kind,
+      p: dirPath,
+      name,
+    }),
   });
-  const r = await fetch(`/api/file-manager/create?${q}`, { credentials: "include" });
   const text = await r.text();
   if (!r.ok) throw new Error(text || `HTTP ${r.status}`);
   return text;

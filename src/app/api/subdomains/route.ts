@@ -45,6 +45,12 @@ export async function POST(request: Request) {
     let name = body.name;
 
     if (body.fqdn) {
+      if (user.role !== "ADMIN") {
+        return NextResponse.json(
+          { error: "Custom subdomains are available to administrators only" },
+          { status: 403 }
+        );
+      }
       const resolved = await resolveCustomSubdomainFqdn(
         body.fqdn,
         user.id,

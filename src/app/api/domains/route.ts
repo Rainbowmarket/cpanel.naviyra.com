@@ -102,8 +102,13 @@ export async function PATCH(request: Request) {
   }
 }
 
-// List available servers for domain creation
+// List available servers for domain creation (authenticated)
 export async function OPTIONS() {
+  try {
+    await requireSessionUser();
+  } catch {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   const servers = await prisma.server.findMany({
     where: { isActive: true },
     select: { id: true, name: true, hostname: true },

@@ -19,6 +19,7 @@ import {
   Database,
   Gauge,
   BookOpen,
+  KeyRound,
   X,
 } from "lucide-react";
 import { BrandLogo } from "@/components/ui/brand-logo";
@@ -30,6 +31,7 @@ const navGroups = [
     items: [
       { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
       { href: "/dashboard/docs", label: "Docs", icon: BookOpen },
+      { href: "/dashboard/account", label: "Account security", icon: KeyRound },
     ],
   },
   {
@@ -54,7 +56,6 @@ const navGroups = [
     items: [
       { href: "/dashboard/files", label: "File Manager", icon: FolderOpen },
       { href: "/dashboard/security", label: "Security", icon: Shield },
-      { href: "/dashboard/terminal", label: "Terminal", icon: Terminal },
     ],
   },
 ];
@@ -65,6 +66,7 @@ const adminNavGroup = {
     { href: "/dashboard/users", label: "Users", icon: Users },
     { href: "/dashboard/backups", label: "Backups", icon: Archive },
     { href: "/dashboard/speed-test", label: "Speed Test", icon: Gauge },
+    { href: "/dashboard/terminal", label: "Terminal", icon: Terminal },
   ],
 };
 

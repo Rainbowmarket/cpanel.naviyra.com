@@ -4,6 +4,8 @@ import { verifyPassword } from "@/lib/auth";
 import { shouldUseSecureCookies } from "@/lib/cookie-secure";
 import { callAgent } from "@/lib/agent/client";
 import { getAgentApiKey } from "@/lib/paths";
+import { fromB64url, hmacSign, hmacVerify, b64url } from "@/lib/crypto-hmac";
+import { requireSessionSecret } from "@/lib/secrets";
 
 const MAIL_SESSION_COOKIE = "naviyra_mail_session";
 const MAIL_SESSION_MAX_AGE = 60 * 60 * 24 * 7; // 7 days
@@ -22,6 +24,11 @@ export type MailAuthResult =
       attemptsLeft?: number;
     };
 
+type MailClaims = {
+  aid: string;
+  exp: number;
+};
+
 function cookieSecure(): boolean {
   return shouldUseSecureCookies();
 }
@@ -32,9 +39,31 @@ function maxFailedLogins(): number {
   return Math.floor(raw);
 }
 
+function encodeMailSession(accountId: string): string {
+  const exp = Math.floor(Date.now() / 1000) + MAIL_SESSION_MAX_AGE;
+  const payload = b64url(JSON.stringify({ aid: accountId, exp } satisfies MailClaims));
+  const sig = hmacSign(payload, requireSessionSecret());
+  return `${payload}.${sig}`;
+}
+
+function decodeMailSession(token: string): MailClaims | null {
+  const parts = token.split(".");
+  if (parts.length !== 2) return null;
+  const [payload, sig] = parts;
+  if (!hmacVerify(payload, sig, requireSessionSecret())) return null;
+  try {
+    const claims = JSON.parse(fromB64url(payload).toString("utf8")) as MailClaims;
+    if (!claims.aid || typeof claims.exp !== "number") return null;
+    if (Date.now() / 1000 > claims.exp) return null;
+    return claims;
+  } catch {
+    return null;
+  }
+}
+
 export async function createMailSession(accountId: string): Promise<void> {
   const cookieStore = await cookies();
-  cookieStore.set(MAIL_SESSION_COOKIE, accountId, {
+  cookieStore.set(MAIL_SESSION_COOKIE, encodeMailSession(accountId), {
     httpOnly: true,
     secure: cookieSecure(),
     sameSite: "lax",
@@ -50,11 +79,17 @@ export async function destroyMailSession(): Promise<void> {
 
 export async function getMailSession(): Promise<MailSession | null> {
   const cookieStore = await cookies();
-  const accountId = cookieStore.get(MAIL_SESSION_COOKIE)?.value;
-  if (!accountId) return null;
+  const raw = cookieStore.get(MAIL_SESSION_COOKIE)?.value;
+  if (!raw) return null;
+
+  // Legacy: raw accountId cookie (pre-signed). Reject — force re-login.
+  if (!raw.includes(".")) return null;
+
+  const claims = decodeMailSession(raw);
+  if (!claims) return null;
 
   const account = await prisma.mailAccount.findUnique({
-    where: { id: accountId },
+    where: { id: claims.aid },
     select: { id: true, email: true, isActive: true },
   });
 

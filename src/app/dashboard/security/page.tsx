@@ -231,6 +231,7 @@ function SecurityPageInner() {
   const [blockReason, setBlockReason] = useState("Manual block");
   const [whiteIp, setWhiteIp] = useState("");
   const [whiteLabel, setWhiteLabel] = useState("");
+  const [isAdmin, setIsAdmin] = useState(false);
 
   const domainQuery = domainId ? `?domainId=${domainId}` : "";
 
@@ -316,7 +317,10 @@ function SecurityPageInner() {
   useEffect(() => {
     fetch("/api/domains")
       .then((r) => r.json())
-      .then((d) => setDomains(d.domains ?? []));
+      .then((d) => {
+        setDomains(d.domains ?? []);
+        setIsAdmin(d.role === "ADMIN");
+      });
   }, []);
 
   useEffect(() => {
@@ -829,14 +833,16 @@ function SecurityPageInner() {
                     {e.url} {e.payload ? `· ${e.payload.slice(0, 40)}` : ""}
                   </td>
                   <td className="px-3 py-2 sm:px-4">
-                    <button
-                      type="button"
-                      onClick={() => blockFromEvent(e.id)}
-                      className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:border-red-500/40 hover:text-red-300"
-                    >
-                      <Ban className="h-3 w-3" />
-                      Block
-                    </button>
+                    {isAdmin ? (
+                      <button
+                        type="button"
+                        onClick={() => blockFromEvent(e.id)}
+                        className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:border-red-500/40 hover:text-red-300"
+                      >
+                        <Ban className="h-3 w-3" />
+                        Block
+                      </button>
+                    ) : null}
                   </td>
                 </tr>
               ))}
@@ -847,6 +853,7 @@ function SecurityPageInner() {
 
       {tab === "blocked" && (
         <div className="space-y-3">
+          {isAdmin ? (
           <form
             onSubmit={addBlock}
             className="flex flex-wrap gap-2 rounded-xl border border-slate-800 bg-slate-950/80 p-3.5"
@@ -873,6 +880,11 @@ function SecurityPageInner() {
               Block IP
             </button>
           </form>
+          ) : (
+            <p className="text-xs text-slate-500">
+              Viewing blocked IPs. Only administrators can block or unblock.
+            </p>
+          )}
           <TableShell empty={blocked.length === 0} emptyText="No blocked IPs.">
             <thead>
               <tr className="border-b border-slate-800 text-left text-[10px] uppercase tracking-wider text-slate-500">
@@ -911,6 +923,7 @@ function SecurityPageInner() {
                       {expires ? expires.toLocaleString() : "Never"}
                     </td>
                     <td className="px-3 py-2 sm:px-4">
+                      {isAdmin ? (
                       <button
                         type="button"
                         onClick={() => unblock(b.ipAddress)}
@@ -919,6 +932,7 @@ function SecurityPageInner() {
                         <Unlock className="h-3 w-3" />
                         Unblock
                       </button>
+                      ) : null}
                     </td>
                   </tr>
                 );
@@ -930,6 +944,7 @@ function SecurityPageInner() {
 
       {tab === "whitelist" && (
         <div className="space-y-3">
+          {isAdmin ? (
           <form
             onSubmit={addWhite}
             className="flex flex-wrap gap-2 rounded-xl border border-slate-800 bg-slate-950/80 p-3.5"
@@ -955,6 +970,11 @@ function SecurityPageInner() {
               Add IP
             </button>
           </form>
+          ) : (
+            <p className="text-xs text-slate-500">
+              Viewing whitelist. Only administrators can add or remove entries.
+            </p>
+          )}
           <TableShell empty={whitelist.length === 0} emptyText="No whitelisted IPs.">
             <thead>
               <tr className="border-b border-slate-800 text-left text-[10px] uppercase tracking-wider text-slate-500">
@@ -973,6 +993,7 @@ function SecurityPageInner() {
                     {new Date(w.createdAt).toLocaleString()}
                   </td>
                   <td className="px-3 py-2 sm:px-4">
+                    {isAdmin ? (
                     <button
                       type="button"
                       onClick={() => removeWhite(w.id)}
@@ -981,6 +1002,7 @@ function SecurityPageInner() {
                       <Trash2 className="h-3 w-3" />
                       Remove
                     </button>
+                    ) : null}
                   </td>
                 </tr>
               ))}

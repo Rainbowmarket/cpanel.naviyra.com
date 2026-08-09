@@ -62,6 +62,16 @@ weak_session = (
 )
 if weak_session:
     updates["SESSION_SECRET"] = secrets.token_hex(32)
+m3 = re.search(r"^TWO_FACTOR_ENC_KEY=(.*)$", text, re.M)
+cur3 = (m3.group(1).strip().strip('"') if m3 else "")
+weak_2fa = (
+    not cur3
+    or len(cur3) < 32
+    or cur3.startswith("naviyra-local")
+    or cur3 in {"change-me", "secret", "password"}
+)
+if weak_2fa:
+    updates["TWO_FACTOR_ENC_KEY"] = secrets.token_hex(32)
 lines = text.splitlines()
 seen = set()
 out = []

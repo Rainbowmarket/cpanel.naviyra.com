@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { requireSessionUser } from "@/lib/auth";
+import { requireAdminUser } from "@/lib/auth";
 import { appendTerminalLogs, getTerminalLogs } from "@/lib/services/terminal";
 
 export async function GET(request: Request) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireAdminUser();
     const sessionId = new URL(request.url).searchParams.get("sessionId");
     if (!sessionId) {
       return NextResponse.json({ success: false, message: "sessionId required" }, { status: 400 });
@@ -15,6 +15,9 @@ export async function GET(request: Request) {
     if (error instanceof Error && error.message === "Unauthorized") {
       return NextResponse.json({ success: false, message: "Not authenticated" }, { status: 401 });
     }
+    if (error instanceof Error && error.message === "Forbidden") {
+      return NextResponse.json({ success: false, message: "Admin only" }, { status: 403 });
+    }
     const message = error instanceof Error ? error.message : "Failed";
     const status = message.includes("not found") ? 404 : 500;
     return NextResponse.json({ success: false, message }, { status });
@@ -23,7 +26,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireAdminUser();
     const body = (await request.json()) as {
       sessionId?: string;
       lines?: Array<{ at?: string; kind: "cmd" | "out" | "sys"; text: string }>;
@@ -39,6 +42,9 @@ export async function POST(request: Request) {
   } catch (error) {
     if (error instanceof Error && error.message === "Unauthorized") {
       return NextResponse.json({ success: false, message: "Not authenticated" }, { status: 401 });
+    }
+    if (error instanceof Error && error.message === "Forbidden") {
+      return NextResponse.json({ success: false, message: "Admin only" }, { status: 403 });
     }
     const message = error instanceof Error ? error.message : "Failed";
     const status = message.includes("not found") ? 404 : 500;

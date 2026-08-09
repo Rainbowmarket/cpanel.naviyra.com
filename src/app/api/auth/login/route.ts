@@ -5,6 +5,7 @@ import {
   hashPassword,
   verifyPassword,
 } from "@/lib/auth";
+import { applyPending2faCookie } from "@/lib/auth-2fa";
 import { prisma } from "@/lib/prisma";
 import { bootstrapMainServer } from "@/lib/services/bootstrap";
 import {
@@ -49,6 +50,20 @@ export async function POST(request: Request) {
     }
 
     clearLoginFailures(ip, body.email);
+
+    if (user.twoFactorEnabled && user.twoFactorSecret) {
+      const response = NextResponse.json({
+        requires2fa: true,
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          role: user.role,
+        },
+      });
+      return applyPending2faCookie(response, user.id, user.sessionVersion);
+    }
+
     const response = NextResponse.json({
       user: {
         id: user.id,

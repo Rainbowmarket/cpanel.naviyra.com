@@ -35,7 +35,7 @@ export const DOC_ARTICLES: DocArticle[] = [
         heading: "Roles",
         body: [
           "USER and RESELLER manage their own domains and related services.",
-          "ADMIN can manage all users, backups, speed test, and full-server terminal access.",
+          "ADMIN can manage all users, backups, speed test, and Terminal (host shell).",
         ],
         tips: [
           "Live hosting changes need the agent running as root/Administrator with AGENT_DRY_RUN=false.",
@@ -238,7 +238,7 @@ export const DOC_ARTICLES: DocArticle[] = [
         body: [
           "Nginx uses map $http_upgrade $connection_upgrade (installed as /etc/nginx/conf.d/naviyra-websocket-map.conf).",
           "New proxy vhosts get Upgrade headers automatically; deploy refreshes existing ones via scripts/install-websocket-map.sh.",
-          "Panel Terminal WebSockets (wss://panel/terminal-ws/…) are separate — that is for the admin/user shell, not customer apps.",
+          "Panel Terminal WebSockets (wss://panel/terminal-ws/…) are separate — that is for the admin shell, not customer apps.",
         ],
         tips: [
           "If WS fails: ensure Runtime is Node/Python/Go and the unit is Started; ensure SSL is active; ensure your app handles the path; check agent/nginx logs.",
@@ -478,7 +478,7 @@ export const DOC_ARTICLES: DocArticle[] = [
         steps: [
           "Open Tools → Security.",
           "Review Visitors, Threats, Blocked, and Whitelist tabs.",
-          "Block abusive IPs manually, or rely on auto-blocks from detected threats.",
+          "Administrators can block/unblock IPs and manage the whitelist; other roles can view.",
         ],
       },
       {
@@ -487,6 +487,7 @@ export const DOC_ARTICLES: DocArticle[] = [
           "Blocked IPs are enforced for site traffic via the security stack.",
           "Auto-blocks can expire after AUTO_BLOCK_TTL_HOURS; manual blocks stay until removed.",
           "Whitelist entries bypass blocking for trusted IPs.",
+          "Manual block/whitelist changes and “Block” from a threat event require ADMIN.",
         ],
         tips: [
           "Visitor ingest uses a secure ingest key from nginx/log parsers when configured.",
@@ -502,19 +503,47 @@ export const DOC_ARTICLES: DocArticle[] = [
     ],
   },
   {
+    slug: "two-factor",
+    title: "Two-factor authentication (2FA)",
+    summary: "Protect panel login with an authenticator app and backup codes.",
+    href: "/dashboard/account",
+    audience: "all",
+    category: "Getting started",
+    sections: [
+      {
+        heading: "How to enable",
+        steps: [
+          "Open Main → Account security.",
+          "Click Enable 2FA and scan the QR code with Google Authenticator, Authy, or 1Password.",
+          "Enter a 6-digit code to confirm.",
+          "Save the backup codes offline — they are shown only once.",
+        ],
+      },
+      {
+        heading: "How login works",
+        body: [
+          "After your password, the panel asks for a TOTP code (or an unused backup code).",
+          "Disable 2FA anytime from Account security by re-entering your password.",
+        ],
+        tips: [
+          "Production needs TWO_FACTOR_ENC_KEY in .env (openssl rand -hex 32).",
+        ],
+      },
+    ],
+  },
+  {
     slug: "terminal",
     title: "Terminal",
-    summary: "Web shell with session log — full for admins, restricted start dir for users.",
+    summary: "Admin-only web shell with session log (full server privileges).",
     href: "/dashboard/terminal",
-    audience: "all",
-    category: "Tools",
+    audience: "admin",
+    category: "Admin",
     sections: [
       {
         heading: "How to start a session",
         steps: [
-          "Open Tools → Terminal.",
-          "Admins may connect to server root or a selected document root.",
-          "Users/resellers must select a domain/subdomain, then Connect.",
+          "Open Admin → Terminal (administrators only).",
+          "Connect to server root or a selected document root.",
         ],
       },
       {
@@ -531,8 +560,8 @@ export const DOC_ARTICLES: DocArticle[] = [
       {
         heading: "Specialties — important",
         body: [
-          "“Jail” / restricted mode only sets the starting cwd and HOME — it is not a security jail (no chroot).",
-          "Users can still leave that path with the agent process OS permissions. Prefer least-privilege OS users for real isolation.",
+          "Non-admin Terminal was removed: prior “jail” mode was not OS containment.",
+          "Sessions run with the agent process privileges — treat as full host access.",
         ],
       },
     ],

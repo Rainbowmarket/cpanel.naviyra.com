@@ -32,18 +32,28 @@ export default function TerminalPage() {
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    fetch("/api/terminal/targets")
+    fetch("/api/auth/me")
       .then((r) => r.json())
       .then((d) => {
+        const r = d.user?.role ?? d.role ?? "";
+        setRole(r);
+      })
+      .catch(() => setError("Failed to load session"));
+
+    fetch("/api/terminal/targets")
+      .then(async (r) => {
+        const d = await r.json();
+        if (!r.ok) {
+          if (r.status === 403) setRole((prev) => prev || "USER");
+          return;
+        }
         setRole(d.role ?? "");
         setTargets(d.targets ?? []);
-        if (d.role === "ADMIN") {
-          setTargetId("");
-        } else if (d.targets?.[0]) {
-          setTargetId(d.targets[0].id);
-        }
+        setTargetId("");
       })
-      .catch(() => setError("Failed to load targets"));
+      .catch(() => {
+        /* targets load optional when non-admin */
+      });
   }, []);
 
   const flushLogs = useCallback(async () => {
@@ -268,11 +278,38 @@ export default function TerminalPage() {
     ...targets.map((t) => ({ value: t.id, label: `${t.label} — ${t.documentRoot}` })),
   ];
 
+  if (!role) {
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Terminal"
+          description="Interactive server shell (administrators only)."
+        />
+        <p className="text-sm text-slate-500">Loading…</p>
+      </div>
+    );
+  }
+
+  if (role !== "ADMIN") {
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Terminal"
+          description="Interactive server shell (administrators only)."
+        />
+        <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+          Terminal access is restricted to administrators. The previous “jail”
+          mode was not a security boundary.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Terminal"
-        description="Interactive shell with session command log. Admins get a full server shell; other users start in their document root (restricted cwd only — not a security jail)."
+        description="Interactive shell with session command log. Administrator access — runs with agent process privileges."
       />
 
       <div className="flex flex-wrap items-end gap-3">

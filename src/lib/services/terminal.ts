@@ -13,28 +13,29 @@ export async function createTerminalSession(
   user: SessionUser,
   targetId?: string
 ) {
+  // "jail" mode is not OS containment — Terminal is admin-only until real isolation exists.
+  if (user.role !== "ADMIN") {
+    throw new Error("Terminal is available to administrators only");
+  }
+
   let mode: "full" | "jail";
   let cwd: string;
   let targetLabel: string | null = null;
   let dbMode: "FULL" | "JAIL";
 
-  if (user.role === "ADMIN" && !targetId) {
+  if (!targetId) {
     mode = "full";
     dbMode = "FULL";
     cwd = process.platform === "win32" ? process.cwd() : "/";
     targetLabel = "Server root";
   } else {
-    if (!targetId) {
-      throw new Error("Select a domain or subdomain for the terminal");
-    }
     const target = await resolveHostingTarget(
       targetId,
       { id: user.id, role: user.role },
       { excludeMailSubdomains: true }
     );
-    // Non-admins: restricted start directory only (mode "jail" is not containment).
-    mode = user.role === "ADMIN" ? "full" : "jail";
-    dbMode = mode === "full" ? "FULL" : "JAIL";
+    mode = "full";
+    dbMode = "FULL";
     cwd = target.documentRoot;
     targetLabel = target.label;
   }
