@@ -8,7 +8,7 @@ export async function GET(request: Request) {
   try {
     const user = await requireSessionUser();
     const domainId = new URL(request.url).searchParams.get("domainId") ?? undefined;
-    const events = await listSecurityEvents(user.id, domainId);
+    const events = await listSecurityEvents(user.id, domainId, 50, user.role);
     return NextResponse.json({ events });
   } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

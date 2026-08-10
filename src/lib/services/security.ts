@@ -8,6 +8,13 @@ import {
 } from "@/lib/security/threat-detector";
 import type { ThreatSeverity, ThreatType } from "@/generated/prisma/client";
 
+type AccessRole = "ADMIN" | "RESELLER" | "USER";
+
+/** Admins can see all domains; others only their own. */
+function domainOwnerFilter(userId: string, role?: AccessRole) {
+  return role === "ADMIN" ? {} : { userId };
+}
+
 const LIVE_TTL_MS = 5 * 60 * 1000;
 const AUTO_BLOCK_THRESHOLD = Number(process.env.AUTO_BLOCK_THRESHOLD ?? 5);
 const AUTO_BLOCK_WINDOW_MS = Number(process.env.AUTO_BLOCK_WINDOW_MINUTES ?? 15) * 60 * 1000;
@@ -69,9 +76,16 @@ function mapType(t: string): ThreatType {
   return allowed.includes(t as ThreatType) ? (t as ThreatType) : "OTHER";
 }
 
-export async function getSecurityOverview(userId: string, domainId?: string) {
+export async function getSecurityOverview(
+  userId: string,
+  domainId?: string,
+  role?: AccessRole
+) {
   await expireAutoBlocks();
-  const domainFilter = domainId ? { domainId, domain: { userId } } : { domain: { userId } };
+  const owner = domainOwnerFilter(userId, role);
+  const domainFilter = domainId
+    ? { domainId, domain: owner }
+    : { domain: owner };
   const since = new Date();
   since.setHours(0, 0, 0, 0);
 
@@ -84,28 +98,35 @@ export async function getSecurityOverview(userId: string, domainId?: string) {
     prisma.securityEvent.count({
       where: {
         detectedAt: { gte: since },
-        ...(domainId ? { domainId, domain: { userId } } : { domain: { userId } }),
+        ...(domainId ? { domainId, domain: owner } : { domain: owner }),
       },
     }),
     prisma.blockedIp.count({ where: { isActive: true } }),
     prisma.liveVisitor.count({
       where: {
         lastSeen: { gte: new Date(Date.now() - LIVE_TTL_MS) },
-        ...(domainId ? { domainId, domain: { userId } } : { domain: { userId } }),
+        ...(domainId ? { domainId, domain: owner } : { domain: owner }),
       },
     }),
-    prisma.domain.count({ where: { userId, status: "ACTIVE" } }),
+    prisma.domain.count({
+      where: { status: "ACTIVE", ...owner },
+    }),
   ]);
 
   return { visitorsToday, uniqueToday, threatsToday, blockedIps, liveNow, domains };
 }
 
-export async function listLiveVisitors(userId: string, domainId?: string) {
+export async function listLiveVisitors(
+  userId: string,
+  domainId?: string,
+  role?: AccessRole
+) {
   await purgeStaleLive();
+  const owner = domainOwnerFilter(userId, role);
   return prisma.liveVisitor.findMany({
     where: {
       lastSeen: { gte: new Date(Date.now() - LIVE_TTL_MS) },
-      domain: { userId },
+      domain: owner,
       ...(domainId ? { domainId } : {}),
     },
     include: { domain: { select: { name: true } } },
@@ -122,12 +143,14 @@ export async function listVisitors(
     limit?: number;
     from?: Date;
     to?: Date;
+    role?: AccessRole;
   }
 ) {
   const limit = Math.min(opts.limit ?? 100, 5000);
+  const owner = domainOwnerFilter(userId, opts.role);
   return prisma.visitorLog.findMany({
     where: {
-      domain: { userId },
+      domain: owner,
       ...(opts.domainId ? { domainId: opts.domainId } : {}),
       ...(opts.from || opts.to
         ? {
@@ -153,10 +176,16 @@ export async function listVisitors(
   });
 }
 
-export async function listSecurityEvents(userId: string, domainId?: string, limit = 50) {
+export async function listSecurityEvents(
+  userId: string,
+  domainId?: string,
+  limit = 50,
+  role?: AccessRole
+) {
+  const owner = domainOwnerFilter(userId, role);
   return prisma.securityEvent.findMany({
     where: {
-      domain: { userId },
+      domain: owner,
       ...(domainId ? { domainId } : {}),
     },
     include: { domain: { select: { name: true } } },

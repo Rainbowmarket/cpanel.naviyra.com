@@ -27,7 +27,7 @@ export async function GET(request: Request) {
     const live = params.get("live") === "1";
 
     if (live) {
-      const rows = await listLiveVisitors(user.id, domainId);
+      const rows = await listLiveVisitors(user.id, domainId, user.role);
       return NextResponse.json({ live: rows });
     }
 
@@ -42,6 +42,7 @@ export async function GET(request: Request) {
       from,
       to,
       limit,
+      role: user.role,
     });
 
     if (format === "csv") {
