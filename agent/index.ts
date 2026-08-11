@@ -52,6 +52,7 @@ import {
 import { resolvePhpFpmPass } from "./php-fpm";
 import { attachTerminalWs } from "./terminal";
 import { bearerTokenMatches } from "./timing-safe";
+import { assertValidIpAddress, sanitizeBlockReason } from "./ip";
 import { extractZipArchive, isZipFileName } from "./zip";
 import {
   allocateUpstreamPort,
@@ -770,8 +771,10 @@ async function handleAction(payload: Action) {
     }
 
     case "block_ip": {
-      const ip = String(payload.ip);
-      const reason = String(payload.reason ?? "Naviyra security block");
+      const ip = assertValidIpAddress(String(payload.ip));
+      const reason = sanitizeBlockReason(
+        String(payload.reason ?? "Naviyra security block")
+      );
       if (!DRY_RUN && !isWindows) {
         await runCmd("ufw", ["deny", "from", ip]);
       } else {
@@ -785,14 +788,15 @@ async function handleAction(payload: Action) {
       } catch {
         /* new file */
       }
-      if (!lines.includes(ip)) {
-        await fs.appendFile(denyFile, `deny ${ip}; # ${reason}\n`, "utf8");
+      const denyLine = `deny ${ip}; # ${reason}`;
+      if (!lines.split("\n").some((l) => l.startsWith(`deny ${ip};`))) {
+        await fs.appendFile(denyFile, `${denyLine}\n`, "utf8");
       }
       return { success: true, data: { ip, dryRun: DRY_RUN } };
     }
 
     case "unblock_ip": {
-      const ip = String(payload.ip);
+      const ip = assertValidIpAddress(String(payload.ip));
       if (!DRY_RUN && !isWindows) {
         await runCmd("ufw", ["delete", "deny", "from", ip]).catch(() => undefined);
       } else {
@@ -803,11 +807,11 @@ async function handleAction(payload: Action) {
         const content = await fs.readFile(denyFile, "utf8");
         const next = content
           .split("\n")
-          .filter((line) => !line.includes(ip))
+          .filter((line) => !line.startsWith(`deny ${ip};`))
           .join("\n");
         await fs.writeFile(denyFile, next, "utf8");
       } catch {
-        /* no file */
+        /* ignore missing file */
       }
       return { success: true, data: { ip, dryRun: DRY_RUN } };
     }

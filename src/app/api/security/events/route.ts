@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAdminUser, requireSessionUser } from "@/lib/auth";
+import { isValidIpAddress } from "@/lib/ip";
 import { listSecurityEvents, logVisit, blockIp } from "@/lib/services/security";
 import { prisma } from "@/lib/prisma";
 
@@ -17,7 +18,10 @@ export async function GET(request: Request) {
 
 const ingestSchema = z.object({
   domainId: z.string(),
-  ipAddress: z.string(),
+  ipAddress: z
+    .string()
+    .min(3)
+    .refine((v) => isValidIpAddress(v), "Invalid IP address"),
   url: z.string(),
   method: z.string().optional(),
   userAgent: z.string().optional(),

@@ -1,4 +1,9 @@
+import path from "node:path";
 import { callAgent } from "@/lib/agent/client";
+import {
+  isPathUnderRoot,
+  resolvePathWithinRoot,
+} from "@/lib/file-manager-path";
 import { prisma } from "@/lib/prisma";
 
 export type FileEntry = {
@@ -9,15 +14,22 @@ export type FileEntry = {
   modifiedAt?: string;
 };
 
-export async function listFiles(path: string, domainId: string, userId: string) {
+function assertOwnedPath(filePath: string, documentRoot: string): string {
+  const root = path.resolve(documentRoot);
+  const resolved = path.resolve(filePath);
+  if (!isPathUnderRoot(resolved, root)) {
+    throw new Error("Access denied: path outside document root");
+  }
+  return resolved;
+}
+
+export async function listFiles(dirPath: string, domainId: string, userId: string) {
   const domain = await prisma.domain.findFirstOrThrow({
     where: { id: domainId, userId },
     include: { server: true },
   });
 
-  const safePath = path.startsWith(domain.documentRoot)
-    ? path
-    : domain.documentRoot;
+  const safePath = resolvePathWithinRoot(dirPath, domain.documentRoot);
 
   const result = await callAgent<{ entries: FileEntry[] }>(
     { action: "list_files", path: safePath },
@@ -31,18 +43,16 @@ export async function listFiles(path: string, domainId: string, userId: string) 
   return result.data?.entries ?? [];
 }
 
-export async function readFile(path: string, domainId: string, userId: string) {
+export async function readFile(filePath: string, domainId: string, userId: string) {
   const domain = await prisma.domain.findFirstOrThrow({
     where: { id: domainId, userId },
     include: { server: true },
   });
 
-  if (!path.startsWith(domain.documentRoot)) {
-    throw new Error("Access denied: path outside document root");
-  }
+  const safePath = assertOwnedPath(filePath, domain.documentRoot);
 
   const result = await callAgent<{ content: string }>(
-    { action: "read_file", path },
+    { action: "read_file", path: safePath },
     domain.server.agentKey
   );
 
@@ -54,7 +64,7 @@ export async function readFile(path: string, domainId: string, userId: string) {
 }
 
 export async function writeFile(
-  path: string,
+  filePath: string,
   content: string,
   domainId: string,
   userId: string
@@ -64,12 +74,10 @@ export async function writeFile(
     include: { server: true },
   });
 
-  if (!path.startsWith(domain.documentRoot)) {
-    throw new Error("Access denied: path outside document root");
-  }
+  const safePath = assertOwnedPath(filePath, domain.documentRoot);
 
   const result = await callAgent(
-    { action: "write_file", path, content },
+    { action: "write_file", path: safePath, content },
     domain.server.agentKey
   );
 

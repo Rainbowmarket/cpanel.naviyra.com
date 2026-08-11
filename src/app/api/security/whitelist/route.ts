@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAdminUser, requireSessionUser } from "@/lib/auth";
+import { isValidIpAddress } from "@/lib/ip";
 import { addWhitelist, listWhitelist, removeWhitelist } from "@/lib/services/security";
 
 export async function GET() {
@@ -14,8 +15,15 @@ export async function GET() {
 }
 
 const schema = z.object({
-  ip: z.string(),
-  label: z.string().optional(),
+  ip: z
+    .string()
+    .min(1)
+    .refine((v) => isValidIpAddress(v), "Must be a valid IPv4 or IPv6 address"),
+  label: z
+    .string()
+    .max(120)
+    .refine((v) => !/[\r\n\0]/.test(v), "Label cannot contain newlines")
+    .optional(),
 });
 
 export async function POST(request: Request) {

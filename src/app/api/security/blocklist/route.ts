@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAdminUser, requireSessionUser } from "@/lib/auth";
 import { requireAgentApiKey } from "@/lib/secrets";
+import { isValidIpAddress } from "@/lib/ip";
 import {
   autoBlockTtlMs,
   blockIp,
@@ -40,8 +41,15 @@ export async function GET() {
 }
 
 const blockSchema = z.object({
-  ip: z.string(),
-  reason: z.string().min(1),
+  ip: z
+    .string()
+    .min(1)
+    .refine((v) => isValidIpAddress(v), "Must be a valid IPv4 or IPv6 address"),
+  reason: z
+    .string()
+    .min(1)
+    .max(200)
+    .refine((v) => !/[\r\n\0]/.test(v), "Reason cannot contain newlines"),
 });
 
 export async function POST(request: Request) {

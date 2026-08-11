@@ -42,6 +42,16 @@ function recordLine(record: DnsRecordInput, domain: string, defaultTtl: number):
   const label = name === "@" ? "@" : name;
   const value = formatRecordValue(record.value, record.type);
 
+  // Defense in depth: never emit multi-line / directive-breaking tokens.
+  for (const [field, token] of [
+    ["name", label],
+    ["value", value],
+  ] as const) {
+    if (/[\r\n\0]/.test(token) || token.includes("$")) {
+      throw new Error(`Refusing to write unsafe DNS ${field} into zone file`);
+    }
+  }
+
   if (record.type === "MX") {
     const priority = record.priority ?? 10;
     return `${label.padEnd(8)} ${ttl} IN MX ${priority} ${value}`;

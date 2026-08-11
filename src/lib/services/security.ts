@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { callAgent } from "@/lib/agent/client";
+import { assertValidIpAddress, sanitizeBlockReason } from "@/lib/ip";
 import {
   analyzeThreats,
   lookupGeo,
@@ -330,28 +331,55 @@ export async function blockIp(
   securityEventId?: string,
   agentKey?: string
 ) {
-  const whitelisted = await prisma.whitelistedIp.findUnique({ where: { ipAddress: ip } });
+  const safeIp = assertValidIpAddress(ip);
+  const safeReason = sanitizeBlockReason(reason);
+
+  const whitelisted = await prisma.whitelistedIp.findUnique({
+    where: { ipAddress: safeIp },
+  });
   if (whitelisted) throw new Error("IP is whitelisted");
 
   await prisma.blockedIp.upsert({
-    where: { ipAddress: ip },
-    create: { ipAddress: ip, reason, source, securityEventId, blockedVia: "ufw" },
-    update: { reason, source, securityEventId, isActive: true, blockedAt: new Date() },
+    where: { ipAddress: safeIp },
+    create: {
+      ipAddress: safeIp,
+      reason: safeReason,
+      source,
+      securityEventId,
+      blockedVia: "ufw",
+    },
+    update: {
+      reason: safeReason,
+      source,
+      securityEventId,
+      isActive: true,
+      blockedAt: new Date(),
+    },
   });
 
-  await callAgent({ action: "block_ip", ip, reason }, agentKey);
+  await callAgent(
+    { action: "block_ip", ip: safeIp, reason: safeReason },
+    agentKey
+  );
 }
 
 export async function unblockIp(ip: string, agentKey?: string) {
+  const safeIp = assertValidIpAddress(ip);
   await prisma.blockedIp.updateMany({
-    where: { ipAddress: ip },
+    where: { ipAddress: safeIp },
     data: { isActive: false },
   });
-  await callAgent({ action: "unblock_ip", ip }, agentKey);
+  await callAgent({ action: "unblock_ip", ip: safeIp }, agentKey);
 }
 
 export async function addWhitelist(ip: string, label?: string) {
-  return prisma.whitelistedIp.create({ data: { ipAddress: ip, label } });
+  const safeIp = assertValidIpAddress(ip);
+  const safeLabel = label
+    ? sanitizeBlockReason(label, 120)
+    : undefined;
+  return prisma.whitelistedIp.create({
+    data: { ipAddress: safeIp, label: safeLabel },
+  });
 }
 
 export async function removeWhitelist(id: string) {

@@ -10,9 +10,17 @@ import { ensureMailHostSetup } from "@/lib/services/mail";
 
 const addSchema = z.object({
   domainId: z.string(),
-  name: z.string().min(1),
+  name: z
+    .string()
+    .min(1)
+    .max(253)
+    .refine((v) => !/[\r\n\0\t$]/.test(v), "Invalid characters in name"),
   type: z.enum(["A", "AAAA", "CNAME", "MX", "TXT"]),
-  value: z.string().min(1),
+  value: z
+    .string()
+    .min(1)
+    .max(2048)
+    .refine((v) => !/[\r\n\0]/.test(v), "Invalid characters in value"),
   ttl: z.number().int().positive().optional(),
   priority: z.number().int().min(0).max(65535).optional(),
 });

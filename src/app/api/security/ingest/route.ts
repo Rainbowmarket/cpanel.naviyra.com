@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireIngestKey } from "@/lib/secrets";
+import { isValidIpAddress } from "@/lib/ip";
 import { logVisit } from "@/lib/services/security";
 import { timingSafeEqualString } from "@/lib/timing-safe";
 
@@ -25,7 +26,10 @@ function ingestKeyOk(request: Request): boolean {
 
 const ingestSchema = z.object({
   host: z.string().min(1),
-  ipAddress: z.string().min(3),
+  ipAddress: z
+    .string()
+    .min(3)
+    .refine((v) => isValidIpAddress(v), "Invalid IP address"),
   url: z.string().min(1),
   method: z.string().optional(),
   userAgent: z.string().optional(),

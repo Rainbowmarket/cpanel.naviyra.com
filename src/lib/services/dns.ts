@@ -8,6 +8,7 @@ import {
   mailHostLabel,
   type DnsRecordInput,
 } from "@/lib/dns/zone";
+import { assertSafeDnsRecord } from "@/lib/dns/validate";
 
 const RECORD_TYPES = ["A", "AAAA", "CNAME", "MX", "TXT"] as const;
 export type DnsRecordType = (typeof RECORD_TYPES)[number];
@@ -316,20 +317,18 @@ export async function addDnsRecord(
 
   const zone = await loadDomainWithZone(domainId, userId);
   const zoneId = zone.dnsZone!.id;
-  const name = normalizeRecordName(input.name, zone.name);
-  const value = input.value.trim();
-
-  if (!value) throw new Error("Record value is required");
-  if (input.type === "MX" && input.priority === undefined) {
+  const safe = assertSafeDnsRecord(input);
+  const name = normalizeRecordName(safe.name, zone.name);
+  if (safe.type === "MX" && safe.priority === undefined) {
     throw new Error("MX records require a priority");
   }
 
   await upsertZoneRecord(zoneId, {
     name,
-    type: input.type,
-    value,
-    ttl: input.ttl,
-    priority: input.type === "MX" ? (input.priority ?? 10) : null,
+    type: safe.type,
+    value: safe.value,
+    ttl: safe.ttl,
+    priority: safe.type === "MX" ? (safe.priority ?? 10) : null,
   });
 
   return syncDnsZone(domainId, userId);
@@ -356,11 +355,10 @@ export async function updateDnsRecord(
   });
 
   const domainName = record.zone.domain.name;
-  const name = normalizeRecordName(input.name, domainName);
-  const value = input.value.trim();
+  const safe = assertSafeDnsRecord(input);
+  const name = normalizeRecordName(safe.name, domainName);
 
-  if (!value) throw new Error("Record value is required");
-  if (input.type === "MX" && input.priority === undefined) {
+  if (safe.type === "MX" && safe.priority === undefined) {
     throw new Error("MX records require a priority");
   }
 
@@ -368,8 +366,8 @@ export async function updateDnsRecord(
     where: {
       zoneId: record.zoneId,
       name,
-      type: input.type,
-      value,
+      type: safe.type,
+      value: safe.value,
       NOT: { id: recordId },
     },
   });
@@ -381,10 +379,10 @@ export async function updateDnsRecord(
     where: { id: recordId },
     data: {
       name,
-      type: input.type,
-      value,
-      ttl: input.ttl ?? record.ttl,
-      priority: input.type === "MX" ? (input.priority ?? 10) : null,
+      type: safe.type,
+      value: safe.value,
+      ttl: safe.ttl ?? record.ttl,
+      priority: safe.type === "MX" ? (safe.priority ?? 10) : null,
     },
   });
 
