@@ -26,7 +26,6 @@ const RESERVED_PANEL_SUBDOMAIN_LABELS = new Set([
   "panel",
   "ns1",
   "ns2",
-  "chat",
   "ftp",
   "sftp",
   "smtp",

@@ -20,6 +20,8 @@ export default function TerminalPage() {
   const [logs, setLogs] = useState<LogLine[]>([]);
   const [error, setError] = useState("");
 
+  const [termReady, setTermReady] = useState(false);
+
   const termRef = useRef<HTMLDivElement | null>(null);
   const xtermRef = useRef<import("@xterm/xterm").Terminal | null>(null);
   const fitRef = useRef<import("@xterm/addon-fit").FitAddon | null>(null);
@@ -85,11 +87,21 @@ export default function TerminalPage() {
   );
 
   useEffect(() => {
+    // xterm mounts only on the ADMIN UI — wait until that tree exists.
+    if (role !== "ADMIN") {
+      setTermReady(false);
+      return;
+    }
+
     let disposed = false;
     let onResize: (() => void) | null = null;
+    let onPaste: ((ev: ClipboardEvent) => void) | null = null;
 
     async function initTerm() {
-      if (!termRef.current || xtermRef.current) return;
+      // Wait a frame so termRef is attached after the ADMIN render.
+      await new Promise<void>((r) => requestAnimationFrame(() => r()));
+      if (disposed || !termRef.current || xtermRef.current) return;
+
       const { Terminal } = await import("@xterm/xterm");
       const { FitAddon } = await import("@xterm/addon-fit");
       await import("@xterm/xterm/css/xterm.css");
@@ -99,6 +111,7 @@ export default function TerminalPage() {
         cursorBlink: true,
         fontSize: 13,
         fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+        allowProposedApi: true,
         theme: {
           background: "#020617",
           foreground: "#e2e8f0",
@@ -110,8 +123,59 @@ export default function TerminalPage() {
       term.loadAddon(fit);
       term.open(termRef.current);
       fit.fit();
+      if (term.cols < 20 || term.rows < 5) {
+        term.resize(80, 24);
+      }
       xtermRef.current = term;
       fitRef.current = fit;
+      setTermReady(true);
+      term.focus();
+
+      const pasteText = (raw: string) => {
+        const text = raw.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+        if (!text) return;
+        term.paste(text);
+      };
+
+      // Clipboard: Ctrl/Cmd+C copies selection; without selection Ctrl+C is SIGINT.
+      // Ctrl/Cmd+V pastes (xterm would otherwise send ^V).
+      term.attachCustomKeyEventHandler((ev) => {
+        if (ev.type !== "keydown") return true;
+        if (!(ev.ctrlKey || ev.metaKey) || ev.altKey) return true;
+
+        if (ev.code === "KeyC") {
+          const selected = term.getSelection();
+          if (selected) {
+            ev.preventDefault();
+            void navigator.clipboard.writeText(selected).catch(() => {
+              /* clipboard permission denied */
+            });
+            return false;
+          }
+          // No selection → let xterm send ^C (interrupt) to the shell.
+          return true;
+        }
+
+        if (ev.code === "KeyV") {
+          ev.preventDefault();
+          void navigator.clipboard.readText().then(pasteText).catch(() => {
+            /* permission denied — right-click / paste event may still work */
+          });
+          return false;
+        }
+
+        return true;
+      });
+
+      onPaste = (ev: ClipboardEvent) => {
+        const text = ev.clipboardData?.getData("text");
+        if (text == null || text === "") return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        pasteText(text);
+      };
+      term.textarea?.addEventListener("paste", onPaste);
+      term.element?.addEventListener("paste", onPaste);
 
       term.onData((data) => {
         const ws = wsRef.current;
@@ -134,7 +198,7 @@ export default function TerminalPage() {
       onResize = () => {
         fit.fit();
         const ws = wsRef.current;
-        if (ws?.readyState === WebSocket.OPEN) {
+        if (ws?.readyState === WebSocket.OPEN && term.cols >= 20 && term.rows >= 5) {
           ws.send(
             JSON.stringify({
               type: "resize",
@@ -150,13 +214,21 @@ export default function TerminalPage() {
     void initTerm();
     return () => {
       disposed = true;
+      setTermReady(false);
       if (onResize) window.removeEventListener("resize", onResize);
+      const term = xtermRef.current;
+      if (onPaste && term) {
+        term.textarea?.removeEventListener("paste", onPaste);
+        term.element?.removeEventListener("paste", onPaste);
+      }
       if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
       wsRef.current?.close();
-      xtermRef.current?.dispose();
+      wsRef.current = null;
+      term?.dispose();
       xtermRef.current = null;
+      fitRef.current = null;
     };
-  }, [queueLog]);
+  }, [queueLog, role]);
 
   async function disconnect() {
     const sid = sessionIdRef.current;
@@ -215,8 +287,17 @@ export default function TerminalPage() {
 
     const term = xtermRef.current;
     const fit = fitRef.current;
-    term?.reset();
+    if (!term) {
+      setError("Terminal UI is still loading — wait a second and try Connect again.");
+      setStatus("Disconnected");
+      return;
+    }
+    term.reset();
     fit?.fit();
+    if (term.cols < 20 || term.rows < 5) {
+      term.resize(80, 24);
+    }
+    term.focus();
 
     const ws = new WebSocket(data.wsUrl);
     wsRef.current = ws;
@@ -224,15 +305,14 @@ export default function TerminalPage() {
     ws.onopen = () => {
       setConnected(true);
       setStatus("Connected");
-      if (term) {
-        ws.send(
-          JSON.stringify({
-            type: "resize",
-            cols: term.cols,
-            rows: term.rows,
-          })
-        );
-      }
+      term.focus();
+      ws.send(
+        JSON.stringify({
+          type: "resize",
+          cols: Math.max(20, term.cols),
+          rows: Math.max(5, term.rows),
+        })
+      );
     };
 
     ws.onmessage = (ev) => {
@@ -242,8 +322,12 @@ export default function TerminalPage() {
           data?: string;
           code?: number;
         };
+        if (msg.type === "ready") {
+          term.write("\r\n\x1b[32m[Naviyra]\x1b[0m Shell connected.\r\n");
+          return;
+        }
         if (msg.type === "output" && typeof msg.data === "string") {
-          term?.write(msg.data);
+          term.write(msg.data);
           if (msg.data.includes("\n") || msg.data.length > 80) {
             const plain = msg.data.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "").trim();
             if (plain.length > 2) {
@@ -328,10 +412,11 @@ export default function TerminalPage() {
         <button
           type="button"
           onClick={() => void (connected ? disconnect() : connect())}
+          disabled={!connected && !termReady}
           className={
             connected
               ? "inline-flex items-center gap-2 rounded-lg bg-rose-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-rose-500"
-              : "inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-500"
+              : "inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
           }
         >
           {connected ? (
@@ -365,6 +450,11 @@ export default function TerminalPage() {
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950 shadow-inner">
           <div ref={termRef} className="h-[min(60vh,520px)] w-full p-2" />
+          <p className="border-t border-slate-800 px-3 py-1.5 text-[11px] text-slate-500">
+            Select text then Ctrl+C to copy. Paste with Ctrl+V (⌘C / ⌘V on
+            Mac). With no selection, Ctrl+C still interrupts the shell. Click
+            the terminal first so it has focus.
+          </p>
         </div>
 
         <div className="flex max-h-[min(60vh,520px)] flex-col overflow-hidden rounded-xl border border-slate-800 bg-slate-950">

@@ -550,6 +550,7 @@ export const DOC_ARTICLES: DocArticle[] = [
         heading: "How to use it",
         body: [
           "Type shell commands in the xterm UI; resize is supported.",
+          "Select text then Ctrl+C (⌘C) to copy; Ctrl+V (⌘V) or right-click to paste. With no selection, Ctrl+C interrupts the shell.",
           "Command history is logged for the session in the panel.",
         ],
         tips: [
