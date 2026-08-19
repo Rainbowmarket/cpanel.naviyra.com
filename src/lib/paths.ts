@@ -49,7 +49,7 @@ export function getDefaultServerHostname(): string {
     return process.env.DEFAULT_SERVER_HOSTNAME.trim();
   }
   const base = getPanelBaseDomain();
-  return base ? `server1.${base}` : "server1.localhost";
+  return base ? `s1.${base}` : "s1.localhost";
 }
 
 export function getLetsEncryptEmail(): string {

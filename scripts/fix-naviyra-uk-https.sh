@@ -12,6 +12,10 @@ WWW="www.${DOMAIN}"
 EMAIL="${LETSENCRYPT_EMAIL:-admin@${DOMAIN}}"
 PORT="${PANEL_PORT:-3100}"
 
+if [ -f "$(dirname "$0")/install-nginx-snippets.sh" ]; then
+  bash "$(dirname "$0")/install-nginx-snippets.sh" "$(cd "$(dirname "$0")/.." && pwd)" || true
+fi
+
 mkdir -p /var/www/certbot /etc/nginx/ssl
 
 if [ ! -f "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" ]; then
@@ -81,7 +85,7 @@ ${DH}
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For \$remote_addr;
         proxy_set_header X-Forwarded-Proto \$scheme;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";

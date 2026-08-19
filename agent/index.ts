@@ -25,6 +25,7 @@ import {
 } from "./paths";
 import {
   assertSafeDocumentRoot,
+  assertPathUnderTenantRoot,
   sanitizeHostnameForPath,
 } from "./hostname";
 import { applyDnsZone, removeDnsZone, type SyncDnsZonePayload } from "./dns";
@@ -48,6 +49,7 @@ import {
   removeNginxSite,
   resolveVhostOptions,
   writeAndEnableNginxSite,
+  ensureNaviyraVisitorLog,
 } from "./nginx";
 import { resolvePhpFpmPass } from "./php-fpm";
 import { attachTerminalWs } from "./terminal";
@@ -87,6 +89,7 @@ import {
   previewPostgresTableOnServer,
   resetPostgresPasswordOnServer,
 } from "./postgres";
+import { redactPostgresError } from "./pg-bin";
 import type { VhostOptions } from "./nginx";
 const exec = promisify(execFile);
 const PORT = Number(process.env.AGENT_PORT ?? 4000);
@@ -113,26 +116,38 @@ function unauthorized(res: http.ServerResponse) {
 async function writeUploadedFile(
   filePath: string,
   content: Buffer,
-  removeZip: boolean
+  removeZip: boolean,
+  tenantRoot?: string
 ) {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, content);
-  if (isZipFileName(filePath)) {
-    const destDir = path.dirname(filePath);
-    const result = await extractZipArchive(filePath, destDir, {
+  const safePath = await assertPathUnderTenantRoot(filePath, tenantRoot);
+  await fs.mkdir(path.dirname(safePath), { recursive: true });
+  await fs.writeFile(safePath, content);
+  if (isZipFileName(safePath)) {
+    const destDir = path.dirname(safePath);
+    const result = await extractZipArchive(safePath, destDir, {
       removeZip,
     });
     return {
       success: true as const,
       data: {
-        path: filePath,
+        path: safePath,
         extracted: true,
         extractedTo: result.extractedTo,
         removedZip: result.removedZip,
       },
     };
   }
-  return { success: true as const, data: { path: filePath } };
+  return { success: true as const, data: { path: safePath } };
+}
+
+function tenantRootOf(payload: Action): string | undefined {
+  const root = String(payload.root ?? "").trim();
+  return root || undefined;
+}
+
+function headerString(value: string | string[] | undefined): string {
+  if (Array.isArray(value)) return String(value[0] ?? "").trim();
+  return String(value ?? "").trim();
 }
 
 async function ensureConfigDir() {
@@ -661,7 +676,7 @@ async function handleAction(payload: Action) {
     }
 
     case "list_files": {
-      const dirPath = String(payload.path);
+      const dirPath = await assertPathUnderTenantRoot(String(payload.path), tenantRootOf(payload));
       await fs.mkdir(dirPath, { recursive: true });
       const entries = await fs.readdir(dirPath, { withFileTypes: true });
       const data = await Promise.all(
@@ -681,52 +696,64 @@ async function handleAction(payload: Action) {
     }
 
     case "read_file": {
-      const content = await fs.readFile(String(payload.path), "utf8");
+      const filePath = await assertPathUnderTenantRoot(String(payload.path), tenantRootOf(payload));
+      const content = await fs.readFile(filePath, "utf8");
       return { success: true, data: { content } };
     }
 
     case "write_file": {
-      const filePath = String(payload.path);
+      const filePath = await assertPathUnderTenantRoot(String(payload.path), tenantRootOf(payload));
       await fs.mkdir(path.dirname(filePath), { recursive: true });
       await fs.writeFile(filePath, String(payload.content), "utf8");
       return { success: true };
     }
 
     case "delete_file": {
-      await fs.unlink(String(payload.path));
+      const filePath = await assertPathUnderTenantRoot(String(payload.path), tenantRootOf(payload));
+      await fs.unlink(filePath);
       return { success: true };
     }
 
     case "create_directory": {
-      const dir = assertSafeDocumentRoot(String(payload.path));
+      const dir = await assertPathUnderTenantRoot(String(payload.path), tenantRootOf(payload));
       await fs.mkdir(dir, { recursive: true });
       return { success: true };
     }
 
     case "delete_directory": {
-      await fs.rm(String(payload.path), { recursive: true, force: true });
+      const dir = await assertPathUnderTenantRoot(String(payload.path), tenantRootOf(payload));
+      await fs.rm(dir, { recursive: true, force: true });
       return { success: true };
     }
 
     case "rename_path": {
-      const source = String(payload.source);
-      const dest = String(payload.dest);
+      const root = tenantRootOf(payload);
+      const source = await assertPathUnderTenantRoot(String(payload.source), root);
+      const dest = await assertPathUnderTenantRoot(String(payload.dest), root);
       await fs.rename(source, dest);
       return { success: true };
     }
 
     case "move_path": {
-      const source = String(payload.source);
-      const destDir = String(payload.dest);
-      const target = path.join(destDir, path.basename(source));
+      const root = tenantRootOf(payload);
+      const source = await assertPathUnderTenantRoot(String(payload.source), root);
+      const destDir = await assertPathUnderTenantRoot(String(payload.dest), root);
+      const target = await assertPathUnderTenantRoot(
+        path.join(destDir, path.basename(source)),
+        root
+      );
       await fs.rename(source, target);
       return { success: true };
     }
 
     case "copy_path": {
-      const source = String(payload.source);
-      const destDir = String(payload.dest);
-      const target = path.join(destDir, path.basename(source));
+      const root = tenantRootOf(payload);
+      const source = await assertPathUnderTenantRoot(String(payload.source), root);
+      const destDir = await assertPathUnderTenantRoot(String(payload.dest), root);
+      const target = await assertPathUnderTenantRoot(
+        path.join(destDir, path.basename(source)),
+        root
+      );
       await fs.cp(source, target, { recursive: true });
       return { success: true };
     }
@@ -735,13 +762,18 @@ async function handleAction(payload: Action) {
       return await writeUploadedFile(
         String(payload.path),
         Buffer.from(String(payload.contentBase64), "base64"),
-        payload.removeZip !== false
+        payload.removeZip !== false,
+        tenantRootOf(payload)
       );
     }
 
     case "extract_zip": {
-      const filePath = String(payload.path);
-      const destDir = String(payload.dest || path.dirname(filePath));
+      const root = tenantRootOf(payload);
+      const filePath = await assertPathUnderTenantRoot(String(payload.path), root);
+      const destDir = await assertPathUnderTenantRoot(
+        String(payload.dest || path.dirname(filePath)),
+        root
+      );
       if (!isZipFileName(filePath)) {
         return { success: false, error: "Not a ZIP file" };
       }
@@ -759,7 +791,7 @@ async function handleAction(payload: Action) {
     }
 
     case "read_file_binary": {
-      const filePath = String(payload.path);
+      const filePath = await assertPathUnderTenantRoot(String(payload.path), tenantRootOf(payload));
       const buf = await fs.readFile(filePath);
       return {
         success: true,
@@ -1051,7 +1083,9 @@ const server = http.createServer(async (req, res) => {
       res.end(
         JSON.stringify({
           success: false,
-          error: error instanceof Error ? error.message : "Agent error",
+          error: redactPostgresError(
+            error instanceof Error ? error.message : "Agent error"
+          ),
         })
       );
     }
@@ -1063,20 +1097,26 @@ const server = http.createServer(async (req, res) => {
     if (!bearerTokenMatches(req.headers.authorization, API_KEY)) {
       return unauthorized(res);
     }
-    const filePath = String(req.headers["x-naviyra-path"] ?? "").trim();
+    const filePath = headerString(req.headers["x-naviyra-path"]);
     if (!filePath || filePath.includes("\0")) {
       res.writeHead(400, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ success: false, error: "Missing X-Naviyra-Path" }));
       return;
     }
-    const removeZip = String(req.headers["x-naviyra-remove-zip"] ?? "1") !== "0";
+    const tenantRoot = headerString(req.headers["x-naviyra-root"]);
+    const removeZip = headerString(req.headers["x-naviyra-remove-zip"]) !== "0";
     try {
       const chunks: Buffer[] = [];
       for await (const chunk of req) {
         chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
       }
       const content = Buffer.concat(chunks);
-      const result = await writeUploadedFile(filePath, content, removeZip);
+      const result = await writeUploadedFile(
+        filePath,
+        content,
+        removeZip,
+        tenantRoot || undefined
+      );
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(result));
     } catch (error) {
@@ -1106,5 +1146,33 @@ server.listen(PORT, BIND_HOST, async () => {
   );
   if (!DRY_RUN && !admin && !isWindows) {
     console.warn("WARNING: Live mode needs root. Use: sudo ./start-admin.sh");
+  }
+  if (!DRY_RUN && admin && !isWindows) {
+    try {
+      await ensureNaviyraVisitorLog();
+      await exec("nginx", ["-t"]);
+      await exec("systemctl", ["reload", "nginx"]).catch(() => undefined);
+    } catch (error) {
+      console.warn("[nginx] visitor log setup failed", error);
+    }
+    try {
+      let timerOn = false;
+      try {
+        const { stdout } = await exec("systemctl", [
+          "is-enabled",
+          "naviyra-visitor-ingest.timer",
+        ]);
+        timerOn = String(stdout).includes("enabled");
+      } catch {
+        timerOn = false;
+      }
+      const ingest = path.join(PROJECT_ROOT, "scripts", "install-visitor-ingest.sh");
+      if (!timerOn && fsSync.existsSync(ingest)) {
+        await exec("bash", [ingest, PROJECT_ROOT]);
+        console.log("[ingest] visitor ingest timer enabled");
+      }
+    } catch (error) {
+      console.warn("[ingest] enable failed", error);
+    }
   }
 });

@@ -163,9 +163,12 @@ async function refreshAutoManagedRecords(
   }
 }
 
-export async function listDnsZones(userId: string) {
+export async function listDnsZones(
+  userId: string,
+  role?: "ADMIN" | "RESELLER" | "USER"
+) {
   return prisma.dnsZone.findMany({
-    where: { domain: { userId } },
+    where: role === "ADMIN" ? {} : { domain: { userId } },
     include: {
       domain: {
         select: { id: true, name: true, status: true, server: { select: { ipAddress: true } } },
@@ -174,6 +177,31 @@ export async function listDnsZones(userId: string) {
     },
     orderBy: { updatedAt: "desc" },
   });
+}
+
+/** Create missing zones for hosted domains so DNS is not empty until mail is added. */
+export async function ensureDnsZonesForAccessibleDomains(
+  userId: string,
+  role?: "ADMIN" | "RESELLER" | "USER"
+) {
+  const domains = await prisma.domain.findMany({
+    where: role === "ADMIN" ? {} : { userId },
+    select: { id: true, dnsZone: { select: { id: true } } },
+  });
+
+  for (const domain of domains) {
+    if (domain.dnsZone) continue;
+    try {
+      await syncDnsZone(domain.id);
+    } catch (error) {
+      console.error("DNS zone ensure failed:", domain.id, error);
+      try {
+        await ensureDnsZone(domain.id);
+      } catch (inner) {
+        console.error("DNS zone create failed:", domain.id, inner);
+      }
+    }
+  }
 }
 
 export async function ensureDnsZone(domainId: string) {

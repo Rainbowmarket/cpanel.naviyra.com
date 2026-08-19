@@ -25,8 +25,8 @@ function hostMatches(urlHost: string, requestHost: string): boolean {
 
 /**
  * CSRF defense-in-depth for cookie-authenticated mutating API calls.
- * SameSite=Lax already blocks classic cross-site POSTs; this rejects
- * mismatched Origin/Referer when those headers are present.
+ * SameSite=Lax is the primary defense; this rejects cross-site requests
+ * and fails closed when Origin, Referer, and Sec-Fetch-Site are all absent.
  */
 export function csrfOk(request: NextRequest | Request): boolean {
   const url = new URL(request.url);
@@ -63,7 +63,7 @@ export function csrfOk(request: NextRequest | Request): boolean {
   }
 
   const site = (request.headers.get("sec-fetch-site") ?? "").toLowerCase();
-  if (site === "same-origin" || site === "none" || site === "") {
+  if (site === "same-origin" || site === "none") {
     return true;
   }
 

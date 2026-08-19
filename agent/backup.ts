@@ -7,6 +7,12 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { PROJECT_ROOT, SITES_ROOT, DNS_ROOT } from "./paths";
+import {
+  ensurePostgresReady,
+  execAsPostgres,
+  psqlExec,
+  psqlQuery,
+} from "./pg-bin";
 
 const exec = promisify(execFile);
 const isWindows = process.platform === "win32";
@@ -40,6 +46,7 @@ export type RunBackupResult = {
   sizeBytes: number;
   included: string[];
   pruned: string[];
+  skipped?: string[];
 };
 
 export type RestoreBackupOptions = {
@@ -145,21 +152,20 @@ function quotePgLiteral(value: string): string {
 }
 
 async function runPsqlAsPostgres(sql: string, database?: string) {
-  const args = ["-u", "postgres", "psql", "-v", "ON_ERROR_STOP=1"];
-  if (database) args.push("-d", database);
-  args.push("-c", sql);
-  await exec("sudo", args, { maxBuffer: 2 * 1024 * 1024 });
+  await psqlExec(sql, database);
 }
 
 async function dumpPostgresDatabases(
   workDir: string,
   databases: BackupDatabaseRef[]
-): Promise<boolean> {
-  if (isWindows || databases.length === 0) return false;
+): Promise<{ ok: boolean; errors: string[] }> {
+  if (isWindows) return { ok: false, errors: ["PostgreSQL dumps require Linux"] };
+  if (databases.length === 0) return { ok: false, errors: [] };
 
   const destRoot = path.join(workDir, "postgres-databases");
   await fs.mkdir(destRoot, { recursive: true });
   const written: BackupDatabaseRef[] = [];
+  const errors: string[] = [];
 
   for (const raw of databases) {
     const dbName = assertSafePgIdent(raw.dbName, "database name");
@@ -171,32 +177,28 @@ async function dumpPostgresDatabases(
       `naviyra-pgdump-${dbName}-${stamp()}.dump`
     );
     try {
-      // postgres OS user cannot write under /var/backups — dump to /tmp first
-      await exec(
-        "sudo",
-        ["-u", "postgres", "pg_dump", "-Fc", "-f", tmpDump, dbName],
-        { maxBuffer: 64 * 1024 * 1024 }
-      );
+      const bins = await ensurePostgresReady();
+      if (!bins.pgDump) throw new Error("pg_dump not found after PostgreSQL install");
+      await execAsPostgres(bins.pgDump, ["-Fc", "-f", tmpDump, dbName]);
       await exec("sudo", ["mv", tmpDump, dumpPath]);
       await exec("sudo", ["chmod", "644", dumpPath]).catch(() => undefined);
       written.push({ dbName, roleName, domain });
     } catch (error) {
       await fs.rm(tmpDump, { force: true }).catch(() => undefined);
-      console.warn(
-        `[backup] pg_dump failed for ${dbName}:`,
-        error instanceof Error ? error.message : error
-      );
+      const message = error instanceof Error ? error.message : String(error);
+      errors.push(`${dbName}: ${message}`);
+      console.warn(`[backup] pg_dump failed for ${dbName}:`, message);
     }
   }
 
-  if (written.length === 0) return false;
+  if (written.length === 0) return { ok: false, errors };
 
   await fs.writeFile(
     path.join(destRoot, "manifest.json"),
     JSON.stringify({ databases: written }, null, 2),
     "utf8"
   );
-  return true;
+  return { ok: true, errors };
 }
 
 async function ensurePostgresRoleAndDatabase(
@@ -217,16 +219,8 @@ async function ensurePostgresRoleAndDatabase(
      END $$;`
   );
 
-  const { stdout } = await exec(
-    "sudo",
-    [
-      "-u",
-      "postgres",
-      "psql",
-      "-tAc",
-      `SELECT 1 FROM pg_database WHERE datname = ${quotePgLiteral(dbName)}`,
-    ],
-    { maxBuffer: 1024 * 1024 }
+  const { stdout } = await psqlQuery(
+    `SELECT 1 FROM pg_database WHERE datname = ${quotePgLiteral(dbName)}`
   );
   if (stdout.trim() !== "1") {
     await runPsqlAsPostgres(
@@ -292,33 +286,20 @@ async function restorePostgresDatabasesFromDir(
     await exec("sudo", ["chmod", "600", tmpDump]);
 
     try {
-      await exec(
-        "sudo",
-        [
-          "-u",
-          "postgres",
-          "pg_restore",
-          "--clean",
-          "--if-exists",
-          "--no-owner",
-          `--role=${roleName}`,
-          `-d`,
-          dbName,
-          tmpDump,
-        ],
-        { maxBuffer: 64 * 1024 * 1024 }
-      ).catch(async (error) => {
+      const bins = await ensurePostgresReady();
+      if (!bins.pgRestore) throw new Error("pg_restore not found after PostgreSQL install");
+      await execAsPostgres(bins.pgRestore, [
+        "--clean",
+        "--if-exists",
+        "--no-owner",
+        `--role=${roleName}`,
+        "-d",
+        dbName,
+        tmpDump,
+      ]).catch(async (error) => {
         // pg_restore often exits non-zero on warnings; verify DB still exists
-        const { stdout } = await exec(
-          "sudo",
-          [
-            "-u",
-            "postgres",
-            "psql",
-            "-tAc",
-            `SELECT 1 FROM pg_database WHERE datname = ${quotePgLiteral(dbName)}`,
-          ],
-          { maxBuffer: 1024 * 1024 }
+        const { stdout } = await psqlQuery(
+          `SELECT 1 FROM pg_database WHERE datname = ${quotePgLiteral(dbName)}`
         );
         if (stdout.trim() !== "1") {
           throw error;
@@ -341,6 +322,7 @@ export async function runBackup(
 
   const workDir = path.join(backupRoot, `.work-${stamp()}`);
   const included: string[] = [];
+  const skipped: string[] = [];
   const archiveName = `naviyra-backup-${stamp()}.tar.gz`;
   const archivePath = path.join(backupRoot, archiveName);
 
@@ -417,11 +399,14 @@ export async function runBackup(
       }
     }
 
-    if (
-      options.includeDatabases &&
-      (await dumpPostgresDatabases(workDir, options.databases ?? []))
-    ) {
-      included.push("postgres-databases");
+    if (options.includeDatabases) {
+      const dump = await dumpPostgresDatabases(workDir, options.databases ?? []);
+      if (dump.ok) included.push("postgres-databases");
+      else if ((options.databases ?? []).length === 0) {
+        skipped.push("No PostgreSQL databases to dump");
+      } else {
+        skipped.push(...dump.errors.map((e) => `PostgreSQL ${e}`));
+      }
     }
 
     if (included.length === 0) {
@@ -450,6 +435,7 @@ export async function runBackup(
       sizeBytes: stat.size,
       included,
       pruned,
+      skipped,
     };
   } finally {
     await fs.rm(workDir, { recursive: true, force: true });
@@ -734,6 +720,7 @@ export type RunDomainBackupOptions = {
   includeMail: boolean;
   includeDatabases?: boolean;
   databases?: BackupDatabaseRef[];
+  dnsZoneContent?: string;
   dryRun?: boolean;
 };
 
@@ -761,6 +748,7 @@ export async function runDomainBackup(
   const label = safeDomainLabel(domain);
   const workDir = path.join(backupRoot, `.work-domain-${label}-${stamp()}`);
   const included: string[] = [];
+  const skipped: string[] = [];
   const archiveName = `naviyra-domain-${label}-${stamp()}.tar.gz`;
   const archivePath = path.join(backupRoot, archiveName);
 
@@ -791,6 +779,8 @@ export async function runDomainBackup(
           }
         }
         included.push("sites");
+      } else {
+        skipped.push(`Website files not found at ${sitesPath}`);
       }
     }
 
@@ -802,6 +792,34 @@ export async function runDomainBackup(
       const zoneSrc = path.join(zonesDir, zoneFileName);
       const namedSrc = path.join(namedDir, namedBlockName);
       let copiedDns = false;
+
+      if (options.dnsZoneContent?.trim()) {
+        const destZones = path.join(workDir, "dns", "zones");
+        const destNamed = path.join(workDir, "dns", "named");
+        await fs.mkdir(destZones, { recursive: true });
+        await fs.mkdir(destNamed, { recursive: true });
+        await fs.writeFile(
+          path.join(destZones, zoneFileName),
+          options.dnsZoneContent,
+          "utf8"
+        );
+        await fs.writeFile(
+          path.join(destNamed, namedBlockName),
+          `zone "${domain}" {\n    type master;\n    file "/etc/bind/zones/${zoneFileName}";\n};\n`,
+          "utf8"
+        );
+        await fs.mkdir(path.join(workDir, "dns"), { recursive: true });
+        await fs.writeFile(
+          path.join(workDir, "dns", "zones.json"),
+          JSON.stringify(
+            { [domain]: { zoneFile: zoneFileName, namedBlock: namedBlockName } },
+            null,
+            2
+          ),
+          "utf8"
+        );
+        copiedDns = true;
+      }
 
       if (await pathExists(zoneSrc)) {
         const destZones = path.join(workDir, "dns", "zones");
@@ -837,19 +855,25 @@ export async function runDomainBackup(
         }
       }
 
-      const bindZones = process.env.BIND_ZONES_DIR?.trim();
-      if (bindZones) {
+      const bindDirs = [
+        process.env.BIND_ZONES_DIR?.trim(),
+        "/etc/bind/zones",
+        "/var/cache/bind",
+      ].filter((d): d is string => Boolean(d));
+      for (const bindZones of bindDirs) {
         const bindSrc = path.join(bindZones, zoneFileName);
         if (await pathExists(bindSrc)) {
           const dest = path.join(workDir, "bind-zones");
           await fs.mkdir(dest, { recursive: true });
           await fs.copyFile(bindSrc, path.join(dest, zoneFileName));
-          included.push("bind-zones");
+          if (!included.includes("bind-zones")) included.push("bind-zones");
           copiedDns = true;
+          break;
         }
       }
 
       if (copiedDns) included.push("dns");
+      else skipped.push("DNS zone not found on disk (and no panel zone snapshot)");
     }
 
     if (options.includeMail && !isWindows) {
@@ -860,35 +884,44 @@ export async function runDomainBackup(
         try {
           await exec("cp", ["-a", mailSrc, dest]);
           included.push("mail");
-        } catch {
-          /* skip if permission denied */
+        } catch (error) {
+          skipped.push(
+            `Mail copy failed: ${error instanceof Error ? error.message : "permission denied"}`
+          );
         }
+      } else {
+        skipped.push(`No mailboxes at ${mailSrc}`);
       }
     }
 
-    if (
-      options.includeDatabases &&
-      (await dumpPostgresDatabases(
-        workDir,
-        (options.databases ?? []).map((db) => ({
-          ...db,
-          domain: db.domain || domain,
-        }))
-      ))
-    ) {
-      included.push("postgres-databases");
+    if (options.includeDatabases) {
+      const dbList = options.databases ?? [];
+      if (dbList.length === 0) {
+        skipped.push("No PostgreSQL databases for this domain");
+      } else {
+        const dump = await dumpPostgresDatabases(workDir, dbList);
+        if (dump.ok) included.push("postgres-databases");
+        else skipped.push(...(dump.errors.length ? dump.errors.map((e) => `PostgreSQL ${e}`) : ["PostgreSQL dump produced no files"]));
+      }
     }
 
     if (included.length === 0) {
+      const extra = skipped.length ? ` (${skipped.join("; ")})` : "";
       throw new Error(
-        `Nothing to back up for ${domain} — site/DNS/mail/databases not found or disabled`
+        `Nothing to back up for ${domain} — site/DNS/mail/databases not found or disabled${extra}`
       );
     }
 
     await fs.writeFile(
       path.join(workDir, "manifest.json"),
       JSON.stringify(
-        { type: "domain", domain, included, createdAt: new Date().toISOString() },
+        {
+          type: "domain",
+          domain,
+          included,
+          skipped,
+          createdAt: new Date().toISOString(),
+        },
         null,
         2
       ),
@@ -909,6 +942,7 @@ export async function runDomainBackup(
       sizeBytes: stat.size,
       included,
       pruned,
+      skipped,
     };
   } finally {
     await fs.rm(workDir, { recursive: true, force: true });

@@ -24,8 +24,8 @@ async function main() {
   const hostname =
     process.env.DEFAULT_SERVER_HOSTNAME?.trim() ||
     (process.env.PANEL_HOSTNAME?.trim()
-      ? `server1.${process.env.PANEL_HOSTNAME.trim().replace(/^www\./, "")}`
-      : "server1.localhost");
+      ? `s1.${process.env.PANEL_HOSTNAME.trim().replace(/^www\./, "")}`
+      : "s1.localhost");
 
   const server = await prisma.server.upsert({
     where: { hostname },

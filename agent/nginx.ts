@@ -8,12 +8,29 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { buildPhpDenyBlock, buildPhpLocationBlock, resolvePhpFpmPass } from "./php-fpm";
 import { sanitizeHostnameForPath } from "./hostname";
+import { PROJECT_ROOT } from "./paths";
 
 const exec = promisify(execFile);
 
 const SITES_AVAILABLE = "/etc/nginx/sites-available";
 const SITES_ENABLED = "/etc/nginx/sites-enabled";
 const ACME_WEBROOT = "/var/www/certbot";
+const NAVIYRA_VISITOR_LOG = "/var/log/nginx/naviyra-visitors.log";
+const NAVIYRA_VISITORS_CONF = "/etc/nginx/conf.d/naviyra-visitors.conf";
+const NAVIYRA_VISITORS_CONF_BODY = `log_format naviyra_visitors '$remote_addr - $remote_user [$time_local] "$request" '
+                      '$status $body_bytes_sent "$http_referer" "$http_user_agent" "$host"';
+access_log ${NAVIYRA_VISITOR_LOG} naviyra_visitors;
+`;
+
+function stripVisitorLogFormat(text: string): string {
+  return text
+    .replace(/log_format\s+naviyra_visitors\b[\s\S]*?;/g, "")
+    .replace(/[ \t]*access_log\s+\S+\s+naviyra_visitors\s*;[ \t]*\n?/g, "");
+}
+
+function visitorAccessLogLine(): string {
+  return `    access_log ${NAVIYRA_VISITOR_LOG} naviyra_visitors;\n`;
+}
 
 export type VhostOptions = {
   phpEnabled?: boolean;
@@ -102,7 +119,7 @@ export function buildMailProxyHttpVhost(hosts: string[]): string {
     listen 80;
     listen [::]:80;
     server_name ${serverName};
-    client_max_body_size 64M;
+${visitorAccessLogLine()}    client_max_body_size 64M;
 
     location ^~ /.well-known/acme-challenge/ {
         root ${ACME_WEBROOT};
@@ -123,7 +140,7 @@ export function buildMailProxyHttpsVhost(
     listen 80;
     listen [::]:80;
     server_name ${serverName};
-
+${visitorAccessLogLine()}
     location ^~ /.well-known/acme-challenge/ {
         root ${ACME_WEBROOT};
         default_type text/plain;
@@ -138,8 +155,7 @@ server {
     listen 443 ssl http2;
     listen [::]:443 ssl http2;
     server_name ${serverName};
-
-    ssl_certificate     ${certDir}/fullchain.pem;
+${visitorAccessLogLine()}    ssl_certificate     ${certDir}/fullchain.pem;
     ssl_certificate_key ${certDir}/privkey.pem;
     include /etc/letsencrypt/options-ssl-nginx.conf;
     ssl_dhparam ${dhParam};
@@ -270,7 +286,7 @@ export function buildHttpVhost(
     listen 80;
     listen [::]:80;
     server_name ${serverName};
-
+${visitorAccessLogLine()}
     root ${documentRoot};
     ${indexDirective(phpEnabled)}
     client_max_body_size 64M;
@@ -301,7 +317,7 @@ export function buildHttpsVhost(
     listen 80;
     listen [::]:80;
     server_name ${serverName};
-
+${visitorAccessLogLine()}
     location ^~ /.well-known/acme-challenge/ {
         root ${ACME_WEBROOT};
         default_type text/plain;
@@ -316,8 +332,7 @@ server {
     listen 443 ssl http2;
     listen [::]:443 ssl http2;
     server_name ${serverName};
-
-    ssl_certificate     ${certDir}/fullchain.pem;
+${visitorAccessLogLine()}    ssl_certificate     ${certDir}/fullchain.pem;
     ssl_certificate_key ${certDir}/privkey.pem;
     include /etc/letsencrypt/options-ssl-nginx.conf;
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
@@ -455,9 +470,131 @@ export async function writeAndEnableNginxSite(
   }
   await fs.symlink(available, enabled);
 
-  await exec("nginx", ["-t"]);
-  await exec("systemctl", ["reload", "nginx"]);
+  await nginxTestAndReload();
   return { available, enabled };
+}
+
+async function nginxTestAndReload() {
+  await ensureNaviyraVisitorLog();
+  try {
+    await exec("nginx", ["-t"]);
+  } catch (err) {
+    const execErr = err as { message?: string; stderr?: string; stdout?: string };
+    const msg = `${execErr.message || ""} ${execErr.stderr || ""} ${execErr.stdout || ""}`;
+    if (/duplicate/.test(msg) && /naviyra_visitors/.test(msg)) {
+      await fs.writeFile(
+        NAVIYRA_VISITORS_CONF,
+        `access_log ${NAVIYRA_VISITOR_LOG} naviyra_visitors;\n`,
+        "utf8"
+      );
+    } else {
+      await restoreWebsocketMap();
+      await fs.writeFile(NAVIYRA_VISITORS_CONF, NAVIYRA_VISITORS_CONF_BODY, "utf8");
+    }
+    await exec("nginx", ["-t"]);
+  }
+  await exec("systemctl", ["reload", "nginx"]);
+}
+
+async function restoreWebsocketMap() {
+  const src = path.join(PROJECT_ROOT, "scripts", "nginx-websocket-map.conf");
+  try {
+    const body = await fs.readFile(src, "utf8");
+    await fs.mkdir("/etc/nginx/conf.d", { recursive: true });
+    await fs.writeFile("/etc/nginx/conf.d/naviyra-websocket-map.conf", body, "utf8");
+  } catch {
+    /* template optional */
+  }
+}
+
+/** Combined+$host so Security Manager can attribute visits to a domain. */
+export async function ensureNaviyraVisitorLog(): Promise<void> {
+  if (process.platform === "win32") return;
+
+  await restoreWebsocketMap();
+
+  const main = "/etc/nginx/nginx.conf";
+  try {
+    const text = await fs.readFile(main, "utf8");
+    let stripped = stripVisitorLogFormat(text);
+    if (
+      /^\s*http\s*\{/m.test(stripped) &&
+      !/access_log\s+\/var\/log\/nginx\/access\.log/.test(stripped)
+    ) {
+      stripped = stripped.replace(
+        /^(\s*)http\s*\{/m,
+        (_all, indent: string) => `${indent}http {\n    access_log /var/log/nginx/access.log;`
+      );
+    }
+    if (stripped !== text) await fs.writeFile(main, stripped, "utf8");
+  } catch {
+    /* nginx.conf optional */
+  }
+
+  try {
+    await fs.mkdir("/etc/nginx/conf.d", { recursive: true });
+    await fs.writeFile(NAVIYRA_VISITORS_CONF, NAVIYRA_VISITORS_CONF_BODY, "utf8");
+  } catch {
+    return;
+  }
+
+  try {
+    await fs.writeFile(NAVIYRA_VISITOR_LOG, "", { flag: "a" });
+  } catch {
+    /* log dir may not exist yet */
+  }
+
+  const dirs = [SITES_AVAILABLE, "/etc/nginx/conf.d"];
+  const seen = new Set<string>();
+  for (const dir of dirs) {
+    let names: string[] = [];
+    try {
+      names = await fs.readdir(dir);
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      if (name === "naviyra-visitors.conf") continue;
+      if (name.startsWith("naviyra-websocket")) continue;
+      const file = path.join(dir, name);
+      let stat: fsSync.Stats;
+      try {
+        stat = fsSync.statSync(file);
+        if (!stat.isFile()) continue;
+        const key = `${stat.dev}:${stat.ino}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+      } catch {
+        continue;
+      }
+      let text: string;
+      try {
+        text = await fs.readFile(file, "utf8");
+      } catch {
+        continue;
+      }
+      const next = injectVisitorAccessLog(text);
+      if (next !== text) await fs.writeFile(file, next, "utf8");
+    }
+  }
+}
+
+function injectVisitorAccessLog(text: string): string {
+  if (!/server\s*\{/.test(text)) return text;
+  const parts = text.split(/(server\s*\{)/);
+  let out = parts[0] ?? "";
+  for (let i = 1; i < parts.length; i += 2) {
+    const header = parts[i] ?? "";
+    const body = parts[i + 1] ?? "";
+    out += header;
+    const hasOwnLog = /^\s*access_log\s+/m.test(body);
+    if (hasOwnLog && !body.includes("naviyra-visitors.log")) {
+      out += `\n${visitorAccessLogLine()}${body}`;
+    } else {
+      out += body;
+    }
+  }
+  return out;
 }
 
 export async function removeNginxSite(siteName: string, dryRun: boolean) {
@@ -475,8 +612,7 @@ export async function removeNginxSite(siteName: string, dryRun: boolean) {
   await fs.rm(path.join(SITES_ENABLED, safeName), { force: true });
   await fs.rm(path.join(SITES_AVAILABLE, safeName), { force: true });
   try {
-    await exec("nginx", ["-t"]);
-    await exec("systemctl", ["reload", "nginx"]);
+    await nginxTestAndReload();
   } catch {
     /* ignore reload errors on delete */
   }

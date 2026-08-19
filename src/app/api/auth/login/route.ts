@@ -8,6 +8,7 @@ import {
 import { applyPending2faCookie } from "@/lib/auth-2fa";
 import { prisma } from "@/lib/prisma";
 import { bootstrapMainServer } from "@/lib/services/bootstrap";
+import { getPanelBaseDomain } from "@/lib/base-domain";
 import {
   assertLoginAllowed,
   clearLoginFailures,
@@ -39,7 +40,8 @@ export async function POST(request: Request) {
       );
     }
 
-    const user = await prisma.user.findUnique({ where: { email: body.email } });
+    const email = body.email.trim().toLowerCase();
+    const user = await prisma.user.findUnique({ where: { email } });
 
     if (!user || !(await verifyPassword(body.password, user.passwordHash))) {
       recordLoginFailure(ip, body.email);
@@ -78,7 +80,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: error.flatten() }, { status: 400 });
     }
     console.error("[auth/login]", error);
-    return NextResponse.json({ error: "Login failed" }, { status: 500 });
+    const message =
+      error instanceof Error ? error.message : "Login failed";
+    const isDb =
+      /sqlite|prisma|database|better-sqlite/i.test(message);
+    return NextResponse.json(
+      {
+        error: isDb
+          ? "Database error. On the server run: rm -f data/naviyra.db* && npx prisma db push && npm rebuild better-sqlite3"
+          : "Login failed",
+      },
+      { status: 500 }
+    );
   }
 }
 
@@ -87,7 +100,7 @@ const registerSchema = z.object({
   name: z.string().min(2),
   email: z.string().email(),
   password: z.string().min(8),
-  domain: z.string().min(3),
+  domain: z.string().min(3).optional(),
 });
 
 export async function PUT(request: Request) {
@@ -98,12 +111,24 @@ export async function PUT(request: Request) {
 
   try {
     const body = registerSchema.parse(await request.json());
+    const domainName = getPanelBaseDomain() || body.domain?.trim();
+    if (!domainName) {
+      return NextResponse.json(
+        {
+          error:
+            "Main domain is not set. Re-run the installer or set PANEL_HOSTNAME in .env.",
+        },
+        { status: 400 }
+      );
+    }
+
     const passwordHash = await hashPassword(body.password);
+    const email = body.email.trim().toLowerCase();
 
     const user = await prisma.user.create({
       data: {
         name: body.name,
-        email: body.email,
+        email,
         passwordHash,
         role: "ADMIN",
       },
@@ -120,7 +145,7 @@ export async function PUT(request: Request) {
     try {
       bootstrap = await bootstrapMainServer({
         userId: user.id,
-        domainName: body.domain,
+        domainName,
       });
     } catch (error) {
       console.error("Main server bootstrap failed:", error);

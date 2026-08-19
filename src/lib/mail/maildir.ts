@@ -20,7 +20,7 @@ export function maildirHome(email: string): string {
   if (at <= 0) throw new Error(`Invalid email: ${email}`);
   const local = normalized.slice(0, at);
   const domain = normalized.slice(at + 1);
-  return path.join(VHOSTS, domain, local);
+  return path.join(/* turbopackIgnore: true */ VHOSTS, domain, local);
 }
 
 function folderRel(folder: MailFolder): string {
@@ -30,7 +30,7 @@ function folderRel(folder: MailFolder): string {
 export function maildirFolderPath(email: string, folder: MailFolder): string {
   const home = maildirHome(email);
   const rel = folderRel(folder);
-  return rel ? path.join(home, rel) : home;
+  return rel ? path.join(/* turbopackIgnore: true */ home, rel) : home;
 }
 
 export async function maildirExists(email: string): Promise<boolean> {
@@ -294,12 +294,15 @@ export async function listMaildirMessages(
   const messages: MailMessage[] = [];
 
   for (const sub of ["new", "cur"] as const) {
-    const dir = path.join(base, sub);
+    const dir = path.join(/* turbopackIgnore: true */ base, sub);
     const files = await listDirSafe(dir);
     for (const file of files) {
       if (file.startsWith(".")) continue;
       try {
-        const raw = await fs.readFile(path.join(dir, file), "utf8");
+        const raw = await fs.readFile(
+          path.join(/* turbopackIgnore: true */ dir, file),
+          "utf8"
+        );
         messages.push(await fileToMessage(email, folder, file, raw, sub === "new"));
       } catch {
         /* skip unreadable */

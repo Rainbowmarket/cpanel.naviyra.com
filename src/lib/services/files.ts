@@ -32,7 +32,7 @@ export async function listFiles(dirPath: string, domainId: string, userId: strin
   const safePath = resolvePathWithinRoot(dirPath, domain.documentRoot);
 
   const result = await callAgent<{ entries: FileEntry[] }>(
-    { action: "list_files", path: safePath },
+    { action: "list_files", path: safePath, root: domain.documentRoot },
     domain.server.agentKey
   );
 
@@ -52,7 +52,7 @@ export async function readFile(filePath: string, domainId: string, userId: strin
   const safePath = assertOwnedPath(filePath, domain.documentRoot);
 
   const result = await callAgent<{ content: string }>(
-    { action: "read_file", path: safePath },
+    { action: "read_file", path: safePath, root: domain.documentRoot },
     domain.server.agentKey
   );
 
@@ -77,7 +77,7 @@ export async function writeFile(
   const safePath = assertOwnedPath(filePath, domain.documentRoot);
 
   const result = await callAgent(
-    { action: "write_file", path: safePath, content },
+    { action: "write_file", path: safePath, content, root: domain.documentRoot },
     domain.server.agentKey
   );
 

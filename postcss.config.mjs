@@ -1,6 +1,10 @@
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+
 const config = {
   plugins: {
-    "@tailwindcss/postcss": {},
+    [require.resolve("@tailwindcss/postcss")]: {},
   },
 };
 

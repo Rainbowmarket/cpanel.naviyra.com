@@ -2,16 +2,26 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireSessionUser } from "@/lib/auth";
 import {
+  ensureDnsZonesForAccessibleDomains,
   getDnsNameservers,
   listDnsZones,
   retryDnsZone,
   syncDnsZone,
 } from "@/lib/services/dns";
+import { ensurePanelBaseDomain } from "@/lib/services/domains";
 
 export async function GET() {
   try {
     const user = await requireSessionUser();
-    const zones = await listDnsZones(user.id);
+    if (user.role === "ADMIN") {
+      try {
+        await ensurePanelBaseDomain(user.id);
+      } catch (error) {
+        console.error("ensurePanelBaseDomain failed:", error);
+      }
+    }
+    await ensureDnsZonesForAccessibleDomains(user.id, user.role);
+    const zones = await listDnsZones(user.id, user.role);
     return NextResponse.json({
       zones,
       nameservers: getDnsNameservers(),

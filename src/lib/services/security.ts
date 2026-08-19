@@ -1,3 +1,5 @@
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
 import { prisma } from "@/lib/prisma";
 import { callAgent } from "@/lib/agent/client";
 import { assertValidIpAddress, sanitizeBlockReason } from "@/lib/ip";
@@ -115,6 +117,35 @@ export async function getSecurityOverview(
   ]);
 
   return { visitorsToday, uniqueToday, threatsToday, blockedIps, liveNow, domains };
+}
+
+export function getVisitorIngestStatus() {
+  if (process.platform !== "linux") {
+    return {
+      timer: "n/a",
+      visitorLogExists: false,
+      visitorLogBytes: 0,
+      hint: "Visitor ingest runs on Linux with nginx.",
+    };
+  }
+  const log = "/var/log/nginx/naviyra-visitors.log";
+  const timer = spawnSync("systemctl", ["is-active", "naviyra-visitor-ingest.timer"], {
+    encoding: "utf8",
+  });
+  const visitorLogExists = fs.existsSync(log);
+  const visitorLogBytes = visitorLogExists ? fs.statSync(log).size : 0;
+  const timerState = (timer.stdout || "").trim() || "inactive";
+  let hint = "Visitor ingest is running. New site hits appear within about a minute.";
+  if (timerState !== "active") {
+    hint =
+      "Ingest timer is not active. Re-run the panel installer as root, or: sudo bash scripts/install-visitor-ingest.sh";
+  } else if (!visitorLogExists) {
+    hint = "nginx visitor log is missing. Reload nginx after enabling ingest.";
+  } else if (visitorLogBytes === 0) {
+    hint =
+      "Ingest is on, but nginx has not logged a site hit yet. Open a hosted domain (not only this panel page).";
+  }
+  return { timer: timerState, visitorLogExists, visitorLogBytes, hint };
 }
 
 export async function listLiveVisitors(

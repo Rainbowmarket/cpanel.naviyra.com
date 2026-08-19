@@ -45,6 +45,38 @@ type Domain = {
 
 type ServerOption = { id: string; name: string; hostname: string };
 
+function apiErrorText(error: unknown, fallback: string): string {
+  if (typeof error === "string" && error.trim()) return error;
+  if (error && typeof error === "object") {
+    const rec = error as {
+      message?: unknown;
+      formErrors?: unknown;
+      fieldErrors?: Record<string, unknown>;
+    };
+    if (typeof rec.message === "string" && rec.message.trim()) return rec.message;
+    if (Array.isArray(rec.formErrors) && typeof rec.formErrors[0] === "string") {
+      return rec.formErrors[0];
+    }
+    const field = rec.fieldErrors
+      ? Object.values(rec.fieldErrors).flat()[0]
+      : undefined;
+    if (typeof field === "string") return field;
+  }
+  return fallback;
+}
+
+function hasDomainExtension(value: string): boolean {
+  const host = value
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .split("/")[0]
+    ?.split(":")[0]
+    ?.replace(/\.$/, "")
+    ?.replace(/^www\./, "");
+  return Boolean(host && host.includes(".") && /\.[a-z0-9-]{2,}$/i.test(host));
+}
+
 function StatusBadge({ status, error }: { status: string; error?: string | null }) {
   const styles: Record<string, string> = {
     ACTIVE: "bg-emerald-500/15 text-emerald-300 ring-emerald-500/30",
@@ -107,14 +139,20 @@ export default function DomainsPage() {
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
     setError("");
+    if (!hasDomainExtension(name)) {
+      setError(
+        "Enter a full domain with an extension like .com, .uk, or .in (e.g. example.com)"
+      );
+      return;
+    }
     const res = await fetch("/api/domains", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, serverId, appType }),
     });
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      setError(data.error ?? "Failed to create domain");
+      setError(apiErrorText(data.error, "Failed to create domain"));
       return;
     }
     if (data.domain?.status === "ERROR") {
@@ -133,7 +171,7 @@ export default function DomainsPage() {
     const res = await fetch(`/api/domains?id=${id}`, { method: "PATCH" });
     const data = await res.json();
     if (!res.ok) {
-      setError(data.error ?? "Retry failed");
+      setError(apiErrorText(data.error, "Retry failed"));
     }
     setRetrying(null);
     await load();
@@ -204,11 +242,23 @@ export default function DomainsPage() {
             <label className={modalLabelClass}>Domain name</label>
             <input
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value);
+                if (error) setError("");
+              }}
               placeholder="example.com"
               className={modalInputClass}
               required
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              inputMode="url"
+              title="Use a full domain with an extension, e.g. example.com"
             />
+            <p className="mt-1.5 text-xs text-slate-500">
+              Include the extension (.com, .uk, .in, …). A name like{" "}
+              <span className="font-mono">mysite</span> is not a domain.
+            </p>
           </div>
           <div>
             <label className={modalLabelClass}>Server</label>

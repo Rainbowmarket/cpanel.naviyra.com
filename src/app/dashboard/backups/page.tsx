@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import {
   AlertCircle,
   Archive,
+  Ban,
+  CalendarClock,
   CheckCircle2,
   Globe,
   Play,
@@ -67,6 +69,57 @@ const scheduleOptions = [
   { value: "DAILY_03", label: "Daily at 03:00 UTC" },
   { value: "WEEKLY_SUN", label: "Weekly Sunday 03:00 UTC" },
 ];
+
+function scheduleLabel(schedule: BackupSchedule) {
+  return (
+    scheduleOptions.find((o) => o.value === schedule)?.label ?? schedule
+  );
+}
+
+function nextScheduledAt(schedule: BackupSchedule, from = new Date()): Date {
+  if (schedule === "EVERY_6H") {
+    const next = new Date(from);
+    next.setUTCMinutes(0, 0, 0);
+    const remainder = next.getUTCHours() % 6;
+    const onSlot =
+      remainder === 0 &&
+      from.getUTCMinutes() === 0 &&
+      from.getUTCSeconds() === 0 &&
+      from.getUTCMilliseconds() === 0;
+    if (onSlot) {
+      next.setUTCHours(next.getUTCHours() + 6);
+    } else {
+      next.setUTCHours(next.getUTCHours() - remainder + 6);
+    }
+    return next;
+  }
+
+  const hour = schedule === "DAILY_02" ? 2 : 3;
+  const next = new Date(
+    Date.UTC(
+      from.getUTCFullYear(),
+      from.getUTCMonth(),
+      from.getUTCDate(),
+      hour,
+      0,
+      0,
+      0
+    )
+  );
+  if (schedule === "WEEKLY_SUN") {
+    const daysUntilSunday = (7 - next.getUTCDay()) % 7;
+    next.setUTCDate(next.getUTCDate() + daysUntilSunday);
+  }
+  if (next.getTime() <= from.getTime()) {
+    next.setUTCDate(next.getUTCDate() + (schedule === "WEEKLY_SUN" ? 7 : 1));
+  }
+  return next;
+}
+
+function formatUtcTime(date: Date) {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(date.getUTCHours())}:${p(date.getUTCMinutes())}`;
+}
 
 function formatBytes(n: number | null | undefined) {
   if (n == null || n <= 0) return "—";
@@ -194,6 +247,7 @@ export default function BackupsPage() {
   const [domainRunning, setDomainRunning] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [scheduleBusy, setScheduleBusy] = useState(false);
   const [running, setRunning] = useState(false);
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -282,8 +336,49 @@ export default function BackupsPage() {
     setMessage(
       data.config.enabled
         ? "Saved. systemd timer updated for the selected schedule."
-        : "Saved. Timer disabled."
+        : "Saved. Automatic backups cancelled."
     );
+  }
+
+  async function persistScheduleEnabled(enabled: boolean) {
+    if (!config) return false;
+    setScheduleBusy(true);
+    setError("");
+    setMessage("");
+    const res = await fetch("/api/backups", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled }),
+    });
+    const data = await res.json();
+    setScheduleBusy(false);
+    if (!res.ok) {
+      setError(
+        typeof data.error === "string"
+          ? data.error
+          : enabled
+            ? "Failed to enable scheduled backups"
+            : "Failed to cancel scheduled backups"
+      );
+      return false;
+    }
+    setConfig(data.config);
+    if (!enabled) setOptionsOpen(false);
+    setMessage(
+      enabled
+        ? `Automatic backups enabled (${scheduleLabel(data.config.schedule)}).`
+        : "Automatic backups cancelled. The timer will not run again until you turn it back on."
+    );
+    return true;
+  }
+
+  async function handleCancelSchedule() {
+    const ok = await confirm(
+      "Cancel the automatic backup schedule?\n\nExisting backup files are kept. You can still run backups manually.",
+      { title: "Cancel scheduled backups", danger: true, confirmLabel: "Cancel schedule" }
+    );
+    if (!ok) return;
+    await persistScheduleEnabled(false);
   }
 
   async function handleRunNow() {
@@ -452,6 +547,7 @@ export default function BackupsPage() {
   }
 
   const restoreBusy = restoringId !== null;
+  const nextBackupAt = nextScheduledAt(config.schedule);
   const domainOptions = domains.map((d) => ({
     value: d.id,
     label: d.name,
@@ -486,6 +582,62 @@ export default function BackupsPage() {
         </p>
       ) : null}
 
+      <div className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-3 sm:px-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-sm font-semibold text-white">
+            <CalendarClock className="h-4 w-4 text-emerald-400" />
+            Automatic schedule
+          </div>
+          {config.enabled ? (
+            <>
+              <p className="mt-1 text-sm text-emerald-300">
+                {scheduleLabel(config.schedule)}
+              </p>
+              <p className="mt-0.5 text-xs text-slate-400">
+                Next run {nextBackupAt.toLocaleString()}{" "}
+                <span className="text-slate-500">
+                  ({formatUtcTime(nextBackupAt)} UTC)
+                </span>
+              </p>
+            </>
+          ) : (
+            <p className="mt-1 text-sm text-slate-400">
+              Off — automatic backups will not run.
+            </p>
+          )}
+          {config.lastRunAt ? (
+            <p className="mt-1 text-[11px] text-slate-500">
+              Last run {new Date(config.lastRunAt).toLocaleString()}
+              {config.lastStatus ? ` · ${config.lastStatus}` : ""}
+            </p>
+          ) : null}
+        </div>
+        {config.enabled ? (
+          <button
+            type="button"
+            onClick={handleCancelSchedule}
+            disabled={scheduleBusy}
+            className="inline-flex items-center gap-1.5 rounded-md border border-red-500/30 px-2.5 py-1.5 text-[11px] text-red-400 hover:bg-red-500/10 disabled:opacity-50"
+          >
+            {scheduleBusy ? (
+              <RefreshCw className="h-3 w-3 animate-spin" />
+            ) : (
+              <Ban className="h-3 w-3" />
+            )}
+            Cancel schedule
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setOptionsOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-2.5 py-1.5 text-[11px] text-slate-200 hover:bg-slate-800"
+          >
+            <CalendarClock className="h-3 w-3" />
+            Set schedule
+          </button>
+        )}
+      </div>
+
       <div>
         <div className="mb-2 flex items-center justify-between gap-2">
           <h2 className="flex items-center gap-2 text-sm font-semibold text-white">
@@ -493,7 +645,9 @@ export default function BackupsPage() {
             History
           </h2>
           <span className="text-[11px] text-slate-500">
-            Schedule {config.enabled ? "on" : "off"}
+            {config.enabled
+              ? scheduleLabel(config.schedule)
+              : "Schedule off"}
             {config.lastStatus ? ` · ${config.lastStatus}` : ""}
           </span>
         </div>
@@ -646,9 +800,16 @@ export default function BackupsPage() {
             className="space-y-3 border-t border-slate-800 pt-4"
           >
             <div className="flex items-center justify-between gap-2">
-              <h3 className="text-sm font-semibold text-white">
-                Automatic schedule
-              </h3>
+              <div>
+                <h3 className="text-sm font-semibold text-white">
+                  Automatic schedule
+                </h3>
+                <p className="mt-0.5 text-xs text-slate-400">
+                  {config.enabled
+                    ? `${scheduleLabel(config.schedule)} · next ${nextBackupAt.toLocaleString()}`
+                    : "Off"}
+                </p>
+              </div>
               <button
                 type="button"
                 role="switch"
@@ -736,6 +897,21 @@ export default function BackupsPage() {
             </div>
 
             <div className="flex flex-wrap justify-end gap-2 pt-1">
+              {config.enabled ? (
+                <button
+                  type="button"
+                  onClick={handleCancelSchedule}
+                  disabled={scheduleBusy || saving}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/30 px-3 py-1.5 text-sm text-red-400 hover:bg-red-500/10 disabled:opacity-50"
+                >
+                  {scheduleBusy ? (
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Ban className="h-3.5 w-3.5" />
+                  )}
+                  Cancel schedule
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={handleRunNow}

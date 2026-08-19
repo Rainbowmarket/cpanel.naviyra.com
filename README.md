@@ -18,10 +18,11 @@ Works on **Windows**, **Linux**, and **macOS**.
 
 ## Requirements
 
-- **Node.js 20+** — [nodejs.org](https://nodejs.org)
-- Start scripts **auto-install Node** if missing (Linux via apt/nodesource, macOS via Homebrew, Windows via winget), then start the panel
+- **Node.js 20+** — [nodejs.org](https://nodejs.org) or **nvm** latest LTS (`nvm install --lts`)
+- The **npx installer** uses nvm’s latest LTS when nvm is present (installs that LTS if missing) and points systemd at the same Node binary
+- Start scripts **auto-install Node** if missing (Linux via nvm LTS, macOS via Homebrew, Windows via winget), then start the panel
 - No Docker required
-- No PostgreSQL required (embedded SQLite database)
+- Panel metadata uses **SQLite**. Customer databases use **PostgreSQL**, which the Linux installer installs if it is missing (skips if already installed)
 
 ---
 
@@ -49,6 +50,66 @@ Works on **Windows**, **Linux**, and **macOS**.
 | **Linux** | `./start.sh` with `AGENT_DRY_RUN=true` in `.env` |
 
 The dashboard shows your **platform** and **permission level** (Administrator / root / standard user).
+
+---
+
+## Install with npx
+
+Requires **Node.js 20+**. On Linux the installer prefers **nvm’s latest LTS** (installs it if missing) so systemd and native modules use the same Node — not Ubuntu’s older `/usr/bin/node`. Run with `sudo` so the panel can install to `/opt/naviyra-panel`, install **PostgreSQL** if it is not already present, and optionally register a systemd service.
+
+```bash
+npx naviyra-hosting-pannel
+```
+
+That opens a menu: **Install**, **Upgrade**, or **Reconfigure**. To install in one step:
+
+```bash
+npx naviyra-hosting-pannel install --dir /opt/naviyra-panel
+```
+
+The installer asks for the same values stored in `.env` and shows an example for each field:
+
+| You enter | Written to `.env` | Example |
+|-----------|-------------------|---------|
+| Panel domain | `PANEL_HOSTNAME` | `yourdomain.com` |
+| Server public IPv4 | `SERVER_PUBLIC_IP` | `203.0.113.10` |
+| Public panel URL | `PANEL_PUBLIC_URL` | `https://yourdomain.com` |
+| Nameservers | `DNS_NS1` / `DNS_NS2` | `ns1.yourdomain.com` / `ns2.yourdomain.com` |
+| Default server hostname | `DEFAULT_SERVER_HOSTNAME` | `s1.yourdomain.com` |
+| Mail hostname template | `MAIL_HOSTNAME` | `mail.{domain}` |
+| System mail From | `MAIL_FROM` | `noreply@yourdomain.com` |
+| Let's Encrypt email | `LETSENCRYPT_EMAIL` | `admin@yourdomain.com` |
+| Panel / agent ports | `PANEL_PORT` / `AGENT_PORT` | `3000` / `4000` |
+| Dry-run mode | `AGENT_DRY_RUN` | `false` on Linux production, `true` on Windows |
+| Headless (no browser) | `NAVIYRA_NO_BROWSER` | `true` on a VPS |
+
+DNS and mail fields default from the domain you enter. Secrets (`AGENT_API_KEY`, `SESSION_SECRET`, `TWO_FACTOR_ENC_KEY`) are generated automatically.
+
+After install, open the public panel URL (or `http://YOUR_SERVER_IP:3000`) and create the admin account.
+
+### Upgrade
+
+Keeps your `.env` and `data/` (database). Copies new files, reinstalls dependencies, and rebuilds.
+
+```bash
+npx naviyra-hosting-pannel upgrade --dir /opt/naviyra-panel
+```
+
+### Change `.env` later
+
+```bash
+npx naviyra-hosting-pannel reconfigure --dir /opt/naviyra-panel
+```
+
+### Uninstall
+
+Stops Naviyra systemd units (panel, visitor ingest, backups, expire-blocks), **removes nginx files the panel installed** (visitor log format, websocket map, snippets, panel vhost), **deletes the panel database** (`data/naviyra.db`, so the next install shows first-time admin setup), and deletes the install directory. You are asked whether to also drop panel-created PostgreSQL databases (default: yes) and whether to remove hosted websites (`/var/www`), mailboxes, and DNS zone files (default: keep them). nginx/PostgreSQL/BIND packages themselves are left installed.
+
+```bash
+npx naviyra-hosting-pannel uninstall --dir /opt/naviyra-panel
+```
+
+Windows default directory is `%LOCALAPPDATA%\NaviyraPanel` if you omit `--dir`.
 
 ---
 
@@ -535,4 +596,4 @@ Deploy installs `/etc/nginx/conf.d/naviyra-websocket-map.conf` and refreshes exi
 
 ## License
 
-Private — Naviyra
+MIT — see [LICENSE](./LICENSE).

@@ -27,14 +27,18 @@ export async function GET() {
   }
 }
 
+const DOMAIN_NAME_MESSAGE =
+  "Enter a full domain with an extension like .com, .uk, or .in (e.g. example.com)";
+
 const createSchema = z.object({
   name: z
     .string()
-    .min(3)
+    .trim()
+    .min(3, DOMAIN_NAME_MESSAGE)
     .max(253)
     .regex(
       /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i,
-      "Invalid hostname"
+      DOMAIN_NAME_MESSAGE
     ),
   serverId: z.string(),
   phpEnabled: z.boolean().optional(),
@@ -55,7 +59,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ domain }, { status: 201 });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: error.flatten() }, { status: 400 });
+      const flat = error.flatten();
+      const message =
+        flat.formErrors[0] ||
+        Object.values(flat.fieldErrors).flat()[0] ||
+        DOMAIN_NAME_MESSAGE;
+      return NextResponse.json({ error: message }, { status: 400 });
     }
     if (error instanceof Error && error.message === "Unauthorized") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

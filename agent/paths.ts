@@ -21,16 +21,14 @@ function resolveApiKey(): string {
     configured === "naviyra-local-agent-key" ||
     configured === "change-me";
 
-  const isProd =
-    process.env.NODE_ENV === "production" ||
-    process.env.AGENT_DRY_RUN === "false" ||
-    process.env.COOKIE_SECURE === "true";
+  const allowDerived = process.env.NODE_ENV === "development";
 
   if (!weak) return configured;
 
-  if (isProd) {
+  if (!allowDerived) {
     throw new Error(
-      "AGENT_API_KEY must be a strong secret in production (not naviyra-local-agent-key)"
+      "AGENT_API_KEY must be a strong secret unless NODE_ENV=development (not naviyra-local-agent-key). " +
+        "Set NODE_ENV=production in the systemd unit."
     );
   }
 

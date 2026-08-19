@@ -40,6 +40,7 @@ export const DOC_ARTICLES: DocArticle[] = [
         tips: [
           "Live hosting changes need the agent running as root/Administrator with AGENT_DRY_RUN=false.",
           "On Windows, dry-run is the default for safe testing.",
+          "A stolen admin session is a root shell on the host. Enable 2FA for every admin (required for Terminal).",
         ],
       },
       {
@@ -51,6 +52,41 @@ export const DOC_ARTICLES: DocArticle[] = [
           "Issue SSL, create mail/FTP/database accounts as needed.",
           "Use Security and Backups to monitor and protect the server.",
           "Watch live CPU and RAM on Overview (Server load).",
+        ],
+      },
+    ],
+  },
+  {
+    slug: "threat-model",
+    title: "Threat model",
+    summary: "How the panel is privileged, what 2FA protects, and what it does not.",
+    href: "/dashboard/docs/threat-model",
+    audience: "admin",
+    category: "Getting started",
+    sections: [
+      {
+        heading: "The agent runs as root",
+        body: [
+          "In production the Server Agent is a privileged process (uid 0 on Linux). The web UI is a front end for that process: nginx, BIND, mail, PostgreSQL, FTP, backups, and Terminal all go through it.",
+          "Compromise of an ADMIN session (weak password, stolen cookie, XSS) is therefore full host access, not only panel takeover.",
+        ],
+        tips: [
+          "Do not expose PANEL_PORT or AGENT_PORT on the public internet. nginx should proxy to 127.0.0.1 and overwrite X-Real-IP.",
+          "Keep AGENT_API_KEY and SESSION_SECRET long and unique.",
+        ],
+      },
+      {
+        heading: "Terminal is not a jail",
+        body: [
+          "The web Terminal is administrators only. “Jail” mode only sets the starting directory; it is not chroot, namespaces, or a sandbox.",
+          "Enable 2FA in Account security before opening Terminal. Treat every Terminal session as a root shell.",
+        ],
+      },
+      {
+        heading: "Tenant file isolation",
+        body: [
+          "File Manager paths are checked in the panel and again in the agent (sites root allowlist, symlink resolution, optional tenant document root).",
+          "USER/RESELLER accounts are scoped to their own document roots. Do not give those roles admin or agent keys.",
         ],
       },
     ],
@@ -490,7 +526,7 @@ export const DOC_ARTICLES: DocArticle[] = [
           "Manual block/whitelist changes and “Block” from a threat event require ADMIN.",
         ],
         tips: [
-          "Visitor ingest uses a secure ingest key from nginx/log parsers when configured.",
+          "Visitor ingest writes a dedicated nginx log with the request host and posts new lines to the panel every minute. The installer and agent enable this on Linux.",
         ],
       },
       {
@@ -527,6 +563,7 @@ export const DOC_ARTICLES: DocArticle[] = [
         ],
         tips: [
           "Production needs TWO_FACTOR_ENC_KEY in .env (openssl rand -hex 32).",
+          "Administrators must enable 2FA before using Terminal.",
         ],
       },
     ],
@@ -563,6 +600,7 @@ export const DOC_ARTICLES: DocArticle[] = [
         body: [
           "Non-admin Terminal was removed: prior “jail” mode was not OS containment.",
           "Sessions run with the agent process privileges — treat as full host access.",
+          "Jail mode is not a security boundary (no chroot or namespaces). Terminal is admin-only and requires 2FA.",
         ],
       },
     ],

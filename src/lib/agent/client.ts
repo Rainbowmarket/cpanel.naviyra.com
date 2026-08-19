@@ -71,18 +71,30 @@ export type AgentAction =
       }>;
       dropColumns?: string[];
     }
-  | { action: "list_files"; path: string }
-  | { action: "read_file"; path: string }
-  | { action: "write_file"; path: string; content: string }
-  | { action: "delete_file"; path: string }
-  | { action: "create_directory"; path: string }
-  | { action: "delete_directory"; path: string }
-  | { action: "rename_path"; source: string; dest: string }
-  | { action: "move_path"; source: string; dest: string }
-  | { action: "copy_path"; source: string; dest: string }
-  | { action: "upload_file"; path: string; contentBase64: string; removeZip?: boolean }
-  | { action: "extract_zip"; path: string; dest?: string; removeZip?: boolean }
-  | { action: "read_file_binary"; path: string }
+  | { action: "list_files"; path: string; root?: string }
+  | { action: "read_file"; path: string; root?: string }
+  | { action: "write_file"; path: string; content: string; root?: string }
+  | { action: "delete_file"; path: string; root?: string }
+  | { action: "create_directory"; path: string; root?: string }
+  | { action: "delete_directory"; path: string; root?: string }
+  | { action: "rename_path"; source: string; dest: string; root?: string }
+  | { action: "move_path"; source: string; dest: string; root?: string }
+  | { action: "copy_path"; source: string; dest: string; root?: string }
+  | {
+      action: "upload_file";
+      path: string;
+      contentBase64: string;
+      removeZip?: boolean;
+      root?: string;
+    }
+  | {
+      action: "extract_zip";
+      path: string;
+      dest?: string;
+      removeZip?: boolean;
+      root?: string;
+    }
+  | { action: "read_file_binary"; path: string; root?: string }
   | {
       action: "sync_dns_zone";
       domain: string;
@@ -183,7 +195,23 @@ export type AgentResponse<T = unknown> = {
 };
 
 // Use 127.0.0.1 — avoids Windows localhost/IPv6 connection issues
-const AGENT_URL = process.env.AGENT_URL ?? "http://127.0.0.1:4000";
+function agentUrls(): string[] {
+  const urls: string[] = [];
+  const seen = new Set<string>();
+  const add = (value: string) => {
+    const url = value.trim().replace(/\/$/, "");
+    if (!url || seen.has(url)) return;
+    seen.add(url);
+    urls.push(url);
+  };
+  const fromEnv = process.env.AGENT_URL?.trim();
+  const port = process.env.AGENT_PORT?.trim();
+  if (fromEnv) add(fromEnv);
+  if (port) add(`http://127.0.0.1:${port}`);
+  add("http://127.0.0.1:4000");
+  add("http://127.0.0.1:4100");
+  return urls;
+}
 
 function getApiKey(serverAgentKey?: string): string {
   // Always use the live process env key. Server.agentKey in SQLite can go
@@ -198,19 +226,22 @@ function getApiKey(serverAgentKey?: string): string {
   return envKey;
 }
 
-async function callAgentRemote<T = unknown>(
+async function callAgentAt<T = unknown>(
+  agentUrl: string,
   payload: AgentAction,
   serverAgentKey?: string
 ): Promise<AgentResponse<T>> {
+  const postgresAction = payload.action.includes("postgres");
   const longRunning =
     payload.action === "upload_file" ||
     payload.action === "extract_zip" ||
     payload.action === "run_backup" ||
     payload.action === "run_domain_backup" ||
     payload.action === "restore_backup" ||
-    payload.action === "restore_domain_backup";
+    payload.action === "restore_domain_backup" ||
+    postgresAction;
   try {
-    const response = await fetch(`${AGENT_URL}/execute`, {
+    const response = await fetch(`${agentUrl}/execute`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -224,14 +255,24 @@ async function callAgentRemote<T = unknown>(
           payload.action === "restore_backup" ||
           payload.action === "restore_domain_backup"
           ? 600000
-          : longRunning
-            ? 120000
-            : 10000
+          : postgresAction
+            ? 300000
+            : longRunning
+              ? 120000
+              : 10000
       ),
     });
 
     if (!response.ok) {
       const text = await response.text();
+      try {
+        const parsed = JSON.parse(text) as { error?: unknown };
+        if (typeof parsed.error === "string" && parsed.error.trim()) {
+          return { success: false, error: parsed.error };
+        }
+      } catch {
+        /* not JSON */
+      }
       return { success: false, error: text || `Agent HTTP ${response.status}` };
     }
 
@@ -245,6 +286,21 @@ async function callAgentRemote<T = unknown>(
   }
 }
 
+async function callAgentRemote<T = unknown>(
+  payload: AgentAction,
+  serverAgentKey?: string
+): Promise<AgentResponse<T>> {
+  const urls = agentUrls();
+  let last: AgentResponse<T> = { success: false, error: "Agent unreachable" };
+  for (const url of urls) {
+    const result = await callAgentAt<T>(url, payload, serverAgentKey);
+    if (result.success) return result;
+    if (!isAgentUnreachable(result.error)) return result;
+    last = result;
+  }
+  return last;
+}
+
 export async function callAgent<T = unknown>(
   payload: AgentAction,
   serverAgentKey?: string
@@ -253,8 +309,12 @@ export async function callAgent<T = unknown>(
 
   if (remote.success) return remote;
 
-  // Agent not running — use built-in local handler (same machine)
-  if (isAgentUnreachable(remote.error)) {
+  const unknownPostgres =
+    payload.action.includes("postgres") &&
+    (remote.error || "").toLowerCase().includes("unknown action");
+
+  // Agent not running, or an older agent that does not know PostgreSQL yet
+  if (isAgentUnreachable(remote.error) || unknownPostgres) {
     const local = await executeLocalAgent<T>(payload);
     return { ...local, via: "local" };
   }
@@ -266,7 +326,7 @@ export async function callAgent<T = unknown>(
 export async function uploadFileToAgent(
   filePath: string,
   content: Buffer,
-  options?: { removeZip?: boolean; serverAgentKey?: string }
+  options?: { removeZip?: boolean; serverAgentKey?: string; root?: string }
 ): Promise<
   AgentResponse<{
     path: string;
@@ -276,52 +336,64 @@ export async function uploadFileToAgent(
   }>
 > {
   const removeZip = options?.removeZip !== false;
-  try {
-    const response = await fetch(`${AGENT_URL}/upload-file`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${getApiKey(options?.serverAgentKey)}`,
-        "Content-Type": "application/octet-stream",
-        "X-Naviyra-Path": filePath,
-        "X-Naviyra-Remove-Zip": removeZip ? "1" : "0",
-      },
-      body: new Uint8Array(content),
-      cache: "no-store",
-      signal: AbortSignal.timeout(600000),
-    });
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(text || `Agent HTTP ${response.status}`);
-    }
-    const result = (await response.json()) as AgentResponse<{
-      path: string;
-      extracted?: boolean;
-      extractedTo?: string;
-      removedZip?: boolean;
-    }>;
-    if (result.success) return { ...result, via: "agent" };
-    throw new Error(result.error || "Upload failed");
-  } catch (error) {
-    if (!isAgentUnreachable(error instanceof Error ? error.message : "")) {
-      // Agent reached but rejected — try JSON fallback only if path missing endpoint
-      const msg = error instanceof Error ? error.message : String(error);
-      if (!/404|Not found/i.test(msg)) {
-        return {
-          success: false,
-          error: msg,
-        };
+  let lastUnreachable = false;
+  let lastMsg = "Agent unreachable";
+
+  for (const agentUrl of agentUrls()) {
+    try {
+      const response = await fetch(`${agentUrl}/upload-file`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${getApiKey(options?.serverAgentKey)}`,
+          "Content-Type": "application/octet-stream",
+          "X-Naviyra-Path": filePath,
+          ...(options?.root ? { "X-Naviyra-Root": options.root } : {}),
+          "X-Naviyra-Remove-Zip": removeZip ? "1" : "0",
+        },
+        body: new Uint8Array(content),
+        cache: "no-store",
+        signal: AbortSignal.timeout(600000),
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || `Agent HTTP ${response.status}`);
       }
+      const result = (await response.json()) as AgentResponse<{
+        path: string;
+        extracted?: boolean;
+        extractedTo?: string;
+        removedZip?: boolean;
+      }>;
+      if (result.success) return { ...result, via: "agent" };
+      throw new Error(result.error || "Upload failed");
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      lastMsg = msg;
+      if (isAgentUnreachable(msg)) {
+        lastUnreachable = true;
+        continue;
+      }
+      if (!/404|Not found/i.test(msg)) {
+        return { success: false, error: msg };
+      }
+      lastUnreachable = true;
     }
-    return callAgent(
-      {
-        action: "upload_file",
-        path: filePath,
-        contentBase64: content.toString("base64"),
-        removeZip,
-      },
-      options?.serverAgentKey
-    );
   }
+
+  if (!lastUnreachable) {
+    return { success: false, error: lastMsg };
+  }
+
+  return callAgent(
+    {
+      action: "upload_file",
+      path: filePath,
+      contentBase64: content.toString("base64"),
+      removeZip,
+      root: options?.root,
+    },
+    options?.serverAgentKey
+  );
 }
 
 export async function pingAgent(): Promise<boolean> {

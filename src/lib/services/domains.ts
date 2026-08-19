@@ -20,15 +20,30 @@ export async function ensurePanelBaseDomain(userId: string) {
 
   const existing = await prisma.domain.findUnique({
     where: { name },
-    include: { server: true },
+    include: { server: true, dnsZone: { select: { id: true } } },
   });
   if (existing) {
     if (existing.status !== "ACTIVE") {
-      return prisma.domain.update({
+      const updated = await prisma.domain.update({
         where: { id: existing.id },
         data: { status: "ACTIVE", lastError: null },
-        include: { server: true },
+        include: { server: true, dnsZone: { select: { id: true } } },
       });
+      if (!updated.dnsZone) {
+        try {
+          await syncDnsZone(updated.id);
+        } catch (error) {
+          console.error("DNS zone sync failed:", error);
+        }
+      }
+      return updated;
+    }
+    if (!existing.dnsZone) {
+      try {
+        await syncDnsZone(existing.id);
+      } catch (error) {
+        console.error("DNS zone sync failed:", error);
+      }
     }
     return existing;
   }
@@ -41,7 +56,7 @@ export async function ensurePanelBaseDomain(userId: string) {
     throw new Error("No active server configured");
   }
 
-  return prisma.domain.create({
+  const created = await prisma.domain.create({
     data: {
       name,
       documentRoot: getDefaultDocumentRoot(name),
@@ -53,6 +68,12 @@ export async function ensurePanelBaseDomain(userId: string) {
     },
     include: { server: true },
   });
+  try {
+    await syncDnsZone(created.id);
+  } catch (error) {
+    console.error("DNS zone sync failed:", error);
+  }
+  return created;
 }
 
 export async function listDomains(
@@ -125,12 +146,10 @@ async function provisionDomain(domain: {
     },
   });
 
-  if (agentResult.success) {
-    try {
-      await syncDnsZone(domain.id);
-    } catch (error) {
-      console.error("DNS zone sync failed:", error);
-    }
+  try {
+    await syncDnsZone(domain.id);
+  } catch (error) {
+    console.error("DNS zone sync failed:", error);
   }
 
   return updated;

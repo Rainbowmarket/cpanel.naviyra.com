@@ -3,13 +3,10 @@
  * Creates roles + databases via psql as the postgres OS user.
  */
 import { createHash } from "node:crypto";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { CONFIG_ROOT } from "./paths";
-
-const exec = promisify(execFile);
+import { psqlExec, psqlQuery } from "./pg-bin";
 
 function quoteIdent(ident: string): string {
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(ident)) {
@@ -62,25 +59,12 @@ async function runPsql(sql: string, dryRun: boolean, database?: string) {
   if (process.platform === "win32") {
     throw new Error("PostgreSQL provisioning requires Linux");
   }
-  const args = ["-u", "postgres", "psql", "-v", "ON_ERROR_STOP=1"];
-  if (database) {
-    args.push("-d", database);
-  }
-  args.push("-c", sql);
-  await exec("sudo", args, { maxBuffer: 2 * 1024 * 1024 });
+  await psqlExec(sql, database);
 }
 
 async function databaseExists(dbName: string): Promise<boolean> {
-  const { stdout } = await exec(
-    "sudo",
-    [
-      "-u",
-      "postgres",
-      "psql",
-      "-tAc",
-      `SELECT 1 FROM pg_database WHERE datname = ${quoteLiteral(dbName)}`,
-    ],
-    { maxBuffer: 1024 * 1024 }
+  const { stdout } = await psqlQuery(
+    `SELECT 1 FROM pg_database WHERE datname = ${quoteLiteral(dbName)}`
   );
   return stdout.trim() === "1";
 }
@@ -176,11 +160,7 @@ async function psqlJsonQuery(database: string, sql: string): Promise<unknown> {
   if (process.platform === "win32") {
     throw new Error("PostgreSQL inspection requires Linux");
   }
-  const { stdout } = await exec(
-    "sudo",
-    ["-u", "postgres", "psql", "-d", database, "-tAc", sql],
-    { maxBuffer: 8 * 1024 * 1024 }
-  );
+  const { stdout } = await psqlQuery(sql, database);
   const text = stdout.trim();
   if (!text || text === "") return null;
   try {

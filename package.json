@@ -1,11 +1,19 @@
 {
-  "name": "cpanel.naviyra.com",
-  "version": "0.1.0",
+  "name": "naviyra-hosting-pannel",
+  "version": "0.0.15",
   "private": true,
+  "description": "Naviyra Hosting Panel — self-hosted cPanel alternative. Install with: npx naviyra-hosting-pannel",
+  "license": "MIT",
+  "bin": {
+    "naviyra-hosting-pannel": "cli/npx.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "concurrently -n panel,agent -c green,cyan \"next dev\" \"npm run agent:dev\"",
     "dev:panel": "next dev",
-    "build": "prisma generate && next build",
+    "build": "prisma generate && next build --webpack",
     "start": "next start",
     "lint": "eslint",
     "db:migrate": "prisma migrate dev",
@@ -23,13 +31,24 @@
     "package:appimage": "node scripts/package/build.mjs --target appimage",
     "package": "node scripts/package/build.mjs --target all",
     "zip": "node scripts/make-zip.mjs",
-    "deploy": "node scripts/deploy.mjs"
+    "deploy": "node scripts/deploy.mjs",
+    "cli": "node cli/npx.mjs",
+    "npm:pack": "node scripts/package/stage-npm.mjs"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
   },
   "overrides": {
-    "zeptomatch": "file:scripts/zeptomatch-cjs"
+    "zeptomatch": "file:scripts/zeptomatch-cjs",
+    "nanoid": "3.3.18",
+    "fast-uri": "3.1.5",
+    "deepmerge-ts": "8.0.1",
+    "@hono/node-server": "1.19.15",
+    "hono": "4.13.3",
+    "valibot": "1.4.2",
+    "brace-expansion": "5.0.9",
+    "js-yaml": "5.3.0",
+    "shell-quote": "1.10.0"
   },
   "dependencies": {
     "@prisma/adapter-better-sqlite3": "^7.8.0",
@@ -50,10 +69,15 @@
     "react": "19.2.4",
     "react-ace": "^14.0.1",
     "react-dom": "19.2.4",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "@tailwindcss/postcss": "^4",
+    "tailwindcss": "^4",
+    "prisma": "^7.8.0",
+    "tsx": "^4.23.1",
+    "dotenv": "^17.4.2",
+    "typescript": "^5"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4",
     "@types/bcryptjs": "^2.4.6",
     "@types/mailparser": "^3.4.6",
     "@types/node": "^20",
@@ -62,12 +86,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "concurrently": "^10.0.3",
-    "dotenv": "^17.4.2",
     "eslint": "^9",
-    "eslint-config-next": "16.3.0",
-    "prisma": "^7.8.0",
-    "tailwindcss": "^4",
-    "tsx": "^4.23.1",
-    "typescript": "^5"
+    "eslint-config-next": "16.3.0"
   }
 }

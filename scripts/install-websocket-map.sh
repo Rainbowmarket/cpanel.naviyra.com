@@ -16,23 +16,50 @@ cp -f "$MAP_SRC" "$MAP_DST"
 chmod 644 "$MAP_DST"
 echo "install-websocket-map: wrote $MAP_DST"
 
-# Patch reverse-proxy site configs that already advertise Upgrade
+PANEL_ROOT="${1:-$ROOT}"
+if [ -f "$ROOT/scripts/install-nginx-snippets.sh" ]; then
+  bash "$ROOT/scripts/install-nginx-snippets.sh" "$PANEL_ROOT" || true
+fi
+
+# Only touch this panel's vhost — leftover customer sites (e.g. mail.olddomain)
+# stay untouched and are not printed.
+PANEL_HOSTNAME=""
+if [ -f "$PANEL_ROOT/.env" ]; then
+  PANEL_HOSTNAME="$(grep -E '^PANEL_HOSTNAME=' "$PANEL_ROOT/.env" | head -1 | cut -d= -f2- || true)"
+  PANEL_HOSTNAME="${PANEL_HOSTNAME%\"}"
+  PANEL_HOSTNAME="${PANEL_HOSTNAME#\"}"
+  PANEL_HOSTNAME="${PANEL_HOSTNAME%\'}"
+  PANEL_HOSTNAME="${PANEL_HOSTNAME#\'}"
+fi
+export PANEL_HOSTNAME
+
 python3 - <<'PY'
 from pathlib import Path
+import os
 import re
 
+panel = os.environ.get("PANEL_HOSTNAME", "").strip().lower().replace("www.", "", 1)
 sites = Path("/etc/nginx/sites-available")
 if not sites.is_dir():
     raise SystemExit(0)
+
+def is_this_panel_vhost(name: str, text: str) -> bool:
+    n = name.lower()
+    if ".bak" in n or n.startswith("default"):
+        return False
+    if "# Naviyra Panel" in text or "naviyra-terminal-ws.conf" in text:
+        return True
+    if not panel:
+        return False
+    return n == panel or n == f"www.{panel}"
 
 patched = 0
 for conf in sorted(sites.iterdir()):
     if not conf.is_file():
         continue
-    name = conf.name
-    if name.startswith("default") or ".bak" in name:
-        continue
     text = conf.read_text(encoding="utf-8", errors="replace")
+    if not is_this_panel_vhost(conf.name, text):
+        continue
     if "Upgrade $http_upgrade" not in text:
         continue
 
@@ -63,9 +90,7 @@ for conf in sorted(sites.iterdir()):
     if new != text:
         conf.write_text(new, encoding="utf-8")
         patched += 1
-        print(f"patched: {name}")
-    else:
-        print(f"ok: {name}")
+        print(f"install-websocket-map: patched panel vhost {conf.name}")
 
 print(f"install-websocket-map: patched={patched}")
 PY
@@ -74,6 +99,6 @@ if nginx -t; then
   systemctl reload nginx
   echo "install-websocket-map: nginx reloaded"
 else
-  echo "install-websocket-map: nginx -t FAILED — not reloading" >&2
-  exit 1
+  echo "install-websocket-map: nginx -t FAILED — map file was still written; not reloading" >&2
+  exit 0
 fi

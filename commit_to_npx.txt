@@ -1,0 +1,5 @@
+npm run npm:pack
+npm publish ./dist/npm --access public --otp=YOUR_CODE
+
+
+npm cache clean --force

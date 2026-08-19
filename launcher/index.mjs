@@ -61,6 +61,11 @@ const isLinux = process.platform === "linux";
 const isMac = process.platform === "darwin";
 const platformName = isWindows ? "Windows" : isLinux ? "Linux" : isMac ? "macOS" : process.platform;
 
+if (!process.env.NODE_ENV) {
+  const live = process.env.AGENT_DRY_RUN === "false";
+  process.env.NODE_ENV = live || isLinux ? "production" : "development";
+}
+
 const npmCmd = isWindows ? "npm.cmd" : "npm";
 const npxCmd = isWindows ? "npx.cmd" : "npx";
 
@@ -415,23 +420,43 @@ async function startApp() {
 
   const useProduction = fs.existsSync(path.join(ROOT, ".next", "BUILD_ID"));
   const panelArgs = useProduction ? ["run", "start"] : ["run", "dev:panel"];
+  const agentUrl = process.env.AGENT_URL?.trim() || `http://127.0.0.1:${AGENT_PORT}`;
 
   if (!useProduction) {
     log("Running in development mode (run 'npm run build' for production)");
   }
 
-  spawnService("Agent", npmCmd, ["run", "dev"], {
-    cwd: path.join(ROOT, "agent"),
-    env: {
-      AGENT_PORT: String(AGENT_PORT),
-      AGENT_API_KEY: process.env.AGENT_API_KEY || "",
-      AGENT_DRY_RUN: dryRun ? "true" : "false",
-      AGENT_BIND_HOST: process.env.AGENT_BIND_HOST || "127.0.0.1",
-    },
-  });
+  const tsxCli = getTsxCli(ROOT);
+  const agentEntry = path.join(ROOT, "agent", "index.ts");
+  const agentEnv = {
+    AGENT_PORT: String(AGENT_PORT),
+    AGENT_URL: agentUrl,
+    AGENT_API_KEY: process.env.AGENT_API_KEY || "",
+    AGENT_DRY_RUN: dryRun ? "true" : "false",
+    AGENT_BIND_HOST: process.env.AGENT_BIND_HOST || "127.0.0.1",
+  };
+
+  if (tsxCli && fs.existsSync(agentEntry)) {
+    const agentArgs = useProduction
+      ? [tsxCli, agentEntry]
+      : [tsxCli, "watch", agentEntry];
+    spawnService("Agent", process.execPath, agentArgs, {
+      cwd: path.join(ROOT, "agent"),
+      env: agentEnv,
+    });
+  } else {
+    spawnService("Agent", npmCmd, ["run", useProduction ? "start" : "dev"], {
+      cwd: path.join(ROOT, "agent"),
+      env: agentEnv,
+    });
+  }
 
   spawnService("Panel", npmCmd, panelArgs, {
-    env: { PORT: String(PANEL_PORT) },
+    env: {
+      PORT: String(PANEL_PORT),
+      AGENT_PORT: String(AGENT_PORT),
+      AGENT_URL: agentUrl,
+    },
   });
 
   writePidFile();

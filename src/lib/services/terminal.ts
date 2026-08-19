@@ -18,6 +18,16 @@ export async function createTerminalSession(
     throw new Error("Terminal is available to administrators only");
   }
 
+  const twoFactor = await prisma.user.findUnique({
+    where: { id: user.id },
+    select: { twoFactorEnabled: true },
+  });
+  if (!twoFactor?.twoFactorEnabled) {
+    throw new Error(
+      "Enable two-factor authentication in Account security before using Terminal"
+    );
+  }
+
   let mode: "full" | "jail";
   let cwd: string;
   let targetLabel: string | null = null;

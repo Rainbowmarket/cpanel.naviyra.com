@@ -8,11 +8,13 @@ import { BrandLogo } from "@/components/ui/brand-logo";
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [isSetup, setIsSetup] = useState(false);
+  const [hasAccount, setHasAccount] = useState<boolean | null>(null);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [domain, setDomain] = useState("");
+  const [installedDomain, setInstalledDomain] = useState<string | null>(null);
+  const [primaryHostname, setPrimaryHostname] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
   const [needs2fa, setNeeds2fa] = useState(false);
@@ -33,10 +35,26 @@ function LoginForm() {
       .catch(() => {});
 
     fetch("/api/auth/setup")
-      .then((r) => r.json())
-      .then((d) => setIsSetup(!d.needsSetup))
-      .catch(() => setIsSetup(true));
+      .then(async (r) => {
+        const d = await r.json().catch(() => ({}));
+        if (typeof d.needsSetup === "boolean") {
+          setHasAccount(!d.needsSetup);
+          if (typeof d.panelDomain === "string" && d.panelDomain.trim()) {
+            setInstalledDomain(d.panelDomain.trim());
+            setDomain(d.panelDomain.trim());
+          }
+          if (typeof d.primaryHostname === "string" && d.primaryHostname.trim()) {
+            setPrimaryHostname(d.primaryHostname.trim());
+          }
+          if (d.error) setError(String(d.error));
+          return;
+        }
+        setHasAccount(false);
+      })
+      .catch(() => setHasAccount(false));
   }, [router]);
+
+  const isSignIn = hasAccount === true;
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -64,12 +82,12 @@ function LoginForm() {
       }
 
       const res = await fetch("/api/auth/login", {
-        method: isSetup ? "POST" : "PUT",
+        method: isSignIn ? "POST" : "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
-          isSetup
+          isSignIn
             ? { email, password }
-            : { name, email, password, domain }
+            : { name, email, password, ...(installedDomain ? {} : { domain }) }
         ),
       });
 
@@ -79,7 +97,7 @@ function LoginForm() {
           data.warning ||
             data.error?.formErrors?.[0] ||
             (typeof data.error === "string" ? data.error : null) ||
-            (isSetup ? "Invalid credentials" : "Setup failed")
+            (isSignIn ? "Invalid credentials" : "Setup failed")
         );
         return;
       }
@@ -102,6 +120,14 @@ function LoginForm() {
     }
   }
 
+  if (hasAccount === null) {
+    return (
+      <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-8 text-slate-400">
+        Checking setup…
+      </div>
+    );
+  }
+
   return (
     <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-8 shadow-xl">
       <div className="flex items-center gap-3">
@@ -113,16 +139,16 @@ function LoginForm() {
       <h1 className="mt-4 text-2xl font-bold text-white">
         {needs2fa
           ? "Two-factor authentication"
-          : isSetup
+          : isSignIn
             ? "Sign in"
             : "Initial setup"}
       </h1>
       <p className="mt-1 text-sm text-slate-400">
         {needs2fa
           ? "Confirm it’s you with an authenticator or backup code"
-          : isSetup
+          : isSignIn
             ? "Access your hosting control panel"
-            : "Create the admin account and register this server’s main domain"}
+            : "Create the admin account"}
       </p>
 
       <form onSubmit={handleSubmit} className="mt-8 space-y-4">
@@ -153,7 +179,7 @@ function LoginForm() {
           </>
         ) : (
           <>
-            {!isSetup && (
+            {!isSignIn && (
               <>
                 <input
                   value={name}
@@ -162,24 +188,37 @@ function LoginForm() {
                   className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-white"
                   required
                 />
-                <div>
-                  <input
-                    value={domain}
-                    onChange={(e) => setDomain(e.target.value)}
-                    placeholder="Main domain (e.g. yourdomain.com)"
-                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-white"
-                    required
-                    autoCapitalize="off"
-                    autoCorrect="off"
-                    spellCheck={false}
-                  />
-                  <p className="mt-1.5 text-xs text-slate-500">
-                    Registers primary server as{" "}
-                    <span className="font-mono text-slate-400">
-                      server1.{domain.trim() || "yourdomain"}
+                {installedDomain ? (
+                  <p className="rounded-lg border border-slate-800 bg-slate-950 px-4 py-2.5 text-sm text-slate-300">
+                    Server domain{" "}
+                    <span className="font-mono text-emerald-400">{installedDomain}</span>
+                    <span className="mt-1 block text-xs text-slate-500">
+                      From install · primary host{" "}
+                      <span className="font-mono">
+                        {primaryHostname || `s1.${installedDomain}`}
+                      </span>
                     </span>
                   </p>
-                </div>
+                ) : (
+                  <div>
+                    <input
+                      value={domain}
+                      onChange={(e) => setDomain(e.target.value)}
+                      placeholder="Main domain (e.g. yourdomain.com)"
+                      className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-white"
+                      required
+                      autoCapitalize="off"
+                      autoCorrect="off"
+                      spellCheck={false}
+                    />
+                    <p className="mt-1.5 text-xs text-slate-500">
+                      Registers primary server as{" "}
+                      <span className="font-mono text-slate-400">
+                        {primaryHostname || `s1.${domain.trim() || "yourdomain"}`}
+                      </span>
+                    </p>
+                  </div>
+                )}
               </>
             )}
             <input
@@ -200,7 +239,7 @@ function LoginForm() {
                 required
                 minLength={8}
               />
-              {isSetup ? (
+              {isSignIn ? (
                 <div className="mt-2 text-right">
                   <Link
                     href="/login/forgot"
@@ -222,9 +261,9 @@ function LoginForm() {
         >
           {needs2fa
             ? "Verify"
-            : isSetup
+            : isSignIn
               ? "Sign in"
-              : "Create admin & register server"}
+              : "Create admin account"}
         </button>
       </form>
     </div>

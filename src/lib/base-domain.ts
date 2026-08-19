@@ -31,7 +31,7 @@ export function getPanelBaseDomain(): string | null {
 
   const serverHost = process.env.DEFAULT_SERVER_HOSTNAME?.trim();
   if (serverHost) {
-    const apex = normalizeApexDomain(serverHost).replace(/^server\d+\./, "");
+    const apex = normalizeApexDomain(serverHost).replace(/^(server\d+|s\d+)\./, "");
     if (apex.includes(".")) return apex;
   }
 
@@ -49,7 +49,7 @@ export function requirePanelBaseDomain(): string {
   if (!domain) {
     throw new Error(
       "PANEL_HOSTNAME (or PANEL_PUBLIC_URL) is not set. " +
-        "Set it in .env or complete admin first-login with your main domain."
+        "Set it in .env (npx installer) or complete admin first-login with your main domain."
     );
   }
   return domain;
@@ -106,12 +106,13 @@ export function persistPanelBaseDomainFromLogin(domainInput: string): string {
     ? `https://${domain}`
     : `http://${domain}:${panelPort}`;
 
+  const existingServerHost = process.env.DEFAULT_SERVER_HOSTNAME?.trim();
   upsertEnvKeys({
     PANEL_HOSTNAME: domain,
     PANEL_PUBLIC_URL: cleanPublicUrl,
-    DNS_NS1: `ns1.${domain}`,
-    DNS_NS2: `ns2.${domain}`,
-    DEFAULT_SERVER_HOSTNAME: `server1.${domain}`,
+    DNS_NS1: process.env.DNS_NS1?.trim() || `ns1.${domain}`,
+    DNS_NS2: process.env.DNS_NS2?.trim() || `ns2.${domain}`,
+    DEFAULT_SERVER_HOSTNAME: existingServerHost || `s1.${domain}`,
     LETSENCRYPT_EMAIL: process.env.LETSENCRYPT_EMAIL?.trim() || `admin@${domain}`,
     NEXT_PUBLIC_TERMINAL_WS_URL: `wss://${domain}/terminal-ws/terminal`,
   });

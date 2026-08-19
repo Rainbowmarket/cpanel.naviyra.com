@@ -43,26 +43,20 @@ const batchSchema = z.object({
 
 async function resolveDomain(host: string) {
   const hostname = host.split(":")[0]!.toLowerCase().replace(/^www\./, "");
-  // Exact domain match, or subdomain of a hosted domain
-  const domain = await prisma.domain.findFirst({
-    where: {
-      OR: [
-        { name: hostname },
-        { name: hostname.replace(/^[^.]+\./, "") },
-      ],
-      status: "ACTIVE",
-    },
+  const domains = await prisma.domain.findMany({
+    where: { status: "ACTIVE" },
+    select: { id: true, name: true, userId: true },
   });
-  if (domain && (domain.name === hostname || hostname.endsWith(`.${domain.name}`))) {
-    return domain;
-  }
-  // Also check subdomain table
+  const exact = domains.find((d) => d.name.toLowerCase() === hostname);
+  if (exact) return exact;
+  const parent = domains.find((d) => hostname.endsWith(`.${d.name.toLowerCase()}`));
+  if (parent) return parent;
   const parts = hostname.split(".");
   if (parts.length >= 3) {
     const label = parts[0]!;
-    const parent = parts.slice(1).join(".");
+    const parentName = parts.slice(1).join(".");
     const sub = await prisma.subdomain.findFirst({
-      where: { name: label, domain: { name: parent, status: "ACTIVE" } },
+      where: { name: label, domain: { name: parentName, status: "ACTIVE" } },
       include: { domain: true },
     });
     if (sub) return sub.domain;

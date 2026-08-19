@@ -69,10 +69,16 @@ type Domain = { id: string; name: string };
 type Stats = {
   visitorsToday: number;
   uniqueToday: number;
+  liveNow: number;
   threatsToday: number;
   blockedIps: number;
-  liveNow: number;
   domains: number;
+};
+type IngestStatus = {
+  timer: string;
+  visitorLogExists: boolean;
+  visitorLogBytes: number;
+  hint: string;
 };
 type LiveRow = {
   id: string;
@@ -211,6 +217,7 @@ function SecurityPageInner() {
   const [domains, setDomains] = useState<Domain[]>([]);
   const [domainId, setDomainId] = useState("");
   const [stats, setStats] = useState<Stats | null>(null);
+  const [ingest, setIngest] = useState<IngestStatus | null>(null);
   const [live, setLive] = useState<LiveRow[]>([]);
   const [visitors, setVisitors] = useState<Visitor[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
@@ -263,6 +270,7 @@ function SecurityPageInner() {
       ).then((r) => r.json()),
     ]);
     setStats(s.stats);
+    setIngest(s.ingest ?? null);
     setLive(l.live ?? []);
   }, [domainId, domainQuery]);
 
@@ -464,7 +472,7 @@ function SecurityPageInner() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <PageHeader
           title="Security"
-          description="Visitor traffic, threats, and IP access controls."
+          description="Visitor traffic from nginx access logs, threats, and IP controls."
         />
         <Select
           value={domainId}
@@ -542,9 +550,21 @@ function SecurityPageInner() {
               <span className="text-[11px] text-slate-500">Updates every 15s</span>
             </div>
             {live.length === 0 ? (
-              <p className="px-5 py-10 text-center text-sm text-slate-500">
-                No active visitors right now.
-              </p>
+              <div className="space-y-1 px-5 py-10 text-center text-sm text-slate-500">
+                <p>No active visitors right now.</p>
+                <p className="text-xs text-slate-600">
+                  {ingest?.hint ??
+                    "Counts come from nginx access logs every minute. Open a hosted site, then wait about a minute."}
+                </p>
+                {ingest && ingest.timer !== "n/a" ? (
+                  <p className="text-[11px] text-slate-600">
+                    Ingest timer: {ingest.timer}
+                    {ingest.visitorLogExists
+                      ? ` · log ${ingest.visitorLogBytes} B`
+                      : " · visitor log missing"}
+                  </p>
+                ) : null}
+              </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">

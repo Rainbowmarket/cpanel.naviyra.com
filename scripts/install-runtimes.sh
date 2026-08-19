@@ -14,19 +14,13 @@ echo "==> Ensuring nginx + systemd"
 apt-get update -y
 apt-get install -y nginx
 
-echo "==> Node.js 20+"
+echo "==> Node.js (nvm latest LTS, 20+ required)"
 if [[ -x "$SCRIPT_DIR/ensure-node.sh" ]]; then
   bash "$SCRIPT_DIR/ensure-node.sh"
 else
   if ! command -v node >/dev/null 2>&1 || [[ "$(node -v 2>/dev/null | sed -E 's/^v([0-9]+).*/\1/' || echo 0)" -lt 20 ]]; then
-    apt-get install -y ca-certificates curl gnupg
-    mkdir -p /etc/apt/keyrings
-    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
-      | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
-    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" \
-      > /etc/apt/sources.list.d/nodesource.list
-    apt-get update -y
-    apt-get install -y nodejs
+    echo "Install nvm and run: nvm install --lts && nvm use --lts"
+    exit 1
   fi
 fi
 
@@ -43,6 +37,13 @@ apt-get install -y python3 python3-venv python3-pip python3-dev
 echo "==> Go toolchain (optional — panel runs prebuilt binaries; SDK helps local builds)"
 apt-get install -y golang-go || true
 
+echo "==> PostgreSQL (customer databases)"
+if [[ -x "$SCRIPT_DIR/install-postgres.sh" ]]; then
+  bash "$SCRIPT_DIR/install-postgres.sh" "${PANEL_DIR:-/opt/naviyra-panel}"
+else
+  apt-get install -y postgresql postgresql-contrib
+  systemctl enable --now postgresql || true
+fi
 echo "==> Runtime checks"
 node -v 2>/dev/null || echo "Node missing"
 npm -v 2>/dev/null || echo "npm missing"

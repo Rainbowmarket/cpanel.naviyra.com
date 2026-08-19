@@ -1,0 +1,12 @@
+[Unit]
+Description=Naviyra Security visitor ingest (nginx access log)
+After=network.target naviyra-panel.service
+Wants=naviyra-panel.service
+
+[Service]
+Type=oneshot
+User=root
+Environment=NAVIYRA_ROOT=/opt/naviyra-panel
+WorkingDirectory=/opt/naviyra-panel
+ExecStart=/opt/naviyra-panel/scripts/visitor-ingest.sh
+Nice=10

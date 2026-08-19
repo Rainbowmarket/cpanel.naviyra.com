@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
-import { persistPanelBaseDomainFromLogin } from "@/lib/base-domain";
-import { getAgentApiKey, getDefaultDocumentRoot, getServerPublicIp } from "@/lib/paths";
+import { persistPanelBaseDomainFromLogin, getPanelBaseDomain } from "@/lib/base-domain";
+import { getAgentApiKey, getDefaultDocumentRoot, getDefaultServerHostname, getServerPublicIp } from "@/lib/paths";
 import { isPanelHostname } from "@/lib/panel-host";
 import { assertValidHostname, normalizeHostnameInput } from "@/lib/hostname";
 import { createDomain } from "@/lib/services/domains";
@@ -21,23 +21,26 @@ export function isValidDomainName(domain: string): boolean {
 
 /**
  * On first admin registration:
- * - persist PANEL_HOSTNAME / DNS_NS* / etc. from the entered main domain
- * - create/update Primary Server as server1.{domain}
+ * - use PANEL_HOSTNAME from install (.env) when set; otherwise persist from the form
+ * - create/update Primary Server from DEFAULT_SERVER_HOSTNAME (install default s1.{domain})
  * - register the domain in DB without overwriting the panel nginx vhost
  */
 export async function bootstrapMainServer(input: {
   userId: string;
   domainName: string;
 }) {
-  const domain = normalizeDomainName(input.domainName);
+  const installed = getPanelBaseDomain();
+  const domain = normalizeDomainName(installed || input.domainName);
   if (!isValidDomainName(domain)) {
     throw new Error("Invalid domain name");
   }
 
-  // First-login domain becomes the panel base domain in .env
-  persistPanelBaseDomainFromLogin(domain);
+  // Only write .env when install did not already set the panel domain.
+  if (!installed) {
+    persistPanelBaseDomainFromLogin(domain);
+  }
 
-  const hostname = `server1.${domain}`;
+  const hostname = getDefaultServerHostname();
   const ipAddress = getServerPublicIp();
   const agentKey = getAgentApiKey();
 

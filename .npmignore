@@ -1,0 +1,17 @@
+# Keep local secrets and build artifacts out of any accidental root `npm publish`.
+.env
+.env.*
+!.env.example
+data/
+sites/
+.next/
+node_modules/
+dist/
+Output/
+coverage/
+*.db
+*.db-journal
+.cursor/
+.git/
+*.pem
+.DS_Store

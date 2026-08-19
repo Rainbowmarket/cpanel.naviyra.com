@@ -1,6 +1,10 @@
 /**
  * In-memory login rate limiter (per process).
- * Keyed by IP + email to slow credential stuffing.
+ * Keyed by IP + email, plus a coarser per-IP cap against email spraying.
+ *
+ * TRUST_PROXY (default true): use nginx X-Real-IP only. Do not trust
+ * X-Forwarded-For — clients can spoof it. Set TRUST_PROXY=false if the
+ * panel port is reachable without a proxy that overwrites X-Real-IP.
  */
 type Bucket = {
   failures: number;
@@ -9,64 +13,84 @@ type Bucket = {
 };
 
 const buckets = new Map<string, Bucket>();
+const ipBuckets = new Map<string, Bucket>();
 
 const WINDOW_MS = 15 * 60 * 1000;
 const MAX_FAILURES = 8;
+const MAX_IP_FAILURES = 25;
 const LOCKOUT_MS = 15 * 60 * 1000;
 
 function keyFor(ip: string, email: string): string {
   return `${ip}|${email.trim().toLowerCase()}`;
 }
 
+function trustProxyHeaders(): boolean {
+  const raw = process.env.TRUST_PROXY?.trim().toLowerCase();
+  if (raw === "false" || raw === "0") return false;
+  return true;
+}
+
 /**
- * Client IP for rate limiting. Prefer nginx X-Real-IP ($remote_addr).
- * Never use the leftmost X-Forwarded-For hop — clients can spoof it when
- * the proxy appends the real address.
+ * Client IP for rate limiting. Prefer nginx X-Real-IP ($remote_addr),
+ * which overwrites the client header. Ignore X-Forwarded-For.
  */
 export function getClientIp(request: Request): string {
-  const real = request.headers.get("x-real-ip")?.trim();
-  if (real) return real;
+  if (!trustProxyHeaders()) return "direct";
 
-  const xf = request.headers.get("x-forwarded-for");
-  if (xf) {
-    const parts = xf
-      .split(",")
-      .map((p) => p.trim())
-      .filter(Boolean);
-    // Rightmost hop is typically added by the nearest trusted proxy.
-    if (parts.length > 0) return parts[parts.length - 1]!;
-  }
+  const real = request.headers.get("x-real-ip")?.trim();
+  if (real && /^[\d.:a-fA-F]+$/.test(real) && real.length <= 45) return real;
+
   return "unknown";
 }
 
-export function assertLoginAllowed(ip: string, email: string): void {
-  const key = keyFor(ip, email);
+function assertBucket(map: Map<string, Bucket>, key: string, message: string): void {
   const now = Date.now();
-  const bucket = buckets.get(key);
+  const bucket = map.get(key);
   if (!bucket) return;
 
   if (bucket.lockedUntil > now) {
     const mins = Math.ceil((bucket.lockedUntil - now) / 60000);
-    throw new Error(`Too many failed attempts. Try again in ${mins} minute(s).`);
+    throw new Error(message.replace("{mins}", String(mins)));
   }
 
   if (now - bucket.firstAt > WINDOW_MS) {
-    buckets.delete(key);
+    map.delete(key);
   }
 }
 
-export function recordLoginFailure(ip: string, email: string): void {
-  const key = keyFor(ip, email);
+function recordBucket(
+  map: Map<string, Bucket>,
+  key: string,
+  maxFailures: number
+): void {
   const now = Date.now();
-  const existing = buckets.get(key);
+  const existing = map.get(key);
   if (!existing || now - existing.firstAt > WINDOW_MS) {
-    buckets.set(key, { failures: 1, firstAt: now, lockedUntil: 0 });
+    map.set(key, { failures: 1, firstAt: now, lockedUntil: 0 });
     return;
   }
   existing.failures += 1;
-  if (existing.failures >= MAX_FAILURES) {
+  if (existing.failures >= maxFailures) {
     existing.lockedUntil = now + LOCKOUT_MS;
   }
+}
+
+export function assertLoginAllowed(ip: string, email: string): void {
+  assertBucket(
+    ipBuckets,
+    ip,
+    "Too many failed attempts from this IP. Try again in {mins} minute(s)."
+  );
+  assertBucket(
+    buckets,
+    keyFor(ip, email),
+    "Too many failed attempts. Try again in {mins} minute(s)."
+  );
+}
+
+export function recordLoginFailure(ip: string, email: string): void {
+  recordBucket(ipBuckets, ip, MAX_IP_FAILURES);
+  recordBucket(buckets, keyFor(ip, email), MAX_FAILURES);
 }
 
 export function clearLoginFailures(ip: string, email: string): void {

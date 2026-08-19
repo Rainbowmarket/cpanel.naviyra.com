@@ -9,10 +9,9 @@ export const WEAK_AGENT_KEYS = new Set([
 ]);
 
 export function isProductionRuntime(): boolean {
-  if (process.env.NODE_ENV === "production") return true;
-  if (process.env.COOKIE_SECURE === "true") return true;
-  if (process.env.AGENT_DRY_RUN === "false") return true;
-  return false;
+  // Fail closed: derived/dev secrets only when NODE_ENV is explicitly development.
+  // Unset NODE_ENV (misconfigured deploy) is treated as production.
+  return process.env.NODE_ENV !== "development";
 }
 
 function looksWeak(value: string): boolean {
@@ -35,8 +34,8 @@ export function requireAgentApiKey(): string {
 
   if (isProductionRuntime()) {
     throw new Error(
-      "AGENT_API_KEY must be set to a strong secret (16+ chars) in production. " +
-        "Do not use naviyra-local-agent-key."
+      "AGENT_API_KEY must be set to a strong secret (16+ chars) unless NODE_ENV=development. " +
+        "Do not use naviyra-local-agent-key. Systemd must set NODE_ENV=production."
     );
   }
 

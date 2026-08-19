@@ -94,9 +94,13 @@ export async function listFileManagerTargets(actor: AccessActor | string) {
 
 async function agentCall<T>(
   agentKey: string | undefined,
-  payload: Parameters<typeof callAgent>[0]
+  payload: Parameters<typeof callAgent>[0],
+  root: string
 ) {
-  const result = await callAgent<T>(payload, agentKey);
+  const result = await callAgent<T>(
+    { ...payload, root } as Parameters<typeof callAgent>[0],
+    agentKey
+  );
   if (!result.success) {
     throw new Error(result.error ?? "File operation failed");
   }
@@ -127,7 +131,8 @@ export async function fileManagerList(
 
   const data = await agentCall<{ entries: Array<{ name: string; type: string; size?: number; modifiedAt?: string }> }>(
     ctx.agentKey,
-    { action: "list_files", path: resolved }
+    { action: "list_files", path: resolved },
+    ctx.documentRoot
   );
 
   const folders = data.entries
@@ -186,7 +191,7 @@ export async function fileManagerRead(
   const data = await agentCall<{ content: string }>(ctx.agentKey, {
     action: "read_file",
     path: filePath,
-  });
+  }, ctx.documentRoot);
 
   return {
     success: true,
@@ -209,7 +214,7 @@ export async function fileManagerWrite(
     ? path.resolve(raw)
     : path.join(path.resolve(ctx.documentRoot), raw.replace(/^[/\\]+/, ""));
   assertPathAllowed(finalPath, ctx.documentRoot);
-  await agentCall(ctx.agentKey, { action: "write_file", path: finalPath, content });
+  await agentCall(ctx.agentKey, { action: "write_file", path: finalPath, content }, ctx.documentRoot);
   return { success: true, message: "Saved." };
 }
 
@@ -227,9 +232,9 @@ export async function fileManagerCreate(
   assertPathAllowed(itemPath, ctx.documentRoot);
 
   if (kind === "createFolder") {
-    await agentCall(ctx.agentKey, { action: "create_directory", path: itemPath });
+    await agentCall(ctx.agentKey, { action: "create_directory", path: itemPath }, ctx.documentRoot);
   } else {
-    await agentCall(ctx.agentKey, { action: "write_file", path: itemPath, content: "" });
+    await agentCall(ctx.agentKey, { action: "write_file", path: itemPath, content: "" }, ctx.documentRoot);
   }
   return `${kind === "createFolder" ? "Folder" : "File"} '${name}' created successfully!`;
 }
@@ -246,7 +251,7 @@ export async function fileManagerDelete(
   await agentCall(ctx.agentKey, {
     action: isFile ? "delete_file" : "delete_directory",
     path: resolved,
-  });
+  }, ctx.documentRoot);
   return isFile ? "File deleted successfully!" : "Directory deleted successfully!";
 }
 
@@ -265,7 +270,7 @@ export async function fileManagerAction(
     const parent = path.dirname(source);
     const target = path.join(parent, path.basename(params.name));
     assertPathAllowed(target, ctx.documentRoot);
-    await agentCall(ctx.agentKey, { action: "rename_path", source, dest: target });
+    await agentCall(ctx.agentKey, { action: "rename_path", source, dest: target }, ctx.documentRoot);
     return "Renamed successfully.";
   }
 
@@ -276,7 +281,7 @@ export async function fileManagerAction(
     action: action === "move" ? "move_path" : "copy_path",
     source,
     dest: destDir,
-  });
+  }, ctx.documentRoot);
   return action === "move" ? "Moved successfully." : "Copied successfully.";
 }
 
@@ -295,6 +300,7 @@ export async function fileManagerUpload(
   const response = await uploadFileToAgent(filePath, content, {
     removeZip: true,
     serverAgentKey: ctx.agentKey,
+    root: ctx.documentRoot,
   });
   if (!response.success) {
     throw new Error(response.error || "Upload failed");
@@ -328,7 +334,8 @@ export async function fileManagerExtractZip(
       path: filePath,
       dest: dirReal,
       removeZip,
-    }
+    },
+    ctx.documentRoot
   );
   return `Extracted to: ${result.extractedTo}`;
 }
@@ -347,6 +354,6 @@ export async function fileManagerDownloadPath(
   const data = await agentCall<{ contentBase64: string; size: number }>(ctx.agentKey, {
     action: "read_file_binary",
     path: filePath,
-  });
+  }, ctx.documentRoot);
   return { filePath, fileName: path.basename(fileName), ...data };
 }

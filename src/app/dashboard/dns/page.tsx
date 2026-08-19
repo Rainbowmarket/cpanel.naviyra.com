@@ -66,7 +66,7 @@ export default function DnsPage() {
   const { confirm } = useAlert();
   const [zones, setZones] = useState<DnsZone[]>([]);
   const [nameservers, setNameservers] = useState({ ns1: "", ns2: "" });
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<FilterType>("ALL");
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -89,7 +89,7 @@ export default function DnsPage() {
   }
 
   useEffect(() => {
-    loadZones();
+    loadZones().finally(() => setLoading(false));
   }, []);
 
   function closeModal() {
@@ -537,9 +537,11 @@ export default function DnsPage() {
 
         {filtered.length === 0 && (
           <div className="rounded-xl border border-dashed border-slate-800 py-16 text-center text-slate-500">
-            {zones.length === 0
-              ? "No DNS zones yet. Add a domain to auto-create a zone."
-              : "No zones match your search or filter."}
+            {loading && zones.length === 0
+              ? "Loading DNS zones…"
+              : zones.length === 0
+                ? "No DNS zones yet. Add a domain to auto-create a zone."
+                : "No zones match your search or filter."}
           </div>
         )}
       </div>

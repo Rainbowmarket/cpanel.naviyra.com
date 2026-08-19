@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import path from "node:path";
 
 /**
@@ -35,8 +36,15 @@ export function isValidHostname(hostname: string): boolean {
   return hostname.split(".").every(isValidDnsLabel);
 }
 
+export function hostnameRequirementMessage(label = "Domain"): string {
+  return `${label} must include an extension like .com, .uk, or .in (e.g. example.com)`;
+}
+
 export function assertValidHostname(hostname: string, label = "Hostname"): string {
   const normalized = normalizeHostnameInput(hostname);
+  if (!normalized.includes(".")) {
+    throw new Error(hostnameRequirementMessage(label));
+  }
   if (!isValidHostname(normalized)) {
     throw new Error(
       `${label} must be a valid DNS name (e.g. example.com). Letters, numbers, hyphens only.`
@@ -93,9 +101,10 @@ export function assertSafeDocumentRoot(
   }
 
   const base = path.resolve(
-    opts?.allowlistBase ?? getDocumentRootAllowlistBase(opts?.cwd)
+    /* turbopackIgnore: true */ opts?.allowlistBase ??
+      getDocumentRootAllowlistBase(opts?.cwd)
   );
-  const resolved = path.resolve(raw);
+  const resolved = path.resolve(/* turbopackIgnore: true */ raw);
   const prefix = base.endsWith(path.sep) ? base : base + path.sep;
 
   if (resolved !== base && !resolved.startsWith(prefix)) {
@@ -104,6 +113,64 @@ export function assertSafeDocumentRoot(
     );
   }
   return resolved;
+}
+
+export function isPathInsideBase(resolved: string, base: string): boolean {
+  const root = path.resolve(base);
+  const target = path.resolve(resolved);
+  const rootPrefix = root.endsWith(path.sep) ? root : root + path.sep;
+  return target === root || target.startsWith(rootPrefix);
+}
+
+export async function assertSafeManagedPath(
+  input: string,
+  opts?: { cwd?: string; allowlistBase?: string }
+): Promise<string> {
+  const resolved = assertSafeDocumentRoot(input, opts);
+  const base = path.resolve(
+    opts?.allowlistBase ?? getDocumentRootAllowlistBase(opts?.cwd)
+  );
+  try {
+    const real = await fs.realpath(resolved);
+    if (!isPathInsideBase(real, base)) {
+      throw new Error(`Path must resolve under ${base} (symlink escape blocked)`);
+    }
+    return real;
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err?.code !== "ENOENT") {
+      if (error instanceof Error && /symlink escape|must resolve/.test(error.message)) {
+        throw error;
+      }
+      throw error;
+    }
+  }
+  try {
+    const realParent = await fs.realpath(path.dirname(resolved));
+    if (!isPathInsideBase(realParent, base)) {
+      throw new Error(`Path must resolve under ${base} (symlink escape blocked)`);
+    }
+    return path.join(realParent, path.basename(resolved));
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err?.code === "ENOENT") return resolved;
+    throw error;
+  }
+}
+
+export async function assertPathUnderTenantRoot(
+  filePath: string,
+  tenantRoot?: string,
+  opts?: { cwd?: string; allowlistBase?: string }
+): Promise<string> {
+  const safe = await assertSafeManagedPath(filePath, opts);
+  const rootRaw = String(tenantRoot ?? "").trim();
+  if (!rootRaw) return safe;
+  const root = await assertSafeManagedPath(rootRaw, opts);
+  if (!isPathInsideBase(safe, root)) {
+    throw new Error("Path outside tenant document root");
+  }
+  return safe;
 }
 
 export function defaultDomainDocumentRoot(

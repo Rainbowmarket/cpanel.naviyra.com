@@ -1,9 +1,12 @@
 import fs from "node:fs/promises";
+import { existsSync } from "node:fs";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import type { AgentAction, AgentResponse } from "./client";
 import { applyDnsZoneLocal, removeDnsZoneLocal } from "@/lib/dns/apply";
 import {
   assertSafeDocumentRoot,
+  assertPathUnderTenantRoot,
   sanitizeHostnameForPath,
 } from "@/lib/hostname";
 
@@ -18,8 +21,73 @@ export function isAgentUnreachable(error?: string): boolean {
     msg.includes("econnreset") ||
     msg.includes("network") ||
     msg.includes("agent unreachable") ||
-    msg.includes("socket")
+    msg.includes("socket") ||
+    msg.includes("timeout") ||
+    msg.includes("aborted") ||
+    msg.includes("und_err")
   );
+}
+
+function findTsxCli(): string | null {
+  const root = process.cwd();
+  const candidates = [
+    path.join(root, "node_modules", "tsx", "dist", "cli.mjs"),
+    path.join(root, "node_modules", "tsx", "dist", "cli.cjs"),
+    path.join(root, "agent", "node_modules", "tsx", "dist", "cli.mjs"),
+  ];
+  return candidates.find((file) => existsSync(file)) ?? null;
+}
+
+function runPostgresOneShot<T>(payload: AgentAction): Promise<AgentResponse<T>> {
+  const script = path.join(process.cwd(), "agent", "exec-action.ts");
+  const tsx = findTsxCli();
+  if (!existsSync(script) || !tsx) {
+    return Promise.resolve({
+      success: false,
+      error:
+        "PostgreSQL helper is missing. Upgrade the panel, then: sudo systemctl restart naviyra-panel",
+    });
+  }
+
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [tsx, script], {
+      cwd: path.join(process.cwd(), "agent"),
+      env: { ...process.env, AGENT_DRY_RUN: process.env.AGENT_DRY_RUN || "false" },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      resolve({ success: false, error: "PostgreSQL action timed out" });
+    }, 300000);
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      resolve({ success: false, error: err.message });
+    });
+    child.on("close", () => {
+      clearTimeout(timer);
+      try {
+        const parsed = JSON.parse(stdout) as AgentResponse<T>;
+        if (parsed && typeof parsed.success === "boolean") {
+          resolve(parsed);
+          return;
+        }
+      } catch {
+        /* not JSON */
+      }
+      const detail = (stderr || stdout || "PostgreSQL action failed").trim();
+      resolve({ success: false, error: detail.slice(0, 500) });
+    });
+    child.stdin.write(JSON.stringify(payload));
+    child.stdin.end();
+  });
 }
 
 /** Run hosting actions locally when the agent process is not running (same machine). */
@@ -164,11 +232,12 @@ export async function executeLocalAgent<T = unknown>(
       }
 
       case "list_files": {
-        await fs.mkdir(payload.path, { recursive: true });
-        const entries = await fs.readdir(payload.path, { withFileTypes: true });
+        const dirPath = await assertPathUnderTenantRoot(payload.path, payload.root);
+        await fs.mkdir(dirPath, { recursive: true });
+        const entries = await fs.readdir(dirPath, { withFileTypes: true });
         const data = await Promise.all(
           entries.map(async (entry) => {
-            const fullPath = path.join(payload.path, entry.name);
+            const fullPath = path.join(dirPath, entry.name);
             const stat = await fs.stat(fullPath);
             return {
               name: entry.name,
@@ -183,83 +252,102 @@ export async function executeLocalAgent<T = unknown>(
       }
 
       case "read_file": {
-        const content = await fs.readFile(payload.path, "utf8");
+        const filePath = await assertPathUnderTenantRoot(payload.path, payload.root);
+        const content = await fs.readFile(filePath, "utf8");
         return { success: true, data: { content } as T };
       }
 
       case "write_file": {
-        await fs.mkdir(path.dirname(payload.path), { recursive: true });
-        await fs.writeFile(payload.path, payload.content, "utf8");
+        const filePath = await assertPathUnderTenantRoot(payload.path, payload.root);
+        await fs.mkdir(path.dirname(filePath), { recursive: true });
+        await fs.writeFile(filePath, payload.content, "utf8");
         return { success: true };
       }
 
       case "delete_file": {
-        await fs.unlink(payload.path);
+        const filePath = await assertPathUnderTenantRoot(payload.path, payload.root);
+        await fs.unlink(filePath);
         return { success: true };
       }
 
       case "create_directory": {
-        await fs.mkdir(payload.path, { recursive: true });
+        const dirPath = await assertPathUnderTenantRoot(payload.path, payload.root);
+        await fs.mkdir(dirPath, { recursive: true });
         return { success: true };
       }
 
       case "delete_directory": {
-        await fs.rm(payload.path, { recursive: true, force: true });
+        const dirPath = await assertPathUnderTenantRoot(payload.path, payload.root);
+        await fs.rm(dirPath, { recursive: true, force: true });
         return { success: true };
       }
 
       case "rename_path": {
-        await fs.rename(payload.source, payload.dest);
+        const source = await assertPathUnderTenantRoot(payload.source, payload.root);
+        const dest = await assertPathUnderTenantRoot(payload.dest, payload.root);
+        await fs.rename(source, dest);
         return { success: true };
       }
 
       case "move_path": {
-        const target = path.join(payload.dest, path.basename(payload.source));
-        await fs.rename(payload.source, target);
+        const source = await assertPathUnderTenantRoot(payload.source, payload.root);
+        const destDir = await assertPathUnderTenantRoot(payload.dest, payload.root);
+        const target = await assertPathUnderTenantRoot(
+          path.join(destDir, path.basename(source)),
+          payload.root
+        );
+        await fs.rename(source, target);
         return { success: true };
       }
 
       case "copy_path": {
-        const target = path.join(payload.dest, path.basename(payload.source));
-        await fs.cp(payload.source, target, { recursive: true });
+        const source = await assertPathUnderTenantRoot(payload.source, payload.root);
+        const destDir = await assertPathUnderTenantRoot(payload.dest, payload.root);
+        const target = await assertPathUnderTenantRoot(
+          path.join(destDir, path.basename(source)),
+          payload.root
+        );
+        await fs.cp(source, target, { recursive: true });
         return { success: true };
       }
 
       case "upload_file": {
-        await fs.mkdir(path.dirname(payload.path), { recursive: true });
-        await fs.writeFile(
-          payload.path,
-          Buffer.from(payload.contentBase64, "base64")
-        );
-        if (/\.zip$/i.test(payload.path)) {
+        const filePath = await assertPathUnderTenantRoot(payload.path, payload.root);
+        await fs.mkdir(path.dirname(filePath), { recursive: true });
+        await fs.writeFile(filePath, Buffer.from(payload.contentBase64, "base64"));
+        if (/\.zip$/i.test(filePath)) {
           const { extractZipArchive } = await import("../../../agent/zip");
-          const destDir = path.dirname(payload.path);
-          const result = await extractZipArchive(payload.path, destDir, {
+          const destDir = path.dirname(filePath);
+          const result = await extractZipArchive(filePath, destDir, {
             removeZip: payload.removeZip !== false,
           });
           return {
             success: true,
             data: {
-              path: payload.path,
+              path: filePath,
               extracted: true,
               extractedTo: result.extractedTo,
               removedZip: result.removedZip,
             } as T,
           };
         }
-        return { success: true, data: { path: payload.path } as T };
+        return { success: true, data: { path: filePath } as T };
       }
 
       case "extract_zip": {
         const { extractZipArchive } = await import("../../../agent/zip");
-        const destDir = payload.dest || path.dirname(payload.path);
-        const result = await extractZipArchive(payload.path, destDir, {
+        const filePath = await assertPathUnderTenantRoot(payload.path, payload.root);
+        const destDir = await assertPathUnderTenantRoot(
+          payload.dest || path.dirname(filePath),
+          payload.root
+        );
+        const result = await extractZipArchive(filePath, destDir, {
           removeZip: payload.removeZip === true,
         });
         return {
           success: true,
           data: {
-            path: payload.path,
+            path: filePath,
             extractedTo: result.extractedTo,
             removedZip: result.removedZip,
           } as T,
@@ -267,7 +355,8 @@ export async function executeLocalAgent<T = unknown>(
       }
 
       case "read_file_binary": {
-        const buf = await fs.readFile(payload.path);
+        const filePath = await assertPathUnderTenantRoot(payload.path, payload.root);
+        const buf = await fs.readFile(filePath);
         return {
           success: true,
           data: {
@@ -293,7 +382,7 @@ export async function executeLocalAgent<T = unknown>(
         );
         const dbPath = path.isAbsolute(dbRel)
           ? dbRel
-          : path.join(process.cwd(), dbRel);
+          : path.join(/* turbopackIgnore: true */ process.cwd(), dbRel);
         try {
           const { execFile } = await import("node:child_process");
           const { promisify } = await import("node:util");
@@ -371,48 +460,22 @@ export async function executeLocalAgent<T = unknown>(
         };
       }
 
-      case "run_domain_backup": {
-        const root = path.join(process.cwd(), "data", "backups");
-        await fs.mkdir(root, { recursive: true });
-        const domain = String(payload.domain || "local");
-        const name = `naviyra-domain-${domain.replace(/[^a-z0-9.-]/gi, "-")}-${Date.now()}.tar.gz`;
-        const archivePath = path.join(root, name);
-        const work = path.join(root, `.work-domain-${Date.now()}`);
-        await fs.mkdir(work, { recursive: true });
-        await fs.writeFile(
-          path.join(work, "manifest.json"),
-          JSON.stringify({
-            type: "domain",
-            domain,
-            included: ["sites"],
-          }),
-          "utf8"
-        );
-        try {
-          const { execFile } = await import("node:child_process");
-          const { promisify } = await import("node:util");
-          const exec = promisify(execFile);
-          await exec("tar", ["-czf", archivePath, "-C", work, "."]);
-        } catch {
-          await fs.writeFile(archivePath, "", "utf8");
-        }
-        await fs.rm(work, { recursive: true, force: true });
-        let sizeBytes = 0;
-        try {
-          sizeBytes = (await fs.stat(archivePath)).size;
-        } catch {
-          /* ignore */
-        }
+      case "run_domain_backup":
         return {
-          success: true,
-          data: {
-            archivePath,
-            sizeBytes,
-            included: ["sites"],
-            pruned: [],
-          } as T,
+          success: false,
+          error:
+            "Server agent is not reachable. Domain backup needs the live agent (files, DNS, mail, PostgreSQL).",
         };
-      }
+
+      case "create_postgres_database":
+      case "delete_postgres_database":
+      case "reset_postgres_password":
+      case "inspect_postgres_schema":
+      case "preview_postgres_table":
+      case "create_postgres_table":
+      case "delete_postgres_table":
+      case "alter_postgres_table":
+        return runPostgresOneShot<T>(payload);
 
       case "restore_backup":
         return {
