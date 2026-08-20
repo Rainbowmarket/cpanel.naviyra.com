@@ -62,7 +62,13 @@ function parseEnvLines(appEnv?: string | null): Record<string, string> {
     const eq = t.indexOf("=");
     if (eq <= 0) continue;
     const key = t.slice(0, eq).trim();
-    const value = t.slice(eq + 1).trim();
+    let value = t.slice(eq + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"') && value.length >= 2) ||
+      (value.startsWith("'") && value.endsWith("'") && value.length >= 2)
+    ) {
+      value = value.slice(1, -1);
+    }
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
     out[key] = value;
   }
@@ -108,6 +114,147 @@ function buildExecStart(command: string): string {
   return parts.map(systemdEscapeArg).join(" ");
 }
 
+const RESOLVE_BINS = new Set([
+  "node",
+  "nodejs",
+  "python3",
+  "python",
+  "uvicorn",
+  "gunicorn",
+  "go",
+]);
+
+async function resolveBin(name: string): Promise<string> {
+  if (name === "node" || name === "nodejs") {
+    return process.execPath;
+  }
+  try {
+    const { stdout } = await exec("which", [name]);
+    const found = stdout.trim();
+    if (found) return found;
+  } catch {
+    /* ignore */
+  }
+  for (const candidate of [`/usr/bin/${name}`, `/usr/local/bin/${name}`]) {
+    if (fsSync.existsSync(candidate)) return candidate;
+  }
+  return name;
+}
+
+async function resolveStartCommandBins(command: string): Promise<string> {
+  const parts = command.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return command;
+  const bin = parts[0];
+  if (!bin.startsWith("/") && !bin.startsWith(".") && RESOLVE_BINS.has(bin)) {
+    parts[0] = await resolveBin(bin);
+  }
+  const resolved = parts[0];
+  const isPython =
+    /(^|\/)python3?$/.test(resolved) || bin === "python" || bin === "python3";
+  if (isPython && parts[1] !== "-u" && parts[1] !== "-m") {
+    parts.splice(1, 0, "-u");
+  }
+  return parts.join(" ");
+}
+
+async function chmodLocalBinary(
+  command: string,
+  workingDir: string,
+  documentRoot: string
+) {
+  const bin = command.trim().split(/\s+/).filter(Boolean)[0];
+  if (!bin || bin.startsWith("/")) return;
+  const abs = path.resolve(workingDir, bin);
+  try {
+    assertPathUnderRoot(abs, documentRoot);
+    const st = await fs.stat(abs);
+    if (st.isFile()) await fs.chmod(abs, 0o755);
+  } catch {
+    /* not a file in the app root */
+  }
+}
+
+function servicePathEnv(extraBin?: string): string {
+  const nodeDir = path.dirname(process.execPath);
+  const extra = extraBin ? `${extraBin}:` : "";
+  return `${extra}${nodeDir}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`;
+}
+
+async function runChecked(
+  bin: string,
+  args: string[],
+  timeout = 180000
+): Promise<void> {
+  try {
+    await exec(bin, args, { timeout, maxBuffer: 20 * 1024 * 1024 });
+  } catch (error) {
+    const err = error as { stdout?: string; stderr?: string; message?: string };
+    const detail = [err.stderr, err.stdout, err.message]
+      .filter(Boolean)
+      .join("\n")
+      .slice(-1500);
+    throw new Error(detail || `Command failed: ${bin} ${args.join(" ")}`);
+  }
+}
+
+/** Create site .venv and install requirements / uvicorn so systemd is not stuck on system python3. */
+async function ensurePythonVenv(
+  workingDir: string,
+  command: string,
+  dryRun: boolean
+): Promise<{ command: string; venvBin?: string }> {
+  const usesPython =
+    /\b(python3?|uvicorn|gunicorn)\b/.test(command) ||
+    command.includes("-m uvicorn");
+  if (!usesPython) return { command };
+
+  const venvDir = path.join(workingDir, ".venv");
+  const venvPython = path.join(venvDir, "bin", "python");
+  const venvBin = path.join(venvDir, "bin");
+
+  if (dryRun || isWindows) {
+    return {
+      command: command.replace(
+        /^(python3|python)\b/,
+        path.join(".venv", "bin", "python")
+      ),
+      venvBin: path.join(".venv", "bin"),
+    };
+  }
+
+  if (!fsSync.existsSync(venvPython)) {
+    await runChecked("python3", ["-m", "venv", venvDir], 120000);
+  }
+
+  const req = path.join(workingDir, "requirements.txt");
+  if (fsSync.existsSync(req)) {
+    await runChecked(venvPython, ["-m", "pip", "install", "-r", req], 300000);
+  }
+  if (/\buvicorn\b/.test(command) || command.includes("-m uvicorn")) {
+    await runChecked(
+      venvPython,
+      ["-m", "pip", "install", "uvicorn", "fastapi"],
+      180000
+    );
+  }
+
+  let next = command
+    .replace(/^(python3|python)\b/, venvPython)
+    .replace(/^\/usr\/bin\/python3\b/, venvPython);
+  if (next.startsWith("uvicorn ")) {
+    next = `${venvPython} -m ${next}`;
+  }
+  return { command: next, venvBin };
+}
+
+function resolveWorkingDir(documentRoot: string, workingDirRel: string): string {
+  const raw = (workingDirRel || ".").trim().replace(/\\/g, "/") || ".";
+  const root = path.resolve(documentRoot);
+  const abs = path.isAbsolute(raw) ? path.resolve(raw) : path.resolve(root, raw);
+  assertPathUnderRoot(abs, root);
+  return abs;
+}
+
 export async function writeAppUnit(opts: {
   siteId: string;
   documentRoot: string;
@@ -121,14 +268,29 @@ export async function writeAppUnit(opts: {
   cmd = cmd
     .replace(/\$\{PORT\}/g, String(opts.port))
     .replace(/\$PORT\b/g, String(opts.port));
-  const rel = (opts.workingDirRel || ".").replace(/\\/g, "/");
-  const workingDir = path.resolve(opts.documentRoot, rel);
-  assertPathUnderRoot(workingDir, opts.documentRoot);
+  const workingDir = resolveWorkingDir(
+    opts.documentRoot,
+    opts.workingDirRel || "."
+  );
+
+  if (!opts.dryRun && !isWindows) {
+    await chmodLocalBinary(cmd, workingDir, opts.documentRoot);
+  }
+  const py = await ensurePythonVenv(
+    workingDir,
+    cmd,
+    Boolean(opts.dryRun || isWindows)
+  );
+  cmd = py.command;
+  cmd = await resolveStartCommandBins(cmd);
 
   const unit = unitNameForSite(opts.siteId);
   const env = parseEnvLines(opts.appEnv);
   env.PORT = String(opts.port);
   env.HOST = "127.0.0.1";
+  env.PYTHONUNBUFFERED = env.PYTHONUNBUFFERED || "1";
+  env.PYTHONPATH = env.PYTHONPATH || workingDir;
+  env.PATH = servicePathEnv(py.venvBin);
 
   const envLines = Object.entries(env)
     .map(([k, v]) => `Environment=${k}=${systemdEscapeArg(v)}`)
@@ -163,6 +325,29 @@ WantedBy=multi-user.target
   return { unitName: unit, workingDir };
 }
 
+export async function getAppLogs(
+  siteId: string,
+  lines = 80
+): Promise<{ unitName: string; logs: string }> {
+  const unit = unitNameForSite(siteId);
+  if (isWindows) {
+    return { unitName: unit, logs: "" };
+  }
+  try {
+    const { stdout, stderr } = await exec("journalctl", [
+      "-u",
+      unit,
+      "-n",
+      String(Math.min(200, Math.max(1, lines))),
+      "--no-pager",
+    ]);
+    return { unitName: unit, logs: (stdout || stderr || "").trim() };
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    return { unitName: unit, logs: msg };
+  }
+}
+
 export async function startAppUnit(
   siteId: string,
   dryRun = false
@@ -172,9 +357,25 @@ export async function startAppUnit(
     console.log(`[DRY RUN] systemctl enable --now ${unit}`);
     return { unitName: unit, active: true };
   }
+  const unitPath = path.join(UNIT_DIR, unit);
+  if (!fsSync.existsSync(unitPath)) {
+    throw new Error("Save app settings first so the systemd unit is created");
+  }
+  await exec("systemctl", ["reset-failed", unit]).catch(() => undefined);
   await exec("systemctl", ["enable", "--now", unit]);
+  await exec("systemctl", ["restart", unit]).catch(() => undefined);
+  await new Promise((r) => setTimeout(r, 900));
   const active = await isUnitActive(unit);
-  return { unitName: unit, active };
+  if (!active) {
+    const { logs } = await getAppLogs(siteId, 50);
+    const detail = logs.slice(-1800);
+    throw new Error(
+      detail
+        ? `Service failed to stay running.\n${detail}`
+        : "Service failed to stay running"
+    );
+  }
+  return { unitName: unit, active: true };
 }
 
 export async function stopAppUnit(

@@ -65,6 +65,7 @@ import {
   startAppUnit,
   stopAppUnit,
   writeAppUnit,
+  getAppLogs,
 } from "./apps";
 import {
   configureBackupTimer,
@@ -87,6 +88,7 @@ import {
   deletePostgresTableOnServer,
   inspectPostgresSchemaOnServer,
   previewPostgresTableOnServer,
+  mutatePostgresTableRowsOnServer,
   resetPostgresPasswordOnServer,
 } from "./postgres";
 import { redactPostgresError } from "./pg-bin";
@@ -217,7 +219,7 @@ async function handleAction(payload: Action) {
         go: null,
       };
       try {
-        const { stdout } = await exec("node", ["-v"]);
+        const { stdout } = await exec(process.execPath, ["-v"]);
         versions.node = stdout.trim() || null;
       } catch {
         /* missing */
@@ -639,6 +641,27 @@ async function handleAction(payload: Action) {
       return { success: true, data };
     }
 
+    case "mutate_postgres_table_rows": {
+      const values =
+        payload.values && typeof payload.values === "object"
+          ? (payload.values as Record<string, unknown>)
+          : {};
+      const where =
+        payload.where && typeof payload.where === "object"
+          ? (payload.where as Record<string, unknown>)
+          : {};
+      const data = await mutatePostgresTableRowsOnServer({
+        dbName: String(payload.dbName),
+        schema: payload.schema ? String(payload.schema) : "public",
+        table: String(payload.table),
+        op: String(payload.op) as "insert" | "update" | "delete",
+        values,
+        where,
+        dryRun: DRY_RUN,
+      });
+      return { success: true, data };
+    }
+
     case "sync_dns_zone": {
       const data = payload as SyncDnsZonePayload & Action;
       const result = await applyDnsZone(
@@ -949,6 +972,13 @@ async function handleAction(payload: Action) {
       const siteId = String(payload.siteId);
       await removeAppUnit(siteId, DRY_RUN);
       return { success: true, data: { siteId } };
+    }
+
+    case "app_logs": {
+      const siteId = String(payload.siteId);
+      const lines = payload.lines != null ? Number(payload.lines) : 80;
+      const result = await getAppLogs(siteId, lines);
+      return { success: true, data: result };
     }
 
     case "run_backup": {

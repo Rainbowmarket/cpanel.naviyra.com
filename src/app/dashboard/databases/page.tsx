@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { Copy, Database, KeyRound, Pencil, Table2, Trash2 } from "lucide-react";
+import { Copy, Database, ExternalLink, KeyRound, Pencil, Table2, Trash2 } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { Modal, modalInputClass, modalLabelClass } from "@/components/ui/modal";
 import { ModalActions, PageHeader } from "@/components/ui/page-header";
@@ -1260,14 +1260,15 @@ export default function DatabasesPage() {
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => openSchemaBrowser(db)}
+                <a
+                  href={`/dashboard/databases/${db.id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
                 >
-                  <Table2 className="h-3.5 w-3.5" />
+                  <ExternalLink className="h-3.5 w-3.5" />
                   Browse
-                </button>
+                </a>
                 <button
                   type="button"
                   onClick={() => copyText(db.connection.uri)}

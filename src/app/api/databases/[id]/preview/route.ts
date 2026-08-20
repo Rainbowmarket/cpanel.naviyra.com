@@ -15,7 +15,7 @@ const querySchema = z.object({
     .regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "Invalid schema name")
     .optional()
     .default("public"),
-  limit: z.coerce.number().int().min(1).max(100).optional().default(50),
+  limit: z.coerce.number().int().min(1).max(200).optional().default(100),
 });
 
 export async function GET(request: Request, context: RouteContext) {

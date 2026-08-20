@@ -1,6 +1,6 @@
 {
   "name": "naviyra-hosting-pannel",
-  "version": "0.0.15",
+  "version": "0.0.22",
   "private": true,
   "description": "Naviyra Hosting Panel — self-hosted cPanel alternative. Install with: npx naviyra-hosting-pannel",
   "license": "MIT",

@@ -490,3 +490,53 @@ export async function alterPostgresDatabaseTable(input: {
     renamed: boolean;
   };
 }
+
+export async function mutatePostgresDatabaseRows(input: {
+  id: string;
+  userId: string;
+  role?: string;
+  schema?: string;
+  table: string;
+  op: "insert" | "update" | "delete";
+  values?: Record<string, unknown>;
+  where?: Record<string, unknown>;
+}) {
+  const record = await prisma.postgresDatabase.findFirstOrThrow({
+    where: {
+      id: input.id,
+      ...(input.role === "ADMIN" ? {} : { domain: { userId: input.userId } }),
+    },
+    include: {
+      domain: {
+        select: {
+          server: { select: { agentKey: true } },
+        },
+      },
+    },
+  });
+
+  const agentResult = await callAgent(
+    {
+      action: "mutate_postgres_table_rows",
+      dbName: record.dbName,
+      schema: input.schema || "public",
+      table: input.table,
+      op: input.op,
+      values: input.values,
+      where: input.where,
+    },
+    record.domain.server.agentKey
+  );
+  if (!agentResult.success) {
+    throw new Error(
+      agentResult.error ?? "Failed to change PostgreSQL table rows on server"
+    );
+  }
+
+  return agentResult.data as {
+    dbName: string;
+    schema: string;
+    table: string;
+    op: string;
+  };
+}

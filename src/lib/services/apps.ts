@@ -3,8 +3,13 @@ import { prisma } from "@/lib/prisma";
 import { callAgent } from "@/lib/agent/client";
 import { getAgentApiKey } from "@/lib/paths";
 import {
+  domainAccessWhere,
+  type AccessActor,
+} from "@/lib/hosting-targets";
+import {
   isProxyAppType,
   mergeAppModeEnv,
+  normalizeAppWorkingDir,
   phpEnabledForAppType,
   resolveStartCommand,
   type AppMode,
@@ -12,6 +17,7 @@ import {
 
 export {
   APP_TYPES,
+  fastapiStartCommand,
   isProxyAppType,
   mergeAppModeEnv,
   parseAppModeFromEnv,
@@ -21,11 +27,17 @@ export {
 } from "@/lib/apps/runtime-helpers";
 
 type SiteKind = "domain" | "subdomain";
+type Actor = AccessActor | string;
 
-async function loadSite(kind: SiteKind, id: string, userId: string) {
+function asActor(user: Actor): AccessActor {
+  return typeof user === "string" ? { id: user, role: "USER" } : user;
+}
+
+async function loadSite(kind: SiteKind, id: string, user: Actor) {
+  const access = domainAccessWhere(user);
   if (kind === "domain") {
     const domain = await prisma.domain.findFirstOrThrow({
-      where: { id, userId },
+      where: { id, ...access },
       include: { server: true },
     });
     return {
@@ -45,7 +57,7 @@ async function loadSite(kind: SiteKind, id: string, userId: string) {
   }
 
   const subdomain = await prisma.subdomain.findFirstOrThrow({
-    where: { id, domain: { userId } },
+    where: { id, domain: access },
     include: { domain: { include: { server: true } } },
   });
   return {
@@ -83,10 +95,80 @@ async function persistSite(
   return prisma.subdomain.update({ where: { id }, data });
 }
 
+export async function listSiteApps(user: Actor) {
+  const access = domainAccessWhere(asActor(user));
+  const domains = await prisma.domain.findMany({
+    where: access,
+    orderBy: { name: "asc" },
+    select: {
+      id: true,
+      name: true,
+      documentRoot: true,
+      appType: true,
+      startCommand: true,
+      appStartupFile: true,
+      appWorkingDir: true,
+      upstreamPort: true,
+      appStatus: true,
+      appEnv: true,
+    },
+  });
+  const subdomains = await prisma.subdomain.findMany({
+    where: { domain: access },
+    orderBy: [{ domain: { name: "asc" } }, { name: "asc" }],
+    include: { domain: { select: { name: true } } },
+  });
+  return [
+    ...domains.map((d) => ({
+      kind: "domain" as const,
+      id: d.id,
+      hostname: d.name,
+      documentRoot: d.documentRoot,
+      appType: d.appType,
+      startCommand: d.startCommand,
+      appStartupFile: d.appStartupFile,
+      appWorkingDir: d.appWorkingDir,
+      upstreamPort: d.upstreamPort,
+      appStatus: d.appStatus,
+      appEnv: d.appEnv,
+    })),
+    ...subdomains.map((s) => ({
+      kind: "subdomain" as const,
+      id: s.id,
+      hostname: `${s.name}.${s.domain.name}`,
+      documentRoot: s.documentRoot,
+      appType: s.appType,
+      startCommand: s.startCommand,
+      appStartupFile: s.appStartupFile,
+      appWorkingDir: s.appWorkingDir,
+      upstreamPort: s.upstreamPort,
+      appStatus: s.appStatus,
+      appEnv: s.appEnv,
+    })),
+  ];
+}
+
+export async function getSiteAppLogs(
+  kind: SiteKind,
+  id: string,
+  user: Actor
+) {
+  const site = await loadSite(kind, id, user);
+  const result = await callAgent<{ unitName: string; logs: string }>(
+    { action: "app_logs", siteId: site.id, lines: 80 },
+    site.agentKey
+  );
+  return {
+    site,
+    unitName: result.data?.unitName ?? null,
+    logs: result.data?.logs ?? (result.error || ""),
+  };
+}
+
 export async function configureSiteApp(
   kind: SiteKind,
   id: string,
-  userId: string,
+  user: Actor,
   input: {
     appType: AppType;
     startCommand?: string;
@@ -96,7 +178,7 @@ export async function configureSiteApp(
     appMode?: AppMode | null;
   }
 ) {
-  const site = await loadSite(kind, id, userId);
+  const site = await loadSite(kind, id, user);
   const appType = input.appType;
   const appStartupFile =
     input.appStartupFile !== undefined
@@ -107,7 +189,10 @@ export async function configureSiteApp(
     startCommand: input.startCommand ?? site.startCommand,
     appStartupFile,
   });
-  const appWorkingDir = input.appWorkingDir?.trim() || site.appWorkingDir || ".";
+  const appWorkingDir = normalizeAppWorkingDir(
+    input.appWorkingDir?.trim() || site.appWorkingDir || ".",
+    site.documentRoot
+  );
   let appEnv = input.appEnv !== undefined ? input.appEnv : site.appEnv;
   if (input.appMode) {
     appEnv = mergeAppModeEnv(appEnv, input.appMode);
@@ -162,16 +247,16 @@ export async function configureSiteApp(
     });
   }
 
-  return loadSite(kind, id, userId);
+  return loadSite(kind, id, user);
 }
 
 export async function controlSiteApp(
   kind: SiteKind,
   id: string,
-  userId: string,
+  user: Actor,
   op: "start" | "stop" | "restart" | "status"
 ) {
-  const site = await loadSite(kind, id, userId);
+  let site = await loadSite(kind, id, user);
   if (!isProxyAppType(site.appType) && op !== "status") {
     throw new Error("Start/Stop only applies to Node, Python, and Go apps");
   }
@@ -185,6 +270,16 @@ export async function controlSiteApp(
     const appStatus: AppStatus = active ? "RUNNING" : "STOPPED";
     await persistSite(kind, id, { appStatus });
     return { ...site, appStatus, active };
+  }
+
+  if (op === "start" || op === "restart") {
+    site = await configureSiteApp(kind, id, user, {
+      appType: site.appType,
+      startCommand: site.startCommand ?? undefined,
+      appStartupFile: site.appStartupFile,
+      appWorkingDir: site.appWorkingDir,
+      appEnv: site.appEnv,
+    });
   }
 
   const action =
@@ -208,14 +303,14 @@ export async function controlSiteApp(
   }
   const appStatus: AppStatus = active ? "RUNNING" : "STOPPED";
   await persistSite(kind, id, { appStatus });
-  return { ...(await loadSite(kind, id, userId)), active };
+  return { ...(await loadSite(kind, id, user)), active };
 }
 
 export async function removeSiteAppUnit(
   kind: SiteKind,
   id: string,
-  userId: string
+  user: Actor
 ) {
-  const site = await loadSite(kind, id, userId);
+  const site = await loadSite(kind, id, user);
   await callAgent({ action: "app_remove", siteId: site.id }, site.agentKey);
 }

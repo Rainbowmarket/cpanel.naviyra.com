@@ -301,6 +301,7 @@ export default function DomainsPage() {
             upstreamPort={runtimeDomain.upstreamPort}
             appStatus={runtimeDomain.appStatus}
             appEnv={runtimeDomain.appEnv}
+            documentRoot={runtimeDomain.documentRoot}
             onUpdated={async () => {
               await load();
             }}

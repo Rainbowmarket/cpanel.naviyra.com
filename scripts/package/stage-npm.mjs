@@ -32,7 +32,12 @@ const SKIP_DIRS = new Set([
   ".turbo",
 ]);
 
-const SKIP_FILES = new Set([".env", ".env.local", ".env.production"]);
+const SKIP_FILES = new Set([
+  ".env",
+  ".env.local",
+  ".env.production",
+  "commit_to_npx.txt",
+]);
 
 const rootPkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
 

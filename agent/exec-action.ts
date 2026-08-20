@@ -8,6 +8,7 @@ import {
   resetPostgresPasswordOnServer,
   inspectPostgresSchemaOnServer,
   previewPostgresTableOnServer,
+  mutatePostgresTableRowsOnServer,
   createPostgresTableOnServer,
   deletePostgresTableOnServer,
   alterPostgresTableOnServer,
@@ -110,6 +111,22 @@ async function run(payload: Payload) {
         dropColumns: Array.isArray(payload.dropColumns)
           ? payload.dropColumns.map((name) => String(name))
           : undefined,
+        dryRun: DRY_RUN,
+      });
+    case "mutate_postgres_table_rows":
+      return mutatePostgresTableRowsOnServer({
+        dbName: String(payload.dbName),
+        schema: payload.schema ? String(payload.schema) : "public",
+        table: String(payload.table),
+        op: String(payload.op) as "insert" | "update" | "delete",
+        values:
+          payload.values && typeof payload.values === "object"
+            ? (payload.values as Record<string, unknown>)
+            : {},
+        where:
+          payload.where && typeof payload.where === "object"
+            ? (payload.where as Record<string, unknown>)
+            : {},
         dryRun: DRY_RUN,
       });
     default:

@@ -183,9 +183,8 @@ install -m 0644 "$ROOT/scripts/systemd/naviyra-visitor-ingest.timer" /etc/system
 
 systemctl daemon-reload
 systemctl enable --now naviyra-visitor-ingest.timer
-# Do not start the oneshot now — the panel may not be listening yet.
-# The timer runs within a minute; ingest treats connection-refused as skip.
+systemctl start naviyra-visitor-ingest.service || true
 
-echo "Visitor ingest enabled (every minute)."
+echo "Visitor ingest enabled (every minute via OnCalendar=minutely)."
 echo "  systemctl list-timers naviyra-visitor-ingest.timer"
 echo "  journalctl -u naviyra-visitor-ingest.service -n 20"

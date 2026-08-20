@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Globe,
+  HeartPulse,
   LayoutDashboard,
   Lock,
   Mail,
@@ -21,6 +22,7 @@ import {
   BookOpen,
   KeyRound,
   X,
+  Cpu,
 } from "lucide-react";
 import { BrandLogo } from "@/components/ui/brand-logo";
 import { cn } from "@/lib/utils";
@@ -39,6 +41,7 @@ const navGroups = [
     items: [
       { href: "/dashboard/domains", label: "Domains", icon: Globe },
       { href: "/dashboard/subdomains", label: "Subdomains", icon: Server },
+      { href: "/dashboard/apps", label: "Apps", icon: Cpu },
     ],
   },
   {
@@ -66,6 +69,7 @@ const adminNavGroup = {
     { href: "/dashboard/users", label: "Users", icon: Users },
     { href: "/dashboard/backups", label: "Backups", icon: Archive },
     { href: "/dashboard/speed-test", label: "Speed Test", icon: Gauge },
+    { href: "/dashboard/service-tests", label: "Service tests", icon: HeartPulse },
     { href: "/dashboard/terminal", label: "Terminal", icon: Terminal },
   ],
 };

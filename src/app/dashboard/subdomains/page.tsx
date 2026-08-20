@@ -474,6 +474,7 @@ export default function SubdomainsPage() {
             upstreamPort={runtimeSub.upstreamPort}
             appStatus={runtimeSub.appStatus}
             appEnv={runtimeSub.appEnv}
+            documentRoot={runtimeSub.documentRoot}
             onUpdated={() => loadAllSubdomains()}
           />
         ) : null}

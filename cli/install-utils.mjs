@@ -173,6 +173,14 @@ export function printLinuxInstallStatus(dest) {
     waitForPort(port, 25000);
   }
 
+  if (portListening(port) && fs.existsSync("/etc/systemd/system/naviyra-visitor-ingest.service")) {
+    spawnSync("systemctl", ["start", "naviyra-visitor-ingest.service"], {
+      encoding: "utf8",
+      windowsHide: true,
+      stdio: "ignore",
+    });
+  }
+
   const panelUp = unitActive("naviyra-panel.service");
   const portUp = portListening(port);
   printCheck(panelUp, "naviyra-panel.service", panelUp ? "systemd" : "systemctl status naviyra-panel");

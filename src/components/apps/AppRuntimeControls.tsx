@@ -5,6 +5,8 @@ import { AlertCircle, Play, Square, RotateCw } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { modalInputClass, modalLabelClass } from "@/components/ui/modal";
 import {
+  fastapiStartCommand,
+  normalizeAppWorkingDir,
   parseAppModeFromEnv,
   type AppMode,
 } from "@/lib/apps/runtime-helpers";
@@ -33,7 +35,7 @@ function defaultStartHint(appType: AppType, startupFile: string): string {
     appType === "NODE" ? "server.js" : appType === "PYTHON" ? "app.py" : "app"
   );
   if (appType === "NODE") return `node ${file}`;
-  if (appType === "PYTHON") return `python3 ${file}`;
+  if (appType === "PYTHON") return `python3 -u ${file}`;
   return file.startsWith("./") ? file : `./${file}`;
 }
 
@@ -48,6 +50,7 @@ type Props = {
   upstreamPort?: number | null;
   appStatus?: string | null;
   appEnv?: string | null;
+  documentRoot?: string | null;
   onUpdated?: () => void;
 };
 
@@ -62,6 +65,7 @@ export function AppRuntimeControls({
   upstreamPort,
   appStatus,
   appEnv: initialEnv,
+  documentRoot,
   onUpdated,
 }: Props) {
   const [appType, setAppType] = useState<AppType>(initialType);
@@ -70,7 +74,13 @@ export function AppRuntimeControls({
   );
   const [appStartupFile, setAppStartupFile] = useState(initialStartup ?? "");
   const [startCommand, setStartCommand] = useState(initialCmd ?? "");
-  const [appWorkingDir, setAppWorkingDir] = useState(initialDir ?? ".");
+  const [appWorkingDir, setAppWorkingDir] = useState(() => {
+    try {
+      return normalizeAppWorkingDir(initialDir ?? ".", documentRoot);
+    } catch {
+      return ".";
+    }
+  });
   const [appEnv, setAppEnv] = useState(initialEnv ?? "");
   const [showAdvanced, setShowAdvanced] = useState(Boolean(initialCmd?.trim()));
   const [busy, setBusy] = useState(false);
@@ -78,50 +88,72 @@ export function AppRuntimeControls({
   const [status, setStatus] = useState(appStatus ?? "STOPPED");
   const [port, setPort] = useState(upstreamPort ?? null);
   const [nodeVersion, setNodeVersion] = useState<string | null>(null);
+  const [pythonVersion, setPythonVersion] = useState<string | null>(null);
+  const [goVersion, setGoVersion] = useState<string | null>(null);
+  const [logs, setLogs] = useState("");
 
   useEffect(() => {
-    if (appType !== "NODE") return;
     let cancelled = false;
     fetch("/api/apps/runtime-info")
       .then((r) => r.json())
       .then((data) => {
-        if (!cancelled && data.node) setNodeVersion(String(data.node));
+        if (cancelled) return;
+        if (data.node) setNodeVersion(String(data.node));
+        if (data.python) setPythonVersion(String(data.python));
+        if (data.go) setGoVersion(String(data.go));
       })
       .catch(() => undefined);
     return () => {
       cancelled = true;
     };
-  }, [appType]);
+  }, []);
+
+  async function loadLogs() {
+    try {
+      const res = await fetch(
+        `/api/apps?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}&logs=1`
+      );
+      const data = await res.json();
+      if (res.ok) setLogs(String(data.logs ?? ""));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  async function persistConfig() {
+    const res = await fetch("/api/apps", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        kind,
+        id,
+        appType,
+        appMode: isProxyAppType(appType) ? appMode : undefined,
+        appStartupFile: isProxyAppType(appType)
+          ? appStartupFile.trim() || null
+          : null,
+        startCommand: isProxyAppType(appType)
+          ? startCommand.trim() || undefined
+          : undefined,
+        appWorkingDir: isProxyAppType(appType) ? appWorkingDir : undefined,
+        appEnv: isProxyAppType(appType) ? appEnv || null : null,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error ?? "Save failed");
+    setPort(data.site?.upstreamPort ?? null);
+    setStatus(data.site?.appStatus ?? "STOPPED");
+    if (data.site?.startCommand) setStartCommand(data.site.startCommand);
+    onUpdated?.();
+    return data;
+  }
 
   async function saveConfig(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError("");
     try {
-      const res = await fetch("/api/apps", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          kind,
-          id,
-          appType,
-          appMode: isProxyAppType(appType) ? appMode : undefined,
-          appStartupFile: isProxyAppType(appType)
-            ? appStartupFile.trim() || null
-            : null,
-          startCommand: isProxyAppType(appType)
-            ? startCommand.trim() || undefined
-            : undefined,
-          appWorkingDir: isProxyAppType(appType) ? appWorkingDir : undefined,
-          appEnv: isProxyAppType(appType) ? appEnv || null : null,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Save failed");
-      setPort(data.site?.upstreamPort ?? null);
-      setStatus(data.site?.appStatus ?? "STOPPED");
-      if (data.site?.startCommand) setStartCommand(data.site.startCommand);
-      onUpdated?.();
+      await persistConfig();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
     } finally {
@@ -133,6 +165,9 @@ export function AppRuntimeControls({
     setBusy(true);
     setError("");
     try {
+      if (op === "start" || op === "restart") {
+        await persistConfig();
+      }
       const res = await fetch("/api/apps", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -141,9 +176,12 @@ export function AppRuntimeControls({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? `${op} failed`);
       setStatus(data.site?.appStatus ?? (op === "stop" ? "STOPPED" : "RUNNING"));
+      if (data.site?.upstreamPort) setPort(data.site.upstreamPort);
       onUpdated?.();
+      await loadLogs();
     } catch (err) {
       setError(err instanceof Error ? err.message : `${op} failed`);
+      await loadLogs();
     } finally {
       setBusy(false);
     }
@@ -163,11 +201,11 @@ export function AppRuntimeControls({
             "Upload a built React SPA (dist/build contents) to the document root."}
           {appType === "PHP" && "Serves PHP via PHP-FPM with index.php front controller."}
           {appType === "NODE" &&
-            `System Node.js${nodeVersion ? ` (${nodeVersion})` : ""} — set application root and startup file, then Start.`}
+            `System Node.js${nodeVersion ? ` (${nodeVersion})` : ""} — set application root and startup file, then Start. Nginx proxies HTTPS to 127.0.0.1:$PORT (not 8000).`}
           {appType === "PYTHON" &&
-            "Set application root and startup file, or an advanced start command (e.g. uvicorn)."}
+            `Python${pythonVersion ? ` (${pythonVersion})` : ""} — set the startup file, then Start. The panel creates .venv and installs uvicorn if needed. The process must listen on HOST=127.0.0.1 and PORT.`}
           {appType === "GO" &&
-            "Upload a compiled binary under application root; set startup file or ./binary command."}
+            `Go${goVersion ? ` (${goVersion})` : ""} — upload a compiled binary under application root; it must bind 127.0.0.1:$PORT.`}
         </p>
       </div>
 
@@ -195,9 +233,11 @@ export function AppRuntimeControls({
               required
             />
             <p className="mt-1 text-xs text-slate-500">
-              Physical folder for app files; upload code here (relative to site
-              document root). Use <span className="font-mono">.</span> for the
-              site root.
+              Relative to the site folder shown above. Use{" "}
+              <span className="font-mono">.</span> if the code is in that
+              folder (do not paste a <span className="font-mono">/var/www</span>{" "}
+              path). Use <span className="font-mono">backend</span> only if
+              the app is in a subfolder.
             </p>
           </div>
 
@@ -231,6 +271,18 @@ export function AppRuntimeControls({
                 {defaultStartHint(appType, appStartupFile)}
               </span>
             </p>
+            {appType === "PYTHON" ? (
+              <button
+                type="button"
+                className="mt-2 text-xs text-sky-400 hover:text-sky-300"
+                onClick={() => {
+                  setStartCommand(fastapiStartCommand(appStartupFile || "main.py"));
+                  setShowAdvanced(true);
+                }}
+              >
+                Use FastAPI / uvicorn (listen on $PORT)
+              </button>
+            ) : null}
           </div>
 
           <div>
@@ -314,13 +366,26 @@ export function AppRuntimeControls({
             >
               <RotateCw className="h-3.5 w-3.5" /> Restart
             </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void loadLogs()}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-600 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+            >
+              Logs
+            </button>
           </div>
+          {logs ? (
+            <pre className="max-h-48 overflow-auto rounded-lg border border-slate-800 bg-slate-950 p-3 font-mono text-[11px] leading-relaxed text-slate-400 whitespace-pre-wrap">
+              {logs}
+            </pre>
+          ) : null}
         </>
       ) : null}
 
       {error ? (
-        <p className="flex items-center gap-2 text-sm text-red-400">
-          <AlertCircle className="h-4 w-4 shrink-0" />
+        <p className="flex items-start gap-2 whitespace-pre-wrap text-sm text-red-400">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
           {error}
         </p>
       ) : null}

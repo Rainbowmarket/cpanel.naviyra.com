@@ -71,6 +71,15 @@ export type AgentAction =
       }>;
       dropColumns?: string[];
     }
+  | {
+      action: "mutate_postgres_table_rows";
+      dbName: string;
+      schema?: string;
+      table: string;
+      op: "insert" | "update" | "delete";
+      values?: Record<string, unknown>;
+      where?: Record<string, unknown>;
+    }
   | { action: "list_files"; path: string; root?: string }
   | { action: "read_file"; path: string; root?: string }
   | { action: "write_file"; path: string; content: string; root?: string }
@@ -131,6 +140,7 @@ export type AgentAction =
   | { action: "app_restart"; siteId: string }
   | { action: "app_status"; siteId: string }
   | { action: "app_remove"; siteId: string }
+  | { action: "app_logs"; siteId: string; lines?: number }
   | { action: "refresh_websocket_proxies" }
   | {
       action: "run_backup";
@@ -250,16 +260,20 @@ async function callAgentAt<T = unknown>(
       body: JSON.stringify(payload),
       cache: "no-store",
       signal: AbortSignal.timeout(
-        payload.action === "run_backup" ||
-          payload.action === "run_domain_backup" ||
-          payload.action === "restore_backup" ||
-          payload.action === "restore_domain_backup"
-          ? 600000
-          : postgresAction
-            ? 300000
-            : longRunning
-              ? 120000
-              : 10000
+        payload.action === "configure_site_app" ||
+          payload.action === "app_start" ||
+          payload.action === "app_restart"
+          ? 360000
+          : payload.action === "run_backup" ||
+              payload.action === "run_domain_backup" ||
+              payload.action === "restore_backup" ||
+              payload.action === "restore_domain_backup"
+            ? 600000
+            : postgresAction
+              ? 300000
+              : longRunning
+                ? 120000
+                : 10000
       ),
     });
 

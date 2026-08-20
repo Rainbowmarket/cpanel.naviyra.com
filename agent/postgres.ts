@@ -345,7 +345,7 @@ export async function previewPostgresTableOnServer(input: {
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(table)) {
     throw new Error(`Invalid table name: ${input.table}`);
   }
-  const limit = Math.max(1, Math.min(100, Number(input.limit ?? 50) || 50));
+  const limit = Math.max(1, Math.min(200, Number(input.limit ?? 50) || 50));
 
   if (process.platform === "win32" || input.dryRun) {
     return {
@@ -765,4 +765,98 @@ export async function alterPostgresTableOnServer(input: {
     renamed: Boolean(newNameRaw),
     dryRun: false as const,
   };
+}
+
+function sqlLiteral(raw: unknown): string {
+  if (raw === null || raw === undefined) return "NULL";
+  if (typeof raw === "boolean") return raw ? "TRUE" : "FALSE";
+  if (typeof raw === "number" && Number.isFinite(raw)) return String(raw);
+  if (typeof raw === "object") return quoteLiteral(JSON.stringify(raw));
+  const text = String(raw);
+  if (text === "") return "NULL";
+  return quoteLiteral(text);
+}
+
+function assertIdent(name: string, label: string) {
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+    throw new Error(`Invalid ${label}: ${name}`);
+  }
+}
+
+export async function mutatePostgresTableRowsOnServer(input: {
+  dbName: string;
+  schema: string;
+  table: string;
+  op: "insert" | "update" | "delete";
+  values?: Record<string, unknown>;
+  where?: Record<string, unknown>;
+  dryRun: boolean;
+}): Promise<{
+  dbName: string;
+  schema: string;
+  table: string;
+  op: string;
+  dryRun: boolean;
+}> {
+  const dbName = input.dbName.trim().toLowerCase();
+  const schema = input.schema.trim() || "public";
+  const table = input.table.trim();
+  if (!/^[a-z_][a-z0-9_]*$/.test(dbName)) {
+    throw new Error(`Invalid PostgreSQL database name: ${input.dbName}`);
+  }
+  assertIdent(schema, "schema name");
+  assertIdent(table, "table name");
+  const qualified = `${quoteIdent(schema)}.${quoteIdent(table)}`;
+  const values = input.values ?? {};
+  const where = input.where ?? {};
+
+  if (process.platform === "win32" || input.dryRun) {
+    return { dbName, schema, table, op: input.op, dryRun: true };
+  }
+
+  let sql = "";
+  if (input.op === "insert") {
+    const cols = Object.keys(values).filter((k) => {
+      assertIdent(k, "column name");
+      const v = values[k];
+      return v !== undefined && v !== "";
+    });
+    if (cols.length === 0) {
+      sql = `INSERT INTO ${qualified} DEFAULT VALUES`;
+    } else {
+      sql = `INSERT INTO ${qualified} (${cols.map(quoteIdent).join(", ")}) VALUES (${cols
+        .map((c) => sqlLiteral(values[c]))
+        .join(", ")})`;
+    }
+  } else if (input.op === "update") {
+    const setCols = Object.keys(values).filter((k) => {
+      assertIdent(k, "column name");
+      return !Object.prototype.hasOwnProperty.call(where, k);
+    });
+    const whereCols = Object.keys(where);
+    if (setCols.length === 0) throw new Error("No columns to update");
+    if (whereCols.length === 0) {
+      throw new Error("A primary key is required to update a row");
+    }
+    for (const k of whereCols) assertIdent(k, "column name");
+    sql = `UPDATE ${qualified} SET ${setCols
+      .map((c) => `${quoteIdent(c)} = ${sqlLiteral(values[c])}`)
+      .join(", ")} WHERE ${whereCols
+      .map((c) => `${quoteIdent(c)} = ${sqlLiteral(where[c])}`)
+      .join(" AND ")}`;
+  } else if (input.op === "delete") {
+    const whereCols = Object.keys(where);
+    if (whereCols.length === 0) {
+      throw new Error("A primary key is required to delete a row");
+    }
+    for (const k of whereCols) assertIdent(k, "column name");
+    sql = `DELETE FROM ${qualified} WHERE ${whereCols
+      .map((c) => `${quoteIdent(c)} = ${sqlLiteral(where[c])}`)
+      .join(" AND ")}`;
+  } else {
+    throw new Error("Unsupported row operation");
+  }
+
+  await runPsql(sql, false, dbName);
+  return { dbName, schema, table, op: input.op, dryRun: false };
 }

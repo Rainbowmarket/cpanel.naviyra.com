@@ -2,10 +2,12 @@
 Description=Run Naviyra visitor ingest every minute
 
 [Timer]
-OnBootSec=30s
-OnUnitActiveSec=60s
-AccuracySec=15s
+# Calendar trigger does not require a previous oneshot run.
+# OnUnitActiveSec alone never fires if the service was never started.
+OnCalendar=minutely
+OnBootSec=45s
 Persistent=true
+AccuracySec=15s
 
 [Install]
 WantedBy=timers.target

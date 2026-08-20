@@ -4,6 +4,8 @@ import { requireSessionUser } from "@/lib/auth";
 import {
   configureSiteApp,
   controlSiteApp,
+  getSiteAppLogs,
+  listSiteApps,
 } from "@/lib/services/apps";
 
 const configSchema = z.object({
@@ -27,12 +29,22 @@ export async function GET(request: Request) {
   try {
     const user = await requireSessionUser();
     const url = new URL(request.url);
-    const kind = url.searchParams.get("kind") as "domain" | "subdomain";
+    const kind = url.searchParams.get("kind") as "domain" | "subdomain" | null;
     const id = url.searchParams.get("id") ?? "";
+    const logs = url.searchParams.get("logs") === "1";
+
     if (!kind || !id) {
+      const sites = await listSiteApps(user);
+      return NextResponse.json({ sites });
+    }
+    if (kind !== "domain" && kind !== "subdomain") {
       return NextResponse.json({ error: "kind and id required" }, { status: 400 });
     }
-    const site = await controlSiteApp(kind, id, user.id, "status");
+    if (logs) {
+      const data = await getSiteAppLogs(kind, id, user);
+      return NextResponse.json(data);
+    }
+    const site = await controlSiteApp(kind, id, user, "status");
     return NextResponse.json({ site });
   } catch (error) {
     if (error instanceof Error && error.message === "Unauthorized") {
@@ -49,7 +61,7 @@ export async function PUT(request: Request) {
   try {
     const user = await requireSessionUser();
     const body = configSchema.parse(await request.json());
-    const site = await configureSiteApp(body.kind, body.id, user.id, {
+    const site = await configureSiteApp(body.kind, body.id, user, {
       appType: body.appType,
       startCommand: body.startCommand,
       appStartupFile: body.appStartupFile,
@@ -73,7 +85,7 @@ export async function POST(request: Request) {
   try {
     const user = await requireSessionUser();
     const body = controlSchema.parse(await request.json());
-    const site = await controlSiteApp(body.kind, body.id, user.id, body.op);
+    const site = await controlSiteApp(body.kind, body.id, user, body.op);
     return NextResponse.json({ site });
   } catch (error) {
     if (error instanceof Error && error.message === "Unauthorized") {

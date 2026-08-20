@@ -10,6 +10,29 @@ export function phpEnabledForAppType(appType: string): boolean {
   return appType === "PHP";
 }
 
+/** Map app/main.py → app.main for uvicorn. */
+export function pythonModuleFromStartupFile(startupFile?: string | null): string {
+  const file =
+    (startupFile || "main.py").trim().replace(/^[/\\]+/, "") || "main.py";
+  return file.replace(/\.py$/i, "").replace(/\\/g, "/").replace(/\//g, ".");
+}
+
+/** FastAPI/Starlette via uvicorn, binding the panel-allocated PORT. */
+export function fastapiStartCommand(startupFile?: string | null): string {
+  const mod = pythonModuleFromStartupFile(startupFile);
+  return `python3 -m uvicorn ${mod}:app --host 127.0.0.1 --port $PORT`;
+}
+
+/** Keep uvicorn target in sync with Application startup file (app/main.py → app.main:app). */
+export function syncUvicornModule(
+  command: string,
+  startupFile?: string | null
+): string {
+  if (!/\buvicorn\b/.test(command)) return command;
+  const mod = pythonModuleFromStartupFile(startupFile);
+  return command.replace(/(\buvicorn\s+)([A-Za-z0-9_.]+)(:)/, `$1${mod}$3`);
+}
+
 /** Build default ExecStart from startup file when start command is empty. */
 export function resolveStartCommand(opts: {
   appType: string;
@@ -17,13 +40,42 @@ export function resolveStartCommand(opts: {
   appStartupFile?: string | null;
 }): string {
   const explicit = opts.startCommand?.trim() || "";
-  if (explicit) return explicit;
+  if (explicit) {
+    if (opts.appType === "PYTHON") {
+      return syncUvicornModule(explicit, opts.appStartupFile);
+    }
+    return explicit;
+  }
   const file = (opts.appStartupFile || "").trim().replace(/^[/\\]+/, "");
   if (!file || file.includes("..") || /[;&|<>`$]/.test(file)) return "";
   if (opts.appType === "NODE") return `node ${file}`;
-  if (opts.appType === "PYTHON") return `python3 ${file}`;
+  if (opts.appType === "PYTHON") return `python3 -u ${file}`;
   if (opts.appType === "GO") return file.startsWith("./") ? file : `./${file}`;
   return "";
+}
+
+/** Application root is relative to the site document root. `.` means the site folder. */
+export function normalizeAppWorkingDir(
+  value: string,
+  documentRoot?: string | null
+): string {
+  const raw = (value || ".").trim().replace(/\\/g, "/") || ".";
+  if (raw === "." || raw === "./") return ".";
+  if (raw.includes("..")) {
+    throw new Error("Application root cannot contain ..");
+  }
+  const root = (documentRoot || "").replace(/\\/g, "/").replace(/\/+$/, "");
+  if (root) {
+    const abs = raw.replace(/\/+$/, "");
+    if (abs === root) return ".";
+    if (abs.startsWith(`${root}/`)) return abs.slice(root.length + 1) || ".";
+  }
+  if (raw.startsWith("/")) {
+    throw new Error(
+      "Application root must be relative to the site folder. Use . not a /var/www path."
+    );
+  }
+  return raw.replace(/^\/+/, "");
 }
 
 /** Merge Application mode into KEY=VALUE env text without wiping other keys. */

@@ -169,14 +169,14 @@ export const DOC_ARTICLES: DocArticle[] = [
     slug: "app-runtimes",
     title: "App runtimes",
     summary: "Static, PHP, Node.js, Python, and Go — how to configure and run them.",
-    href: "/dashboard/domains",
+    href: "/dashboard/apps",
     audience: "all",
     category: "Hosting",
     sections: [
       {
         heading: "How to configure",
         steps: [
-          "On Domains or Subdomains, open Runtime for the site.",
+          "Open Apps (or Runtime on a domain/subdomain).",
           "Pick Static, PHP, Node.js, Python, or Go.",
           "For Node/Python/Go: set Application mode (Development/Production), Application root (folder under the site document root), and Application startup file (e.g. server.js). Optionally override the start command under Advanced.",
           "Click Save, then Start (or Restart) so systemd runs the process.",
@@ -376,8 +376,9 @@ export const DOC_ARTICLES: DocArticle[] = [
         heading: "How to use it",
         body: [
           "Copy connection details (host 127.0.0.1, port often 5433 if 5432 is busy).",
-          "Use Schema browser to inspect tables and preview rows.",
-          "Create / edit / delete tables via the UI (real DDL on the server).",
+          "Open Databases and click Browse (opens a new tab).",
+          "Select a table to view rows. Add, Edit, or Delete rows when the table has a primary key.",
+          "Create / edit / delete table structure still works from the database list schema tools.",
         ],
         tips: [
           "Customer DBs are not exposed on the public internet by default — connect from apps on this server or via SSH tunnel.",
