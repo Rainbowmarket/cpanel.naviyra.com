@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { requireSessionUser } from "@/lib/auth";
+import { authFailureResponse, requireSessionUser  } from "@/lib/auth";
 import { callAgent } from "@/lib/agent/client";
 import { getAgentApiKey } from "@/lib/paths";
 import { prisma } from "@/lib/prisma";
 
 export async function GET() {
   try {
-    await requireSessionUser();
+    await requireSessionUser("apps");
     const server = await prisma.server.findFirst({
       where: { isActive: true },
       orderBy: { createdAt: "asc" },

@@ -9,6 +9,7 @@ type DashboardShellProps = {
   role: string;
   name: string;
   email: string;
+  permissionKeys: string[] | null;
   children: ReactNode;
 };
 
@@ -16,6 +17,7 @@ export function DashboardShell({
   role,
   name,
   email,
+  permissionKeys,
   children,
 }: DashboardShellProps) {
   const pathname = usePathname();
@@ -45,7 +47,7 @@ export function DashboardShell({
     <div className="flex h-full min-h-0 w-full overflow-hidden bg-slate-900 text-slate-100">
       {/* Desktop sidebar */}
       <div className="hidden h-full lg:block">
-        <Sidebar role={role} />
+        <Sidebar role={role} permissionKeys={permissionKeys} />
       </div>
 
       {/* Mobile drawer */}
@@ -66,7 +68,13 @@ export function DashboardShell({
             navOpen ? "translate-x-0" : "-translate-x-full"
           }`}
         >
-          <Sidebar role={role} onNavigate={closeNav} showClose onClose={closeNav} />
+          <Sidebar
+            role={role}
+            permissionKeys={permissionKeys}
+            onNavigate={closeNav}
+            showClose
+            onClose={closeNav}
+          />
         </div>
       </div>
 

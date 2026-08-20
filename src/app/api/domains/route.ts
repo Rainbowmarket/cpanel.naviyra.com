@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireSessionUser } from "@/lib/auth";
+import { authFailureResponse, requireSessionUser  } from "@/lib/auth";
 import { getPanelBaseDomain } from "@/lib/base-domain";
 import {
   createDomain,
@@ -12,7 +12,7 @@ import { prisma } from "@/lib/prisma";
 
 export async function GET() {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("domains");
     const domains = await listDomains(user.id, {
       ensurePanel: user.role === "ADMIN",
       role: user.role,
@@ -22,8 +22,8 @@ export async function GET() {
       panelBaseDomain: getPanelBaseDomain(),
       role: user.role,
     });
-  } catch {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  } catch (error) {
+    return authFailureResponse(error);
   }
 }
 
@@ -47,7 +47,7 @@ const createSchema = z.object({
 
 export async function POST(request: Request) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("domains");
     const body = createSchema.parse(await request.json());
     const domain = await createDomain({
       name: body.name,
@@ -81,7 +81,7 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("domains");
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
     if (!id) {
@@ -96,7 +96,7 @@ export async function DELETE(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("domains");
     const id = new URL(request.url).searchParams.get("id");
     if (!id) {
       return NextResponse.json({ error: "Missing id" }, { status: 400 });
@@ -114,9 +114,9 @@ export async function PATCH(request: Request) {
 // List available servers for domain creation (authenticated)
 export async function OPTIONS() {
   try {
-    await requireSessionUser();
-  } catch {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    await requireSessionUser("domains");
+  } catch (error) {
+    return authFailureResponse(error);
   }
   const servers = await prisma.server.findMany({
     where: { isActive: true },

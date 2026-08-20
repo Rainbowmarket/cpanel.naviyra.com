@@ -16,6 +16,7 @@ type PanelUser = {
   role: "ADMIN" | "RESELLER" | "USER";
   createdAt: string;
   _count: { domains: number };
+  groupMemberships?: { group: { id: string; name: string } }[];
 };
 
 const roleOptions = [
@@ -313,6 +314,11 @@ export default function UsersPage() {
               <p className="mt-1 text-sm text-slate-400">{u.email}</p>
               <p className="mt-0.5 text-xs text-slate-500">
                 {u._count.domains} domain{u._count.domains === 1 ? "" : "s"}
+                {u.groupMemberships && u.groupMemberships.length > 0
+                  ? ` · ${u.groupMemberships.map((m) => m.group.name).join(", ")}`
+                  : u.role === "ADMIN"
+                    ? ""
+                    : " · no group (full access)"}
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">

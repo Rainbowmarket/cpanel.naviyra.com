@@ -1,7 +1,11 @@
 import bcrypt from "bcryptjs";
 import { cookies } from "next/headers";
-import type { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { prisma } from "./prisma";
+import {
+  type PanelPermissionKey,
+  userHasPanelPermission,
+} from "./panel-permissions";
 import { fromB64url, hmacSign, hmacVerify, b64url } from "./crypto-hmac";
 import { shouldUseSecureCookies } from "./cookie-secure";
 import { requireSessionSecret } from "./secrets";
@@ -33,6 +37,8 @@ export type SessionUser = {
   email: string;
   name: string;
   role: "ADMIN" | "RESELLER" | "USER";
+  /** null = not in a group, so all non-admin panel features are allowed */
+  permissionKeys: string[] | null;
 };
 
 type SessionClaims = {
@@ -158,18 +164,56 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   if (!user) return null;
   if (user.sessionVersion !== claims.sv) return null;
 
+  const memberships = await prisma.panelGroupMember.findMany({
+    where: { userId: user.id },
+    select: {
+      group: {
+        select: {
+          permissions: { select: { key: true } },
+        },
+      },
+    },
+  });
+
+  const permissionKeys =
+    memberships.length === 0
+      ? null
+      : [
+          ...new Set(
+            memberships.flatMap((membership) =>
+              membership.group.permissions.map((grant) => grant.key)
+            )
+          ),
+        ];
+
   return {
     id: user.id,
     email: user.email,
     name: user.name,
     role: user.role,
+    permissionKeys,
   };
 }
 
-export async function requireSessionUser(): Promise<SessionUser> {
+export function authFailureResponse(error: unknown): NextResponse {
+  if (error instanceof Error && error.message === "Forbidden") {
+    return NextResponse.json(
+      { error: "You do not have access to this feature" },
+      { status: 403 }
+    );
+  }
+  return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+}
+
+export async function requireSessionUser(
+  feature?: PanelPermissionKey
+): Promise<SessionUser> {
   const user = await getSessionUser();
   if (!user) {
     throw new Error("Unauthorized");
+  }
+  if (feature && !userHasPanelPermission(user, feature)) {
+    throw new Error("Forbidden");
   }
   return user;
 }

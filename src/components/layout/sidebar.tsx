@@ -13,6 +13,7 @@ import {
   Upload,
   ChevronRight,
   Users,
+  UsersRound,
   Network,
   Shield,
   Terminal,
@@ -26,6 +27,7 @@ import {
 } from "lucide-react";
 import { BrandLogo } from "@/components/ui/brand-logo";
 import { cn } from "@/lib/utils";
+import { permissionKeyForPath } from "@/lib/panel-permissions";
 
 const navGroups = [
   {
@@ -67,6 +69,7 @@ const adminNavGroup = {
   label: "Admin",
   items: [
     { href: "/dashboard/users", label: "Users", icon: Users },
+    { href: "/dashboard/groups", label: "Groups", icon: UsersRound },
     { href: "/dashboard/backups", label: "Backups", icon: Archive },
     { href: "/dashboard/speed-test", label: "Speed Test", icon: Gauge },
     { href: "/dashboard/service-tests", label: "Service tests", icon: HeartPulse },
@@ -76,14 +79,32 @@ const adminNavGroup = {
 
 type SidebarProps = {
   role?: string;
+  permissionKeys?: string[] | null;
   onNavigate?: () => void;
   showClose?: boolean;
   onClose?: () => void;
 };
 
-export function Sidebar({ role, onNavigate, showClose, onClose }: SidebarProps) {
+export function Sidebar({
+  role,
+  permissionKeys = null,
+  onNavigate,
+  showClose,
+  onClose,
+}: SidebarProps) {
   const pathname = usePathname();
-  const groups = role === "ADMIN" ? [...navGroups, adminNavGroup] : navGroups;
+  const groups = (role === "ADMIN" ? [...navGroups, adminNavGroup] : navGroups)
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => {
+        if (role === "ADMIN") return true;
+        const key = permissionKeyForPath(item.href);
+        if (!key) return true;
+        if (permissionKeys === null) return true;
+        return permissionKeys.includes(key);
+      }),
+    }))
+    .filter((group) => group.items.length > 0);
 
   return (
     <aside className="flex h-full w-full flex-col overflow-hidden border-r border-slate-800/80 bg-gradient-to-b from-slate-950 to-slate-900 shadow-2xl shadow-black/40 lg:w-72 lg:shrink-0 lg:shadow-none">

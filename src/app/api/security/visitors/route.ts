@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireSessionUser } from "@/lib/auth";
+import { authFailureResponse, requireSessionUser  } from "@/lib/auth";
 import { listLiveVisitors, listVisitors } from "@/lib/services/security";
 
 function parseDateParam(value: string | null, endOfDay = false): Date | undefined {
@@ -21,7 +21,7 @@ function csvEscape(value: string): string {
 
 export async function GET(request: Request) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("security");
     const params = new URL(request.url).searchParams;
     const domainId = params.get("domainId") ?? undefined;
     const live = params.get("live") === "1";
@@ -87,7 +87,7 @@ export async function GET(request: Request) {
     }
 
     return NextResponse.json({ visitors, count: visitors.length });
-  } catch {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  } catch (error) {
+    return authFailureResponse(error);
   }
 }

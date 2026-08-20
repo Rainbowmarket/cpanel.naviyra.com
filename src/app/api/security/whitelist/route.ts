@@ -1,16 +1,16 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireAdminUser, requireSessionUser } from "@/lib/auth";
+import { authFailureResponse, requireAdminUser, requireSessionUser  } from "@/lib/auth";
 import { isValidIpAddress } from "@/lib/ip";
 import { addWhitelist, listWhitelist, removeWhitelist } from "@/lib/services/security";
 
 export async function GET() {
   try {
-    await requireSessionUser();
+    await requireSessionUser("security");
     const whitelist = await listWhitelist();
     return NextResponse.json({ whitelist });
-  } catch {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  } catch (error) {
+    return authFailureResponse(error);
   }
 }
 

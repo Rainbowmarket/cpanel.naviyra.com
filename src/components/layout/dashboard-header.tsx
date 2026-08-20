@@ -20,6 +20,7 @@ const routeLabels: Record<string, string> = {
   "/dashboard/security": "Security",
   "/dashboard/terminal": "Terminal",
   "/dashboard/users": "Users",
+  "/dashboard/groups": "Groups",
   "/dashboard/backups": "Backups",
   "/dashboard/speed-test": "Speed Test",
   "/dashboard/service-tests": "Service tests",

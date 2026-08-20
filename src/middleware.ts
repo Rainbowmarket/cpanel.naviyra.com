@@ -16,7 +16,9 @@ export function middleware(request: NextRequest) {
     );
   }
 
-  return NextResponse.next();
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-naviyra-pathname", request.nextUrl.pathname);
+  return NextResponse.next({ request: { headers: requestHeaders } });
 }
 
 /**
@@ -25,5 +27,12 @@ export function middleware(request: NextRequest) {
  * CSRF for /api/file-manager/upload is enforced in the route handler.
  */
 export const config = {
-  matcher: ["/", "/api/((?!file-manager/upload$).*)"],
+  matcher: [
+    "/",
+    "/dashboard",
+    "/dashboard/:path*",
+    "/file-manager",
+    "/file-manager/:path*",
+    "/api/((?!file-manager/upload$).*)",
+  ],
 };

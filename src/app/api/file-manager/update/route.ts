@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireSessionUser } from "@/lib/auth";
+import { authFailureResponse, requireSessionUser  } from "@/lib/auth";
 import { fileManagerWrite } from "@/lib/services/file-manager";
 
 const schema = z.object({
@@ -12,7 +12,7 @@ const schema = z.object({
 
 export async function POST(request: Request) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("files");
     const body = schema.parse(await request.json());
     const target =
       body.target ??

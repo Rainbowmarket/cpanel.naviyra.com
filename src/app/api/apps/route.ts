@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireSessionUser } from "@/lib/auth";
+import { authFailureResponse, requireSessionUser  } from "@/lib/auth";
 import {
   configureSiteApp,
   controlSiteApp,
@@ -27,7 +27,7 @@ const controlSchema = z.object({
 
 export async function GET(request: Request) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("apps");
     const url = new URL(request.url);
     const kind = url.searchParams.get("kind") as "domain" | "subdomain" | null;
     const id = url.searchParams.get("id") ?? "";
@@ -59,7 +59,7 @@ export async function GET(request: Request) {
 
 export async function PUT(request: Request) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("apps");
     const body = configSchema.parse(await request.json());
     const site = await configureSiteApp(body.kind, body.id, user, {
       appType: body.appType,
@@ -83,7 +83,7 @@ export async function PUT(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("apps");
     const body = controlSchema.parse(await request.json());
     const site = await controlSiteApp(body.kind, body.id, user, body.op);
     return NextResponse.json({ site });

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireSessionUser } from "@/lib/auth";
+import { authFailureResponse, requireSessionUser  } from "@/lib/auth";
 import {
   createPostgresDatabase,
   deletePostgresDatabase,
@@ -26,7 +26,7 @@ function connectionForList(db: { dbName: string; roleName: string }) {
 
 export async function GET() {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("databases");
     const databases = await listPostgresDatabases(user.id, user.role);
     return NextResponse.json({
       databases: databases.map(({ passwordHash: _, ...db }) => ({
@@ -35,8 +35,8 @@ export async function GET() {
       })),
       connectionDefaults: postgresConnectionInfo(),
     });
-  } catch {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  } catch (error) {
+    return authFailureResponse(error);
   }
 }
 
@@ -55,7 +55,7 @@ const createSchema = z.object({
 
 export async function POST(request: Request) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("databases");
     const body = createSchema.parse(await request.json());
     const result = await createPostgresDatabase({
       ...body,
@@ -86,7 +86,7 @@ const resetSchema = z.object({
 
 export async function PATCH(request: Request) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("databases");
     const body = resetSchema.parse(await request.json());
     const result = await resetPostgresDatabasePassword({
       id: body.id,
@@ -113,7 +113,7 @@ export async function PATCH(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("databases");
     const id = new URL(request.url).searchParams.get("id");
     if (!id) {
       return NextResponse.json({ error: "Missing id" }, { status: 400 });

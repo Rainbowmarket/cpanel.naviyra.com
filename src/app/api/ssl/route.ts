@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireSessionUser } from "@/lib/auth";
+import { authFailureResponse, requireSessionUser  } from "@/lib/auth";
 import {
   issueSslCertificate,
   issueSubdomainSslCertificate,
@@ -10,11 +10,11 @@ import {
 
 export async function GET() {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("ssl");
     const certificates = await listSslCertificates(user.id);
     return NextResponse.json({ certificates });
-  } catch {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  } catch (error) {
+    return authFailureResponse(error);
   }
 }
 
@@ -34,7 +34,7 @@ const issueSchema = z
 
 export async function POST(request: Request) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("ssl");
     const body = issueSchema.parse(await request.json());
 
     const certificate = body.subdomainId
@@ -63,7 +63,7 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("ssl");
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
     if (!id) {

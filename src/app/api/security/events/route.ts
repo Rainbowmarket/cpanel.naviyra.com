@@ -1,18 +1,18 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireAdminUser, requireSessionUser } from "@/lib/auth";
+import { authFailureResponse, requireAdminUser, requireSessionUser  } from "@/lib/auth";
 import { isValidIpAddress } from "@/lib/ip";
 import { listSecurityEvents, logVisit, blockIp } from "@/lib/services/security";
 import { prisma } from "@/lib/prisma";
 
 export async function GET(request: Request) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("security");
     const domainId = new URL(request.url).searchParams.get("domainId") ?? undefined;
     const events = await listSecurityEvents(user.id, domainId, 50, user.role);
     return NextResponse.json({ events });
-  } catch {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  } catch (error) {
+    return authFailureResponse(error);
   }
 }
 
@@ -31,7 +31,7 @@ const ingestSchema = z.object({
 
 export async function POST(request: Request) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("security");
     const body = ingestSchema.parse(await request.json());
     const result = await logVisit({ userId: user.id, ...body });
     return NextResponse.json({ ok: true, result });

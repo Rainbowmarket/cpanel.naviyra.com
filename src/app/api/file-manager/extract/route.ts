@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { requireSessionUser } from "@/lib/auth";
+import { authFailureResponse, requireSessionUser  } from "@/lib/auth";
 import { fileManagerExtractZip } from "@/lib/services/file-manager";
 
 export async function POST(request: Request) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("files");
     const form = await request.formData();
     const targetRaw = String(form.get("target") ?? form.get("domainId") ?? "");
     const target =

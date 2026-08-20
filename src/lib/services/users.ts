@@ -11,6 +11,11 @@ export async function listUsers() {
       role: true,
       createdAt: true,
       _count: { select: { domains: true } },
+      groupMemberships: {
+        select: {
+          group: { select: { id: true, name: true } },
+        },
+      },
     },
   });
 }

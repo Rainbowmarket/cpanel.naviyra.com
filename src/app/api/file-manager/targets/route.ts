@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { requireSessionUser } from "@/lib/auth";
+import { authFailureResponse, requireSessionUser  } from "@/lib/auth";
 import { listFileManagerTargets } from "@/lib/services/file-manager";
 
 export async function GET() {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("files");
     const targets = await listFileManagerTargets({ id: user.id, role: user.role });
     return NextResponse.json({ targets, role: user.role });
   } catch (error) {

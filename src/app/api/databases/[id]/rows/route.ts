@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireSessionUser } from "@/lib/auth";
+import { authFailureResponse, requireSessionUser  } from "@/lib/auth";
 import { mutatePostgresDatabaseRows } from "@/lib/services/databases";
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -21,7 +21,7 @@ const bodySchema = z.object({
 
 export async function POST(request: Request, context: RouteContext) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("databases");
     const { id } = await context.params;
     const body = bodySchema.parse(await request.json());
     const result = await mutatePostgresDatabaseRows({

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireSessionUser } from "@/lib/auth";
+import { authFailureResponse, requireSessionUser  } from "@/lib/auth";
 import {
   fileManagerList,
   fileManagerRead,
@@ -9,7 +9,7 @@ import { targetFromSearchParams } from "@/lib/file-manager-target";
 
 export async function GET(request: Request) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("files");
     const { searchParams } = new URL(request.url);
     const action = searchParams.get("action") ?? "session";
     const target = targetFromSearchParams(searchParams);

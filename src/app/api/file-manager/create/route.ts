@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { requireSessionUser } from "@/lib/auth";
+import { authFailureResponse, requireSessionUser  } from "@/lib/auth";
 import { fileManagerCreate } from "@/lib/services/file-manager";
 import { targetFromSearchParams } from "@/lib/file-manager-target";
 
 async function handleCreate(request: Request) {
-  const user = await requireSessionUser();
+  const user = await requireSessionUser("files");
   const contentType = request.headers.get("content-type") ?? "";
   let target = "";
   let action = "";

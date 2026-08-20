@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireSessionUser } from "@/lib/auth";
+import { authFailureResponse, requireSessionUser  } from "@/lib/auth";
 import {
   ensureDnsZonesForAccessibleDomains,
   getDnsNameservers,
@@ -12,7 +12,7 @@ import { ensurePanelBaseDomain } from "@/lib/services/domains";
 
 export async function GET() {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("dns");
     if (user.role === "ADMIN") {
       try {
         await ensurePanelBaseDomain(user.id);
@@ -26,8 +26,8 @@ export async function GET() {
       zones,
       nameservers: getDnsNameservers(),
     });
-  } catch {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  } catch (error) {
+    return authFailureResponse(error);
   }
 }
 
@@ -37,7 +37,7 @@ const syncSchema = z.object({
 
 export async function POST(request: Request) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("dns");
     const body = syncSchema.parse(await request.json());
     const zone = await syncDnsZone(body.domainId, user.id);
     return NextResponse.json({ zone }, { status: 201 });
@@ -51,7 +51,7 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("dns");
     const { searchParams } = new URL(request.url);
     const domainId = searchParams.get("domainId");
     if (!domainId) {

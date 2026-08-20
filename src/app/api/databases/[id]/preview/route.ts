@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireSessionUser } from "@/lib/auth";
+import { authFailureResponse, requireSessionUser  } from "@/lib/auth";
 import { previewPostgresDatabaseTable } from "@/lib/services/databases";
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -20,7 +20,7 @@ const querySchema = z.object({
 
 export async function GET(request: Request, context: RouteContext) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("databases");
     const { id } = await context.params;
     const url = new URL(request.url);
     const parsed = querySchema.parse({

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireSessionUser } from "@/lib/auth";
+import { authFailureResponse, requireSessionUser  } from "@/lib/auth";
 import { csrfOk } from "@/lib/csrf";
 import { fileManagerUpload } from "@/lib/services/file-manager";
 
@@ -13,7 +13,7 @@ export async function POST(request: Request) {
       return new NextResponse("CSRF check failed (invalid Origin)", { status: 403 });
     }
 
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("files");
 
     let form: FormData;
     try {

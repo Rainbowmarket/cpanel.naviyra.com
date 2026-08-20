@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireSessionUser } from "@/lib/auth";
+import { authFailureResponse, requireSessionUser  } from "@/lib/auth";
 import {
   alterPostgresDatabaseTable,
   createPostgresDatabaseTable,
@@ -76,7 +76,7 @@ const alterSchema = z
 
 export async function POST(request: Request, context: RouteContext) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("databases");
     const { id } = await context.params;
     const body = createSchema.parse(await request.json());
     const result = await createPostgresDatabaseTable({
@@ -109,7 +109,7 @@ export async function POST(request: Request, context: RouteContext) {
 
 export async function PATCH(request: Request, context: RouteContext) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("databases");
     const { id } = await context.params;
     const body = alterSchema.parse(await request.json());
     const result = await alterPostgresDatabaseTable({
@@ -144,7 +144,7 @@ export async function PATCH(request: Request, context: RouteContext) {
 
 export async function DELETE(request: Request, context: RouteContext) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("databases");
     const { id } = await context.params;
     const url = new URL(request.url);
     const schema = url.searchParams.get("schema") || "public";

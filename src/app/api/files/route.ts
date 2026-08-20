@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireSessionUser } from "@/lib/auth";
+import { authFailureResponse, requireSessionUser  } from "@/lib/auth";
 import { listFiles, readFile, writeFile } from "@/lib/services/files";
 
 export async function GET(request: Request) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("files");
     const { searchParams } = new URL(request.url);
     const domainId = searchParams.get("domainId");
     const path = searchParams.get("path");
@@ -41,7 +41,7 @@ const writeSchema = z.object({
 
 export async function PUT(request: Request) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("files");
     const body = writeSchema.parse(await request.json());
     await writeFile(body.path, body.content, body.domainId, user.id);
     return NextResponse.json({ ok: true });

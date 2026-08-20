@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { getSessionUser } from "@/lib/auth";
 import { getMailSession } from "@/lib/mail/session";
+import { userHasPanelPermission } from "@/lib/panel-permissions";
 import {
   deleteMessage,
   ensureMailboxDirs,
@@ -38,6 +39,7 @@ export async function authorizeWebmail(accountId: string) {
 
   const user = await getSessionUser();
   if (!user) throw new Error("Unauthorized");
+  if (!userHasPanelPermission(user, "mail")) throw new Error("Forbidden");
   return getOwnedAccount(accountId, user.id);
 }
 

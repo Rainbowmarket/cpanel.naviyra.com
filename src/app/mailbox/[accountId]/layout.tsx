@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/auth";
 import { getMailSession } from "@/lib/mail/session";
 import { prisma } from "@/lib/prisma";
+import { userHasPanelPermission } from "@/lib/panel-permissions";
 
 export default async function MailboxLayout({
   children,
@@ -29,6 +30,7 @@ export default async function MailboxLayout({
   }
 
   if (!panelUser) redirect("/webmail");
+  if (!userHasPanelPermission(panelUser, "mail")) redirect("/dashboard");
 
   const account = await prisma.mailAccount.findFirst({
     where: { id: accountId, mailDomain: { domain: { userId: panelUser.id } } },

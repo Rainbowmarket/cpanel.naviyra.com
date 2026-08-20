@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { requireSessionUser } from "@/lib/auth";
+import { authFailureResponse, requireSessionUser  } from "@/lib/auth";
 import { inspectPostgresDatabaseSchema } from "@/lib/services/databases";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
 export async function GET(_request: Request, context: RouteContext) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("databases");
     const { id } = await context.params;
     const result = await inspectPostgresDatabaseSchema(id, user.id, user.role);
     return NextResponse.json(result);

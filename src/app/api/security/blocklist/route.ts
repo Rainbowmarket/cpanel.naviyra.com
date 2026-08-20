@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireAdminUser, requireSessionUser } from "@/lib/auth";
+import { authFailureResponse, requireAdminUser, requireSessionUser  } from "@/lib/auth";
 import { requireAgentApiKey } from "@/lib/secrets";
 import { isValidIpAddress } from "@/lib/ip";
 import {
@@ -29,14 +29,14 @@ async function authorizeExpire(request: Request): Promise<void> {
 
 export async function GET() {
   try {
-    await requireSessionUser();
+    await requireSessionUser("security");
     const blocked = await listBlockedIps();
     return NextResponse.json({
       blocked,
       autoBlockTtlHours: autoBlockTtlMs() / (60 * 60 * 1000),
     });
-  } catch {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  } catch (error) {
+    return authFailureResponse(error);
   }
 }
 

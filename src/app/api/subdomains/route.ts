@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireSessionUser } from "@/lib/auth";
+import { authFailureResponse, requireSessionUser  } from "@/lib/auth";
 import {
   createSubdomain,
   deleteSubdomain,
@@ -13,14 +13,14 @@ import {
 
 export async function GET(request: Request) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("subdomains");
     const domainId = new URL(request.url).searchParams.get("domainId");
     const subdomains = domainId
       ? await listSubdomains(domainId, user.id, { role: user.role })
       : await listAllSubdomains(user.id, { role: user.role });
     return NextResponse.json({ subdomains });
-  } catch {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  } catch (error) {
+    return authFailureResponse(error);
   }
 }
 
@@ -38,7 +38,7 @@ const createSchema = z
 
 export async function POST(request: Request) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("subdomains");
     const body = createSchema.parse(await request.json());
 
     let domainId = body.domainId;
@@ -85,7 +85,7 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("subdomains");
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
     if (!id) {
@@ -105,7 +105,7 @@ const patchSchema = z.object({
 
 export async function PATCH(request: Request) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("subdomains");
     const id = new URL(request.url).searchParams.get("id");
     if (!id) {
       return NextResponse.json({ error: "Missing id" }, { status: 400 });

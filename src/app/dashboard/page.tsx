@@ -10,7 +10,7 @@ import {
 import { getSecurityOverview } from "@/lib/services/security";
 import { collectDiskReport, formatDiskBytes } from "@/lib/system/disk";
 import { ServerResourcesWatch } from "@/components/system/ServerResourcesWatch";
-import { formatDate } from "@/lib/utils";
+import { canAccessDashboardPath } from "@/lib/panel-permissions";
 import {
   Activity,
   ArrowRight,
@@ -152,7 +152,7 @@ export default async function DashboardPage() {
     { label: "Mail", value: mailCount, icon: Mail, href: "/dashboard/mail" },
     { label: "FTP", value: ftpCount, icon: Upload, href: "/dashboard/ftp" },
     { label: "SSL", value: sslCount, icon: Lock, href: "/dashboard/ssl" },
-  ];
+  ].filter((item) => canAccessDashboardPath(user, item.href));
 
   const securityStats = [
     {
@@ -181,7 +181,7 @@ export default async function DashboardPage() {
       href: "/dashboard/security?tab=blocked",
       alert: security.blockedIps > 0,
     },
-  ];
+  ].filter((item) => canAccessDashboardPath(user, item.href));
 
   const shortcuts = [
     { label: "Domains", href: "/dashboard/domains" },
@@ -195,7 +195,7 @@ export default async function DashboardPage() {
     ...(user.role === "ADMIN"
       ? [{ label: "Speed Test", href: "/dashboard/speed-test" }]
       : []),
-  ];
+  ].filter((item) => canAccessDashboardPath(user, item.href));
 
   return (
     <div className="space-y-4 sm:space-y-5">

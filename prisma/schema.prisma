@@ -117,6 +117,39 @@ model User {
   terminalSessions TerminalSession[]
   passwordResets   PasswordResetToken[]
   backupCodes      BackupCode[]
+  groupMemberships PanelGroupMember[]
+}
+
+model PanelGroup {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  permissions PanelGroupPermission[]
+  members     PanelGroupMember[]
+}
+
+model PanelGroupPermission {
+  id      String @id @default(cuid())
+  key     String
+  groupId String
+  group   PanelGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, key])
+  @@index([key])
+}
+
+model PanelGroupMember {
+  id      String @id @default(cuid())
+  groupId String
+  userId  String
+  group   PanelGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user    User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@index([userId])
 }
 
 model BackupCode {

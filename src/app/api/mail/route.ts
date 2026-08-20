@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireSessionUser } from "@/lib/auth";
+import { authFailureResponse, requireSessionUser  } from "@/lib/auth";
 import {
   createMailAccount,
   deleteMailAccount,
@@ -11,12 +11,12 @@ import {
 
 export async function GET(request: Request) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("mail");
     const domainId = new URL(request.url).searchParams.get("domainId");
     const mail = await listMailAccounts(user.id, domainId);
     return NextResponse.json(mail);
-  } catch {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  } catch (error) {
+    return authFailureResponse(error);
   }
 }
 
@@ -29,7 +29,7 @@ const createSchema = z.object({
 
 export async function POST(request: Request) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("mail");
     const body = createSchema.parse(await request.json());
     const account = await createMailAccount({ ...body, userId: user.id });
     return NextResponse.json({ account }, { status: 201 });
@@ -54,7 +54,7 @@ const patchSchema = z.discriminatedUnion("action", [
 
 export async function PATCH(request: Request) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("mail");
     const id = new URL(request.url).searchParams.get("id");
     if (!id) {
       return NextResponse.json({ error: "Missing id" }, { status: 400 });
@@ -78,7 +78,7 @@ export async function PATCH(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("mail");
     const id = new URL(request.url).searchParams.get("id");
     if (!id) {
       return NextResponse.json({ error: "Missing id" }, { status: 400 });

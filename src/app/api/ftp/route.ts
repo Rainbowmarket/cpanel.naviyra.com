@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireSessionUser } from "@/lib/auth";
+import { authFailureResponse, requireSessionUser  } from "@/lib/auth";
 import {
   createFtpAccount,
   deleteFtpAccount,
@@ -22,14 +22,14 @@ function ftpConnectionInfo() {
 
 export async function GET() {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("ftp");
     const accounts = await listFtpAccounts(user.id, user.role);
     return NextResponse.json({
       accounts,
       connection: ftpConnectionInfo(),
     });
-  } catch {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  } catch (error) {
+    return authFailureResponse(error);
   }
 }
 
@@ -46,7 +46,7 @@ const createSchema = z.object({
 
 export async function POST(request: Request) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("ftp");
     const body = createSchema.parse(await request.json());
     const account = await createFtpAccount({
       ...body,
@@ -73,7 +73,7 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const user = await requireSessionUser();
+    const user = await requireSessionUser("ftp");
     const id = new URL(request.url).searchParams.get("id");
     if (!id) {
       return NextResponse.json({ error: "Missing id" }, { status: 400 });
