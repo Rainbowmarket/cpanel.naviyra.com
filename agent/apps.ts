@@ -57,8 +57,9 @@ function parseEnvLines(appEnv?: string | null): Record<string, string> {
   const out: Record<string, string> = {};
   if (!appEnv?.trim()) return out;
   for (const line of appEnv.split(/\r?\n/)) {
-    const t = line.trim();
+    let t = line.trim();
     if (!t || t.startsWith("#")) continue;
+    if (/^export\s+/i.test(t)) t = t.replace(/^export\s+/i, "");
     const eq = t.indexOf("=");
     if (eq <= 0) continue;
     const key = t.slice(0, eq).trim();
@@ -73,6 +74,34 @@ function parseEnvLines(appEnv?: string | null): Record<string, string> {
     out[key] = value;
   }
   return out;
+}
+
+function siteDotEnvPaths(documentRoot: string, workingDir: string): string[] {
+  const paths = [path.join(path.resolve(documentRoot), ".env")];
+  const wd = path.join(path.resolve(workingDir), ".env");
+  if (wd !== paths[0]) paths.push(wd);
+  return paths;
+}
+
+function readFileIfPresent(file: string): string {
+  try {
+    if (!fsSync.existsSync(file)) return "";
+    return fsSync.readFileSync(file, "utf8");
+  } catch {
+    return "";
+  }
+}
+
+function assertNoSuperuserDbUser(env: Record<string, string>) {
+  const keys = ["DB_USER", "POSTGRES_USER", "PGUSER", "DATABASE_USER"];
+  for (const key of keys) {
+    const value = (env[key] || "").trim().toLowerCase();
+    if (value === "postgres" || value === "root") {
+      throw new Error(
+        "Do not use DB_USER=postgres. Use the database name from Databases as both DB_USER and DB_NAME."
+      );
+    }
+  }
 }
 
 async function portFree(port: number): Promise<boolean> {
@@ -247,6 +276,21 @@ async function ensurePythonVenv(
   return { command: next, venvBin };
 }
 
+function ensureLongRunningPythonCommand(command: string): string {
+  const trimmed = command.trim();
+  if (!trimmed) return trimmed;
+  if (/\b(uvicorn|gunicorn|hypercorn|daphne)\b/.test(trimmed)) return trimmed;
+  const fileMatch = trimmed.match(
+    /(?:python3?|python)\s+(?:-u\s+)?(\S+\.py)\s*$/i
+  );
+  if (fileMatch?.[1]) {
+    const file = fileMatch[1].replace(/^[/\\]+/, "");
+    const mod = file.replace(/\.py$/i, "").replace(/\\/g, "/").replace(/\//g, ".");
+    return `python3 -m uvicorn ${mod}:app --host 127.0.0.1 --port $PORT`;
+  }
+  return trimmed;
+}
+
 function resolveWorkingDir(documentRoot: string, workingDirRel: string): string {
   const raw = (workingDirRel || ".").trim().replace(/\\/g, "/") || ".";
   const root = path.resolve(documentRoot);
@@ -265,6 +309,7 @@ export async function writeAppUnit(opts: {
   dryRun?: boolean;
 }): Promise<{ unitName: string; workingDir: string }> {
   let cmd = sanitizeStartCommand(opts.startCommand);
+  cmd = ensureLongRunningPythonCommand(cmd);
   cmd = cmd
     .replace(/\$\{PORT\}/g, String(opts.port))
     .replace(/\$PORT\b/g, String(opts.port));
@@ -285,7 +330,13 @@ export async function writeAppUnit(opts: {
   cmd = await resolveStartCommandBins(cmd);
 
   const unit = unitNameForSite(opts.siteId);
-  const env = parseEnvLines(opts.appEnv);
+  const fromFiles = parseEnvLines(
+    siteDotEnvPaths(opts.documentRoot, workingDir)
+      .map((p) => readFileIfPresent(p))
+      .join("\n")
+  );
+  const env = { ...fromFiles, ...parseEnvLines(opts.appEnv) };
+  assertNoSuperuserDbUser(env);
   env.PORT = String(opts.port);
   env.HOST = "127.0.0.1";
   env.PYTHONUNBUFFERED = env.PYTHONUNBUFFERED || "1";
@@ -362,9 +413,9 @@ export async function startAppUnit(
     throw new Error("Save app settings first so the systemd unit is created");
   }
   await exec("systemctl", ["reset-failed", unit]).catch(() => undefined);
-  await exec("systemctl", ["enable", "--now", unit]);
-  await exec("systemctl", ["restart", unit]).catch(() => undefined);
-  await new Promise((r) => setTimeout(r, 900));
+  await exec("systemctl", ["enable", unit]);
+  await exec("systemctl", ["restart", unit]);
+  await new Promise((r) => setTimeout(r, 1500));
   const active = await isUnitActive(unit);
   if (!active) {
     const { logs } = await getAppLogs(siteId, 50);

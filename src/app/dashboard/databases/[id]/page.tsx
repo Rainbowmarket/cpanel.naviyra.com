@@ -7,6 +7,7 @@ import { Pencil, Plus, Table2, Trash2 } from "lucide-react";
 import { modalInputClass, modalLabelClass } from "@/components/ui/modal";
 import { PageHeader } from "@/components/ui/page-header";
 import { useAlert } from "@/components/ui/alert-provider";
+import { DatabaseDumpActions } from "@/components/databases/DatabaseDumpActions";
 
 type SchemaColumn = {
   name: string;
@@ -290,6 +291,14 @@ export default function DatabaseBrowsePage() {
           <span className="ml-2 font-mono text-xs text-slate-500">{dbName}</span>
         ) : null}
       </p>
+      {id ? (
+        <DatabaseDumpActions
+          databaseId={id}
+          onImported={() => {
+            void loadSchema();
+          }}
+        />
+      ) : null}
 
       {loading ? (
         <p className="text-sm text-slate-400">Loading schema…</p>

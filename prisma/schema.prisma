@@ -496,6 +496,14 @@ enum BackupSchedule {
   WEEKLY_SUN
 }
 
+model PanelServerConfig {
+  id            String   @id @default("default")
+  maxUploadMb   Int      @default(512)
+  nginxApplied  Boolean  @default(false)
+  lastError     String?
+  updatedAt     DateTime @updatedAt
+}
+
 model BackupWorkerConfig {
   id             String         @id @default("default")
   enabled        Boolean        @default(false)

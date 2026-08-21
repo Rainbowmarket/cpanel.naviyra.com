@@ -5,21 +5,34 @@
 
 export const SECRET_KEYS = ["AGENT_API_KEY", "SESSION_SECRET", "TWO_FACTOR_ENC_KEY"];
 
+export function zoneApexFromHost(host) {
+  const h = String(host || "")
+    .trim()
+    .replace(/^https?:\/\//i, "")
+    .replace(/\/.*$/, "")
+    .replace(/^www\./, "")
+    .toLowerCase();
+  const parts = h.split(".").filter(Boolean);
+  if (parts.length >= 3) return parts.slice(1).join(".");
+  return h;
+}
+
 export function derivedFromDomain(domain) {
   const host = String(domain || "")
     .trim()
     .replace(/^https?:\/\//i, "")
     .replace(/\/.*$/, "")
     .toLowerCase();
+  const apex = zoneApexFromHost(host);
   return {
     PANEL_HOSTNAME: host,
     PANEL_PUBLIC_URL: host ? `https://${host}` : "",
-    DNS_NS1: host ? `ns1.${host}` : "",
-    DNS_NS2: host ? `ns2.${host}` : "",
-    DEFAULT_SERVER_HOSTNAME: host ? `s1.${host}` : "",
+    DNS_NS1: apex ? `ns1.${apex}` : "",
+    DNS_NS2: apex ? `ns2.${apex}` : "",
+    DEFAULT_SERVER_HOSTNAME: apex ? `s1.${apex}` : "",
     MAIL_HOSTNAME: "mail.{domain}",
-    MAIL_FROM: host ? `noreply@${host}` : "",
-    LETSENCRYPT_EMAIL: host ? `admin@${host}` : "",
+    MAIL_FROM: apex ? `noreply@${apex}` : "",
+    LETSENCRYPT_EMAIL: apex ? `admin@${apex}` : "",
     NEXT_PUBLIC_TERMINAL_WS_URL: host ? `wss://${host}/terminal-ws/terminal` : "",
   };
 }
@@ -37,8 +50,8 @@ export const INSTALL_STEPS = [
       {
         key: "PANEL_HOSTNAME",
         label: "Panel domain",
-        help: "Base domain for the control panel and nameservers. Set here or filled on admin first-login.",
-        example: "yourdomain.com",
+        help: "Control-panel hostname. Can be a subdomain (hpanel.yourdomain.com) while nameservers stay on the zone apex.",
+        example: "hpanel.yourdomain.com",
         required: true,
         validate: validateHostname,
       },
@@ -54,7 +67,7 @@ export const INSTALL_STEPS = [
         key: "PANEL_PUBLIC_URL",
         label: "Public panel URL",
         help: "URL you (and customers) open in the browser.",
-        example: "https://yourdomain.com",
+        example: "https://hpanel.yourdomain.com",
         required: true,
       },
     ],
@@ -66,7 +79,7 @@ export const INSTALL_STEPS = [
       {
         key: "DNS_NS1",
         label: "Primary nameserver",
-        help: "Hostname customers should set as NS1 at their registrar.",
+        help: "Hostname customers set as NS1. Stays on the zone apex (ns1.yourdomain.com), not ns1.hpanel.yourdomain.com.",
         example: "ns1.yourdomain.com",
         required: true,
       },
@@ -87,7 +100,7 @@ export const INSTALL_STEPS = [
       {
         key: "MAIL_HOSTNAME",
         label: "Mail hostname template",
-        help: "Deploy provisions this host for PANEL_HOSTNAME (nginx webmail + Let's Encrypt).",
+        help: "Deploy provisions this host for the zone apex (nginx webmail + Let's Encrypt).",
         example: "mail.{domain}",
         required: true,
       },
@@ -175,6 +188,9 @@ export function validateHostname(value) {
   if (/\s/.test(v) || v.includes("://")) return "Enter a hostname only, e.g. yourdomain.com";
   if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i.test(v) && v !== "localhost") {
     return "Does not look like a domain. Example: yourdomain.com";
+  }
+  if (v.includes("yourdomain.com") || v.includes("example.com") || v.includes("example.org")) {
+    return "That is a docs example. Use your real hostname, e.g. hpanel.naviyra.uk";
   }
   return null;
 }

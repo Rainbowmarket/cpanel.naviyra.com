@@ -71,9 +71,9 @@ The installer asks for the same values stored in `.env` and shows an example for
 
 | You enter | Written to `.env` | Example |
 |-----------|-------------------|---------|
-| Panel domain | `PANEL_HOSTNAME` | `yourdomain.com` |
+| Panel domain | `PANEL_HOSTNAME` | `hpanel.yourdomain.com` |
 | Server public IPv4 | `SERVER_PUBLIC_IP` | `203.0.113.10` |
-| Public panel URL | `PANEL_PUBLIC_URL` | `https://yourdomain.com` |
+| Public panel URL | `PANEL_PUBLIC_URL` | `https://hpanel.yourdomain.com` |
 | Nameservers | `DNS_NS1` / `DNS_NS2` | `ns1.yourdomain.com` / `ns2.yourdomain.com` |
 | Default server hostname | `DEFAULT_SERVER_HOSTNAME` | `s1.yourdomain.com` |
 | Mail hostname template | `MAIL_HOSTNAME` | `mail.{domain}` |
@@ -83,7 +83,13 @@ The installer asks for the same values stored in `.env` and shows an example for
 | Dry-run mode | `AGENT_DRY_RUN` | `false` on Linux production, `true` on Windows |
 | Headless (no browser) | `NAVIYRA_NO_BROWSER` | `true` on a VPS |
 
-DNS and mail fields default from the domain you enter. Secrets (`AGENT_API_KEY`, `SESSION_SECRET`, `TWO_FACTOR_ENC_KEY`) are generated automatically.
+DNS and mail fields default from the **zone apex** of the hostname you enter (`hpanel.example.com` → `ns1.example.com`). Secrets (`AGENT_API_KEY`, `SESSION_SECRET`, `TWO_FACTOR_ENC_KEY`) are generated automatically.
+
+Recommended production split:
+
+- **`hpanel.yourdomain.com`** — control panel (`PANEL_HOSTNAME` / `PANEL_PUBLIC_URL`)
+- **`yourdomain.com`** — marketing site (normal domain in the panel)
+- **`ns1` / `ns2.yourdomain.com`** — nameservers (never `ns1.hpanel.yourdomain.com`)
 
 After install, open the public panel URL (or `http://YOUR_SERVER_IP:3000`) and create the admin account.
 
@@ -343,7 +349,7 @@ Live PTY requires `AGENT_DRY_RUN=false` and admin/root on Linux. On Windows dry-
 1. Set in `.env` (use your public panel host and agent port):
 
 ```bash
-NEXT_PUBLIC_TERMINAL_WS_URL=wss://naviyra.uk/terminal-ws/terminal
+NEXT_PUBLIC_TERMINAL_WS_URL=wss://hpanel.naviyra.uk/terminal-ws/terminal
 AGENT_URL=http://127.0.0.1:4100
 ```
 
@@ -498,6 +504,8 @@ Use this when you want two independent control panels (e.g. one for you, one for
 | `AGENT_PORT` | Agent port (default 4000) |
 | `AGENT_DRY_RUN` | `true` = simulate, `false` = real commands |
 | `SERVER_PUBLIC_IP` | Your server's public IPv4 for DNS A records (default `127.0.0.1`) |
+| `PANEL_HOSTNAME` | Control-panel hostname (e.g. `hpanel.yourdomain.com`). Not the marketing apex. |
+| `PANEL_PUBLIC_URL` | Public panel URL (e.g. `https://hpanel.yourdomain.com`) |
 | `DEPLOY_HOST` | SSH host for `npm run deploy` (falls back to `SERVER_PUBLIC_IP`) |
 | `DEPLOY_USER` | SSH user for deploy (default `root`) |
 | `DEPLOY_PASSWORD` | SSH password for deploy (omit if using SSH keys / `sshpass` not needed) |
@@ -508,7 +516,7 @@ Use this when you want two independent control panels (e.g. one for you, one for
 | `BIND_NAMED_DIR` | Per-domain named snippets (e.g. `/etc/bind/naviyra-zones.d`) |
 | `BIND_INCLUDE_FILE` | Master include listing those snippets (e.g. `/etc/bind/naviyra-zones.conf`) |
 | `BIND_RELOAD_CMD` | BIND reload command (default `rndc reload`) |
-| `MAIL_HOSTNAME` | Mail server hostname template (default `mail.{domain}`). Deploy provisions `mail.{PANEL_HOSTNAME}` when public DNS points at `SERVER_PUBLIC_IP`. |
+| `MAIL_HOSTNAME` | Mail server hostname template (default `mail.{domain}`). Deploy provisions `mail.{zone apex}` when public DNS points at `SERVER_PUBLIC_IP`. |
 | `MAIL_FROM` | System From address for password reset (must pass SPF for this server) |
 | `NAVIYRA_NO_BROWSER` | `true` = don't auto-open browser |
 

@@ -45,7 +45,7 @@ const createSchema = z.object({
   label: z
     .string()
     .min(1)
-    .max(32)
+    .max(63)
     .regex(
       /^[a-zA-Z][a-zA-Z0-9_]*$/,
       "Name must start with a letter and use letters, digits, or _"
@@ -67,14 +67,12 @@ export async function POST(request: Request) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: error.flatten() }, { status: 400 });
     }
+    const message =
+      error instanceof Error ? error.message : "Failed to create database";
+    const exists = /already exists/i.test(message);
     return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to create database",
-      },
-      { status: 500 }
+      { error: message },
+      { status: exists ? 409 : 500 }
     );
   }
 }

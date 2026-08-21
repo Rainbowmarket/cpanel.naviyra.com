@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { AlertCircle, Play, Square, RotateCw } from "lucide-react";
+import { AlertCircle, ExternalLink, Play, Square, RotateCw } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { modalInputClass, modalLabelClass } from "@/components/ui/modal";
 import {
@@ -243,12 +243,23 @@ export function AppRuntimeControls({
 
           <div>
             <label className={modalLabelClass}>Application URL</label>
-            <input
-              className={`${modalInputClass} text-slate-400`}
-              value={applicationUrl}
-              readOnly
-              tabIndex={-1}
-            />
+            <div className="flex gap-2">
+              <input
+                className={`${modalInputClass} min-w-0 flex-1 text-slate-400`}
+                value={applicationUrl}
+                readOnly
+                tabIndex={-1}
+              />
+              <a
+                href={applicationUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-800"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                Open
+              </a>
+            </div>
           </div>
 
           <div>
@@ -317,8 +328,14 @@ export function AppRuntimeControls({
               className={`${modalInputClass} min-h-[72px] font-mono text-xs`}
               value={appEnv}
               onChange={(e) => setAppEnv(e.target.value)}
-              placeholder={"DATABASE_URL=…\n"}
+              placeholder={"KEY=value"}
             />
+            <p className="mt-1 text-xs text-slate-500">
+              Optional. A{" "}
+              <span className="font-mono">.env</span> file in the site folder (or
+              application root) is loaded on Start. Keys here override that file.
+              PORT and HOST are always set by the panel.
+            </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">

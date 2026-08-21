@@ -108,7 +108,7 @@ async function promptInstallValues(rl, { yes, existing = {} }) {
 
   console.log("Values match the panel .env file. Examples are shown for each field.\n");
 
-  const domain = await ask(rl, "Panel domain (PANEL_HOSTNAME)\n  Example: yourdomain.com\n ", {
+  const domain = await ask(rl, "Panel domain (PANEL_HOSTNAME)\n  Example: hpanel.yourdomain.com  (apex yourdomain.com can be the marketing site)\n ", {
     defaultValue: existing.PANEL_HOSTNAME || "",
     required: true,
     validate: INSTALL_STEPS[0].fields[0].validate,
@@ -144,7 +144,7 @@ async function promptInstallValues(rl, { yes, existing = {} }) {
     existing.NEXT_PUBLIC_TERMINAL_WS_URL || derived.NEXT_PUBLIC_TERMINAL_WS_URL;
 
   if (!yes) {
-    values.PANEL_PUBLIC_URL = await ask(rl, "Public panel URL (PANEL_PUBLIC_URL)\n  Example: https://yourdomain.com\n ", {
+    values.PANEL_PUBLIC_URL = await ask(rl, "Public panel URL (PANEL_PUBLIC_URL)\n  Example: https://hpanel.yourdomain.com\n ", {
       defaultValue: existing.PANEL_PUBLIC_URL || derived.PANEL_PUBLIC_URL,
       required: true,
     });

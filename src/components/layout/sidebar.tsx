@@ -14,6 +14,7 @@ import {
   ChevronRight,
   Users,
   UsersRound,
+  Settings2,
   Network,
   Shield,
   Terminal,
@@ -70,6 +71,7 @@ const adminNavGroup = {
   items: [
     { href: "/dashboard/users", label: "Users", icon: Users },
     { href: "/dashboard/groups", label: "Groups", icon: UsersRound },
+    { href: "/dashboard/settings", label: "Settings", icon: Settings2 },
     { href: "/dashboard/backups", label: "Backups", icon: Archive },
     { href: "/dashboard/speed-test", label: "Speed Test", icon: Gauge },
     { href: "/dashboard/service-tests", label: "Service tests", icon: HeartPulse },

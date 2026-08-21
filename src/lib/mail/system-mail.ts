@@ -1,11 +1,11 @@
 import { spawn } from "node:child_process";
-import { getPanelBaseDomain } from "@/lib/base-domain";
+import { getDnsZoneApex, getPanelHostname } from "@/lib/base-domain";
 
 function panelPublicUrl(): string {
   const configured = process.env.PANEL_PUBLIC_URL?.trim();
   if (configured) return configured.replace(/\/$/, "");
-  const base = getPanelBaseDomain();
-  if (base) return `https://${base}`;
+  const host = getPanelHostname();
+  if (host) return `https://${host}`;
   return "http://localhost:3100";
 }
 
@@ -13,7 +13,7 @@ function panelPublicUrl(): string {
 export function getSystemMailFromAddress(): string {
   const configured = process.env.MAIL_FROM?.trim();
   if (configured) return configured;
-  const base = getPanelBaseDomain();
+  const base = getDnsZoneApex();
   return base ? `noreply@${base}` : "noreply@localhost";
 }
 

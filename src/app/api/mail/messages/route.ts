@@ -51,6 +51,16 @@ const composeSchema = z.object({
   body: z.string().default(""),
   draft: z.boolean().optional(),
   draftId: z.string().optional(),
+  attachments: z
+    .array(
+      z.object({
+        filename: z.string().min(1).max(255),
+        contentType: z.string().max(200).optional(),
+        contentBase64: z.string().min(1),
+      })
+    )
+    .max(10)
+    .optional(),
 });
 
 export async function POST(request: Request) {
@@ -72,6 +82,11 @@ export async function POST(request: Request) {
       body: body.body,
       draft: body.draft,
       draftId: body.draftId,
+      attachments: body.attachments?.map((a) => ({
+        filename: a.filename,
+        contentType: a.contentType || "application/octet-stream",
+        contentBase64: a.contentBase64,
+      })),
     });
     return NextResponse.json(result, { status: 201 });
   } catch (error) {

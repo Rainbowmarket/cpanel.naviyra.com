@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { authFailureResponse, requireSessionUser  } from "@/lib/auth";
-import { getPanelBaseDomain } from "@/lib/base-domain";
+import { getDnsZoneApex } from "@/lib/base-domain";
 import {
   createDomain,
   deleteDomain,
@@ -19,7 +19,7 @@ export async function GET() {
     });
     return NextResponse.json({
       domains,
-      panelBaseDomain: getPanelBaseDomain(),
+      panelBaseDomain: getDnsZoneApex(),
       role: user.role,
     });
   } catch (error) {

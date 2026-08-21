@@ -1,29 +1,33 @@
-import { getPanelBaseDomain, normalizeApexDomain } from "@/lib/base-domain";
+import {
+  getDnsZoneApex,
+  getPanelHostname,
+  normalizeApexDomain,
+} from "@/lib/base-domain";
 import { getMailHostname } from "@/lib/paths";
 import { mailHostLabel } from "@/lib/dns/zone";
 
 /**
- * Hostnames reserved for the Naviyra Control Panel itself.
- * Derived from PANEL_HOSTNAME / PANEL_PUBLIC_URL / related .env keys
- * (set at install or admin first login) — not hardcoded.
+ * Hostnames reserved for the control-panel nginx vhost.
+ * Only PANEL_HOSTNAME / PANEL_PUBLIC_URL — not the DNS/marketing apex.
  */
 export function getPanelHostnames(): Set<string> {
   const hosts = new Set<string>();
-  const base = getPanelBaseDomain();
-  if (base) {
-    hosts.add(base);
-    hosts.add(`www.${base}`);
+  const host = getPanelHostname();
+  if (host) {
+    hosts.add(host);
+    hosts.add(`www.${host}`);
   }
   return hosts;
 }
 
-/** First-level labels that must not be created under the panel base domain. */
-const RESERVED_PANEL_SUBDOMAIN_LABELS = new Set([
+/** First-level labels that must not be created under the DNS/marketing apex. */
+export const RESERVED_PANEL_SUBDOMAIN_LABELS = new Set([
   "www",
   "mail",
   "webmail",
   "cpanel",
   "panel",
+  "hpanel",
   "ns1",
   "ns2",
   "ftp",
@@ -56,10 +60,10 @@ export function isPanelHostname(hostname: string): boolean {
 }
 
 export function panelHostnameError(hostname: string): string {
-  const base = getPanelBaseDomain();
+  const host = getPanelHostname();
   return (
     `"${hostname}" is reserved for the Naviyra Control Panel` +
-    (base ? ` (${base})` : "") +
+    (host ? ` (${host})` : "") +
     ". Use a different domain for customer websites."
   );
 }
@@ -74,16 +78,44 @@ export function assertAllowedPanelSubdomainLabel(
   parentDomain: string,
   opts?: { allowMailHost?: boolean }
 ) {
-  const base = getPanelBaseDomain();
-  if (!base || parentDomain.toLowerCase() !== base) return;
+  const apex = getDnsZoneApex();
+  if (!apex || parentDomain.toLowerCase() !== apex) return;
 
   const first = label.split(".")[0]?.toLowerCase() ?? "";
-  if (opts?.allowMailHost && getMailHostProvisionLabels(base).has(first)) {
+  if (opts?.allowMailHost && getMailHostProvisionLabels(apex).has(first)) {
     return;
   }
+
+  const panelHost = getPanelHostname();
+  if (panelHost && panelHost.endsWith(`.${apex}`)) {
+    const panelLabel = panelHost.slice(0, -(apex.length + 1)).split(".")[0]?.toLowerCase();
+    if (panelLabel && first === panelLabel) {
+      throw new Error(
+        `"${first}.${apex}" is reserved for the control panel. Choose a different name.`
+      );
+    }
+  }
+
   if (RESERVED_PANEL_SUBDOMAIN_LABELS.has(first)) {
     throw new Error(
-      `"${first}.${base}" is reserved for panel infrastructure. Choose a different name.`
+      `"${first}.${apex}" is reserved for panel infrastructure. Choose a different name.`
     );
   }
+}
+
+/** Mail/webmail, panel hostname, and infra labels on the DNS apex. */
+export function isReservedPanelSubdomain(
+  label: string,
+  parentDomain: string
+): boolean {
+  const first = label.split(".")[0]?.toLowerCase() ?? "";
+  const parent = parentDomain.trim().toLowerCase();
+  const fqdn = `${label.trim().toLowerCase()}.${parent}`;
+
+  if (!first || !parent) return false;
+  if (isPanelHostname(fqdn) || isPanelHostname(`www.${fqdn}`)) return true;
+  if (first === "mail" || first === "webmail") return true;
+
+  const apex = getDnsZoneApex();
+  return Boolean(apex && parent === apex && RESERVED_PANEL_SUBDOMAIN_LABELS.has(first));
 }

@@ -3,12 +3,13 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { prisma } from "@/lib/prisma";
-import type { MailFolder, MailFolderCounts, MailMessage } from "./types";
+import type { MailAttachmentPayload, MailFolder, MailFolderCounts, MailMessage } from "./types";
 import { MAIL_FOLDERS } from "./types";
 import {
   buildRfc822,
   countMaildirFolder,
   deleteMaildirMessage,
+  getMaildirAttachment,
   getMaildirMessage,
   listMaildirMessages,
   maildirExists,
@@ -53,10 +54,41 @@ async function readMessageFile(
 }
 
 function stripMeta(message: MailMessage): MailMessage {
-  const { ...rest } = message as MailMessage & Record<string, unknown>;
+  const rest = { ...message } as MailMessage & Record<string, unknown>;
   delete rest._maildirFile;
   delete rest._maildirNew;
+  if (rest.attachments) {
+    rest.attachments = rest.attachments.map((a) => ({
+      filename: a.filename,
+      contentType: a.contentType,
+      size: a.size,
+    }));
+  }
   return rest as MailMessage;
+}
+
+const MAX_MAIL_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+const MAX_MAIL_ATTACHMENTS = 10;
+
+function rfcAttachmentsFromPayload(payloads?: MailAttachmentPayload[]) {
+  const list = payloads ?? [];
+  if (list.length > MAX_MAIL_ATTACHMENTS) {
+    throw new Error(`At most ${MAX_MAIL_ATTACHMENTS} files can be attached`);
+  }
+  let total = 0;
+  return list.map((p) => {
+    const filename = (p.filename || "attachment").replace(/[/\\]/g, "_");
+    const content = Buffer.from(p.contentBase64 || "", "base64");
+    total += content.length;
+    if (total > MAX_MAIL_ATTACHMENT_BYTES) {
+      throw new Error("Attachments are larger than 20 MB in total");
+    }
+    return {
+      filename,
+      contentType: p.contentType || "application/octet-stream",
+      content,
+    };
+  });
 }
 
 export async function ensureMailboxDirs(email: string): Promise<void> {
@@ -102,7 +134,7 @@ export async function listMessages(
       .filter((f) => f.endsWith(".json"))
       .map(async (file) => {
         const raw = await fs.readFile(path.join(dir, file), "utf8");
-        return JSON.parse(raw) as MailMessage;
+        return stripMeta(JSON.parse(raw) as MailMessage);
       })
   );
   return messages.sort(
@@ -119,20 +151,50 @@ export async function getMessage(
     const msg = await getMaildirMessage(email, folder, id);
     return msg ? stripMeta(msg) : null;
   }
-  return readMessageFile(email, folder, id);
+  const stored = await readMessageFile(email, folder, id);
+  return stored ? stripMeta(stored) : null;
+}
+
+export async function getMessageAttachment(
+  email: string,
+  folder: MailFolder,
+  id: string,
+  index: number
+): Promise<{ filename: string; contentType: string; content: Buffer } | null> {
+  if (await maildirExists(email)) {
+    return getMaildirAttachment(email, folder, id, index);
+  }
+  try {
+    const raw = await fs.readFile(messagePath(email, folder, id), "utf8");
+    const parsed = JSON.parse(raw) as {
+      attachmentPayloads?: MailAttachmentPayload[];
+    };
+    const payload = parsed.attachmentPayloads?.[index];
+    if (!payload?.contentBase64) return null;
+    return {
+      filename: payload.filename.replace(/[/\\]/g, "_"),
+      contentType: payload.contentType || "application/octet-stream",
+      content: Buffer.from(payload.contentBase64, "base64"),
+    };
+  } catch {
+    return null;
+  }
 }
 
 export async function saveMessage(
   email: string,
-  message: MailMessage
+  message: MailMessage,
+  payloads?: MailAttachmentPayload[]
 ): Promise<MailMessage> {
   if (await maildirExists(email)) {
     const raw = buildRfc822({
       from: message.from,
       to: message.to,
       cc: message.cc,
+      bcc: message.bcc,
       subject: message.subject,
       body: message.body,
+      attachments: rfcAttachmentsFromPayload(payloads),
     });
     return stripMeta(
       await writeMaildirMessage(email, message.folder, raw, message.read)
@@ -140,12 +202,24 @@ export async function saveMessage(
   }
 
   await ensureMailboxDirs(email);
+  const stored: MailMessage = {
+    ...message,
+    attachments: (payloads ?? []).map((p) => ({
+      filename: p.filename,
+      contentType: p.contentType || "application/octet-stream",
+      size: Buffer.from(p.contentBase64 || "", "base64").length,
+    })),
+  };
+  const json = {
+    ...stored,
+    attachmentPayloads: payloads,
+  };
   await fs.writeFile(
     messagePath(email, message.folder, message.id),
-    JSON.stringify(message, null, 2),
+    JSON.stringify(json, null, 2),
     "utf8"
   );
-  return message;
+  return stripMeta(stored);
 }
 
 export async function deleteMessage(
@@ -274,8 +348,13 @@ async function deliverLocal(recipientEmail: string, message: MailMessage) {
       from: message.from,
       to: message.to,
       cc: message.cc,
+      bcc: message.bcc,
       subject: message.subject,
       body: message.body,
+      attachments: rfcAttachmentsFromPayload(
+        (message as MailMessage & { attachmentPayloads?: MailAttachmentPayload[] })
+          .attachmentPayloads
+      ),
     });
     await writeMaildirMessage(recipientEmail, "INBOX", raw, false);
     return;
@@ -301,11 +380,19 @@ export async function sendMessage(input: {
   body: string;
   draft?: boolean;
   draftId?: string;
+  attachments?: MailAttachmentPayload[];
 }): Promise<MailMessage> {
   const now = new Date().toISOString();
   const to = input.to.map((e) => e.trim().toLowerCase()).filter(Boolean);
   const cc = (input.cc ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean);
   const bcc = (input.bcc ?? []).map((e) => e.trim().toLowerCase()).filter(Boolean);
+  const attachments = rfcAttachmentsFromPayload(input.attachments);
+  const payloads = input.attachments;
+  const attachmentMeta = attachments.map((a) => ({
+    filename: a.filename,
+    contentType: a.contentType,
+    size: a.content.length,
+  }));
 
   if (!input.draft && to.length === 0 && cc.length === 0 && bcc.length === 0) {
     throw new Error("Add at least one recipient");
@@ -326,8 +413,9 @@ export async function sendMessage(input: {
       body: input.body,
       date: now,
       read: true,
+      attachments: attachmentMeta.length ? attachmentMeta : undefined,
     };
-    return saveMessage(input.fromEmail, draft);
+    return saveMessage(input.fromEmail, draft, payloads);
   }
 
   if (input.draftId) {
@@ -341,12 +429,11 @@ export async function sendMessage(input: {
     bcc,
     subject: input.subject,
     body: input.body,
+    attachments,
   });
 
-  // Deliver through Postfix for real SMTP (local + remote)
   await sendViaPostfix(raw, input.fromEmail);
 
-  // Sent copy keeps Bcc so the sender can see who was blind-copied.
   if (await maildirExists(input.fromEmail)) {
     return stripMeta(await writeMaildirMessage(input.fromEmail, "Sent", raw, true));
   }
@@ -362,9 +449,9 @@ export async function sendMessage(input: {
     body: input.body,
     date: now,
     read: true,
+    attachments: attachmentMeta.length ? attachmentMeta : undefined,
   };
-  await saveMessage(input.fromEmail, sent);
-  return sent;
+  return saveMessage(input.fromEmail, sent, payloads);
 }
 
 export async function seedWelcomeMessage(email: string): Promise<void> {

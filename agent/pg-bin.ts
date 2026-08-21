@@ -136,10 +136,17 @@ export async function ensurePostgresReady() {
   };
 }
 
-export async function execAsPostgres(bin: string, args: string[], input?: string) {
+export const PG_DUMP_TIMEOUT_MS = 10 * 60 * 1000;
+
+export async function execAsPostgres(
+  bin: string,
+  args: string[],
+  input?: string,
+  opts?: { timeout?: number }
+) {
   return spawnCapture("sudo", ["-n", "-u", "postgres", "--", bin, ...args], {
     input,
-    timeout: PSQL_TIMEOUT_MS,
+    timeout: opts?.timeout ?? PSQL_TIMEOUT_MS,
   });
 }
 

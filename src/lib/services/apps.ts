@@ -6,7 +6,9 @@ import {
   domainAccessWhere,
   type AccessActor,
 } from "@/lib/hosting-targets";
+import { isReservedPanelSubdomain } from "@/lib/panel-host";
 import {
+  assertCustomerAppDatabaseEnv,
   isProxyAppType,
   mergeAppModeEnv,
   normalizeAppWorkingDir,
@@ -132,7 +134,9 @@ export async function listSiteApps(user: Actor) {
       appStatus: d.appStatus,
       appEnv: d.appEnv,
     })),
-    ...subdomains.map((s) => ({
+    ...subdomains
+      .filter((s) => !isReservedPanelSubdomain(s.name, s.domain.name))
+      .map((s) => ({
       kind: "subdomain" as const,
       id: s.id,
       hostname: `${s.name}.${s.domain.name}`,
@@ -146,6 +150,18 @@ export async function listSiteApps(user: Actor) {
       appEnv: s.appEnv,
     })),
   ];
+}
+
+function assertAppSiteAllowed(kind: SiteKind, siteName: string) {
+  if (kind !== "subdomain") return;
+  const dot = siteName.indexOf(".");
+  const label = dot > 0 ? siteName.slice(0, dot) : siteName;
+  const parent = dot > 0 ? siteName.slice(dot + 1) : "";
+  if (isReservedPanelSubdomain(label, parent)) {
+    throw new Error(
+      "Mail and other reserved hosts cannot be used as application sites"
+    );
+  }
 }
 
 export async function getSiteAppLogs(
@@ -179,6 +195,7 @@ export async function configureSiteApp(
   }
 ) {
   const site = await loadSite(kind, id, user);
+  assertAppSiteAllowed(kind, site.siteName);
   const appType = input.appType;
   const appStartupFile =
     input.appStartupFile !== undefined
@@ -197,6 +214,7 @@ export async function configureSiteApp(
   if (input.appMode) {
     appEnv = mergeAppModeEnv(appEnv, input.appMode);
   }
+  assertCustomerAppDatabaseEnv(appEnv);
 
   if (isProxyAppType(appType) && !startCommand) {
     throw new Error(

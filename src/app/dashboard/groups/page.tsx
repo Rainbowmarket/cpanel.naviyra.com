@@ -7,7 +7,7 @@ import { Modal, modalInputClass, modalLabelClass } from "@/components/ui/modal";
 import { ModalActions, PageHeader } from "@/components/ui/page-header";
 import { useAlert } from "@/components/ui/alert-provider";
 import { matchesSearch } from "@/lib/utils";
-import { PANEL_PERMISSION_CATALOG } from "@/lib/panel-permissions";
+import { PANEL_PERMISSION_CATALOG, PANEL_PERMISSION_KEYS } from "@/lib/panel-permissions";
 
 type GroupUser = {
   id: string;
@@ -81,12 +81,22 @@ export default function GroupsPage() {
   }
 
   function toggleKey(key: string) {
-    setForm((current) => ({
-      ...current,
-      permissionKeys: current.permissionKeys.includes(key)
+    setForm((current) => {
+      if (key === "admin") {
+        const enabling = !current.permissionKeys.includes("admin");
+        return {
+          ...current,
+          permissionKeys: enabling ? [...PANEL_PERMISSION_KEYS] : [],
+        };
+      }
+      const next = current.permissionKeys.includes(key)
         ? current.permissionKeys.filter((item) => item !== key)
-        : [...current.permissionKeys, key],
-    }));
+        : [...current.permissionKeys, key];
+      return {
+        ...current,
+        permissionKeys: next.filter((item) => item !== "admin"),
+      };
+    });
   }
 
   function toggleUser(id: string) {
@@ -170,7 +180,7 @@ export default function GroupsPage() {
         open={formOpen}
         onClose={() => setFormOpen(false)}
         title={editing ? "Edit Group" : "New Group"}
-        description="Users in a group can only use the features you check. Users in no group keep full non-admin access."
+        description="Check Administrator for a full admin group, or pick individual features. Assign regular users as members — they receive those permissions immediately."
         className="max-w-2xl"
       >
         <form onSubmit={handleSubmit} className="space-y-5">
@@ -199,10 +209,15 @@ export default function GroupsPage() {
             <div className="grid gap-2 sm:grid-cols-2">
               {PANEL_PERMISSION_CATALOG.map((item) => {
                 const checked = form.permissionKeys.includes(item.key);
+                const isAdminGrant = item.key === "admin";
                 return (
                   <label
                     key={item.key}
-                    className="flex cursor-pointer items-start gap-3 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2.5 hover:border-slate-700"
+                    className={`flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5 hover:border-slate-700 ${
+                      isAdminGrant
+                        ? "border-emerald-500/40 bg-emerald-500/5 sm:col-span-2"
+                        : "border-slate-800 bg-slate-950/60"
+                    }`}
                   >
                     <input
                       type="checkbox"
@@ -280,10 +295,15 @@ export default function GroupsPage() {
                   group.permissionKeys.map((key) => {
                     const label =
                       PANEL_PERMISSION_CATALOG.find((item) => item.key === key)?.label ?? key;
+                    const isAdminGrant = key === "admin";
                     return (
                       <span
                         key={key}
-                        className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-300 ring-1 ring-emerald-500/20"
+                        className={
+                          isAdminGrant
+                            ? "rounded-full bg-emerald-500/20 px-2 py-0.5 text-[11px] font-medium text-emerald-200 ring-1 ring-emerald-400/40"
+                            : "rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-300 ring-1 ring-emerald-500/20"
+                        }
                       >
                         {label}
                       </span>

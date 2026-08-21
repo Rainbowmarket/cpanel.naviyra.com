@@ -185,13 +185,14 @@ export async function getSessionUser(): Promise<SessionUser | null> {
             )
           ),
         ];
+  const groupAdmin = permissionKeys?.includes("admin") === true;
 
   return {
     id: user.id,
     email: user.email,
     name: user.name,
-    role: user.role,
-    permissionKeys,
+    role: user.role === "ADMIN" || groupAdmin ? "ADMIN" : user.role,
+    permissionKeys: user.role === "ADMIN" || groupAdmin ? null : permissionKeys,
   };
 }
 

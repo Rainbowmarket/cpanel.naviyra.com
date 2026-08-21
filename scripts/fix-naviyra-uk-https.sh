@@ -1,16 +1,25 @@
 #!/usr/bin/env bash
-# Point PANEL_HOSTNAME (+ www) HTTPS at Naviyra Panel (127.0.0.1:PANEL_PORT)
+# Point PANEL_HOSTNAME HTTPS at Naviyra Panel (127.0.0.1:PANEL_PORT)
 # Domain / email come from .env (or first admin login values).
 set -euo pipefail
 
 # shellcheck source=lib/load-env.sh
 source "$(dirname "$0")/lib/load-env.sh"
-require_base_domain
+require_panel_host
 
-DOMAIN="${BASE_DOMAIN}"
-WWW="www.${DOMAIN}"
-EMAIL="${LETSENCRYPT_EMAIL:-admin@${DOMAIN}}"
+DOMAIN="${PANEL_HOST}"
+EMAIL="${LETSENCRYPT_EMAIL:-admin@${BASE_DOMAIN:-$DOMAIN}}"
 PORT="${PANEL_PORT:-3100}"
+
+if [ "${DOMAIN}" = "${BASE_DOMAIN:-}" ]; then
+  SERVER_NAMES="${DOMAIN} www.${DOMAIN}"
+  CERT_ARGS=(-d "${DOMAIN}" -d "www.${DOMAIN}")
+  SAN="DNS:${DOMAIN},DNS:www.${DOMAIN}"
+else
+  SERVER_NAMES="${DOMAIN}"
+  CERT_ARGS=(-d "${DOMAIN}")
+  SAN="DNS:${DOMAIN}"
+fi
 
 if [ -f "$(dirname "$0")/install-nginx-snippets.sh" ]; then
   bash "$(dirname "$0")/install-nginx-snippets.sh" "$(cd "$(dirname "$0")/.." && pwd)" || true
@@ -18,9 +27,14 @@ fi
 
 mkdir -p /var/www/certbot /etc/nginx/ssl
 
+if [[ "${DOMAIN}" == *yourdomain.com* ]] || [[ "${DOMAIN}" == *example.com* ]]; then
+  echo "ERROR: PANEL_HOSTNAME is still a docs example (${DOMAIN}). Set PANEL_HOSTNAME=hpanel.your-real-domain in .env" >&2
+  exit 1
+fi
+
 if [ ! -f "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" ]; then
   certbot certonly --webroot -w /var/www/certbot \
-    -d "${DOMAIN}" -d "${WWW}" \
+    "${CERT_ARGS[@]}" \
     --non-interactive --agree-tos --email "${EMAIL}" \
     --keep-until-expiring || true
 fi
@@ -36,7 +50,7 @@ if [ ! -f "$CERT" ]; then
     openssl req -x509 -nodes -newkey rsa:2048 -days 825 \
       -keyout "$KEY" -out "$CERT" \
       -subj "/CN=${DOMAIN}" \
-      -addext "subjectAltName=DNS:${DOMAIN},DNS:${WWW}"
+      -addext "subjectAltName=${SAN}"
   fi
 fi
 
@@ -54,7 +68,7 @@ cat > "/etc/nginx/sites-available/${DOMAIN}" <<EOF
 server {
     listen 80;
     listen [::]:80;
-    server_name ${DOMAIN} ${WWW};
+    server_name ${SERVER_NAMES};
 
     location ^~ /.well-known/acme-challenge/ {
         root /var/www/certbot;
@@ -69,14 +83,14 @@ server {
 server {
     listen 443 ssl http2;
     listen [::]:443 ssl http2;
-    server_name ${DOMAIN} ${WWW};
+    server_name ${SERVER_NAMES};
 
     ssl_certificate     ${CERT};
     ssl_certificate_key ${KEY};
 ${SSL_OPTIONS}
 ${DH}
 
-    client_max_body_size 64M;
+    client_max_body_size 512M;
 
     include /etc/nginx/snippets/naviyra-terminal-ws.conf;
 

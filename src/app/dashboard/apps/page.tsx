@@ -83,11 +83,15 @@ export default function AppsPage() {
           placeholder={sites.length ? "Choose a site…" : "No sites yet"}
         />
         {site ? (
-          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-            <span className="font-mono">{site.documentRoot}</span>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+            <span className="font-mono text-xs text-slate-500">
+              {site.documentRoot}
+            </span>
             <a
               href={`/file-manager?target=${site.kind === "subdomain" ? "s" : "d"}:${site.id}`}
-              className="inline-flex items-center gap-1 text-emerald-400 hover:text-emerald-300"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 px-2.5 py-1 text-xs font-medium text-emerald-400 hover:bg-emerald-500/10"
             >
               <FolderOpen className="h-3.5 w-3.5" />
               Upload files

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Provision mail.{PANEL_HOSTNAME} from .env (any brand/domain — not hardcoded).
+# Provision mail.{zone-apex} from .env (e.g. mail.naviyra.uk, not mail.hpanel.naviyra.uk).
 #
 # Required / used env keys (from /opt/naviyra-panel/.env):
 #   PANEL_HOSTNAME or PANEL_PUBLIC_URL
@@ -27,21 +27,13 @@ set -a
 source "$ENV_FILE"
 set +a
 
-resolve_panel_domain() {
-  if [ -n "${PANEL_HOSTNAME:-}" ]; then
-    echo "$PANEL_HOSTNAME" | tr '[:upper:]' '[:lower:]' | sed -E 's#^https?://##; s#/.*##; s#^www\.##'
-    return
-  fi
-  if [ -n "${PANEL_PUBLIC_URL:-}" ]; then
-    echo "$PANEL_PUBLIC_URL" | sed -E 's#^https?://##; s#/.*##; s#^www\.##' | tr '[:upper:]' '[:lower:]'
-    return
-  fi
-  echo ""
-}
+NAVIYRA_ENV_FILE="$ENV_FILE"
+# shellcheck source=lib/load-env.sh
+source "$(dirname "$0")/lib/load-env.sh"
 
-PANEL_DOMAIN="$(resolve_panel_domain)"
+PANEL_DOMAIN="${BASE_DOMAIN:-}"
 if [ -z "$PANEL_DOMAIN" ]; then
-  echo "panel_mail=skipped (set PANEL_HOSTNAME or PANEL_PUBLIC_URL in .env)"
+  echo "panel_mail=skipped (set PANEL_HOSTNAME or DNS_NS1 in .env)"
   exit 0
 fi
 

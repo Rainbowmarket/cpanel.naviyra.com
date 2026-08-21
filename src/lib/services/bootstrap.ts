@@ -1,9 +1,8 @@
 import { prisma } from "@/lib/prisma";
-import { persistPanelBaseDomainFromLogin, getPanelBaseDomain } from "@/lib/base-domain";
-import { getAgentApiKey, getDefaultDocumentRoot, getDefaultServerHostname, getServerPublicIp } from "@/lib/paths";
-import { isPanelHostname } from "@/lib/panel-host";
+import { persistPanelBaseDomainFromLogin, getPanelHostname, getDnsZoneApex } from "@/lib/base-domain";
+import { getAgentApiKey, getDefaultServerHostname, getServerPublicIp } from "@/lib/paths";
 import { assertValidHostname, normalizeHostnameInput } from "@/lib/hostname";
-import { createDomain } from "@/lib/services/domains";
+import { ensurePanelBaseDomain } from "@/lib/services/domains";
 
 /** Normalize user-entered domain to apex hostname. */
 export function normalizeDomainName(input: string): string {
@@ -22,22 +21,21 @@ export function isValidDomainName(domain: string): boolean {
 /**
  * On first admin registration:
  * - use PANEL_HOSTNAME from install (.env) when set; otherwise persist from the form
- * - create/update Primary Server from DEFAULT_SERVER_HOSTNAME (install default s1.{domain})
- * - register the domain in DB without overwriting the panel nginx vhost
+ * - create/update Primary Server from DEFAULT_SERVER_HOSTNAME (s1.{zone apex})
+ * - register the DNS/marketing apex in DB (not the panel host vhost)
  */
 export async function bootstrapMainServer(input: {
   userId: string;
   domainName: string;
 }) {
-  const installed = getPanelBaseDomain();
-  const domain = normalizeDomainName(installed || input.domainName);
-  if (!isValidDomainName(domain)) {
-    throw new Error("Invalid domain name");
+  const installed = getPanelHostname();
+  if (!installed) {
+    persistPanelBaseDomainFromLogin(input.domainName);
   }
 
-  // Only write .env when install did not already set the panel domain.
-  if (!installed) {
-    persistPanelBaseDomainFromLogin(domain);
+  const zone = getDnsZoneApex() || normalizeDomainName(installed || input.domainName);
+  if (!isValidDomainName(zone)) {
+    throw new Error("Invalid domain name");
   }
 
   const hostname = getDefaultServerHostname();
@@ -75,45 +73,10 @@ export async function bootstrapMainServer(input: {
     });
   }
 
-  // Main login domain is always the panel host after persist — DB only, no nginx overwrite.
-  const existingDomain = await prisma.domain.findUnique({
-    where: { name: domain },
-  });
-
-  if (existingDomain) {
-    await prisma.domain.update({
-      where: { id: existingDomain.id },
-      data: {
-        userId: input.userId,
-        serverId: server.id,
-        status: "ACTIVE",
-        lastError: null,
-        documentRoot: getDefaultDocumentRoot(domain),
-      },
-    });
-  } else if (isPanelHostname(domain)) {
-    await prisma.domain.create({
-      data: {
-        name: domain,
-        documentRoot: getDefaultDocumentRoot(domain),
-        phpEnabled: true,
-        userId: input.userId,
-        serverId: server.id,
-        status: "ACTIVE",
-      },
-    });
-  } else {
-    // Fallback if env persist failed for some reason
-    await createDomain({
-      userId: input.userId,
-      serverId: server.id,
-      name: domain,
-      phpEnabled: true,
-    });
-  }
+  await ensurePanelBaseDomain(input.userId);
 
   return {
     server: { id: server.id, hostname: server.hostname, ipAddress: server.ipAddress },
-    domain,
+    domain: zone,
   };
 }

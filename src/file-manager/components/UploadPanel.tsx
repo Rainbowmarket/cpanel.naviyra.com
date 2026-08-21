@@ -85,8 +85,9 @@ export function UploadPanel(props: {
   onAfterUpload?: () => void;
   /** `editor` = large centered drop zone for empty main pane; default = sidebar strip */
   layout?: 'sidebar' | 'editor';
+  maxUploadMb?: number;
 }) {
-  const { targetDir, disabled, onAfterUpload, layout = 'sidebar' } = props;
+  const { targetDir, disabled, onAfterUpload, layout = 'sidebar', maxUploadMb = 512 } = props;
   const inputRef = useRef<HTMLInputElement>(null);
   const speedSamples = useRef<Map<string, SpeedSample[]>>(new Map());
   const [dragOver, setDragOver] = useState(false);
@@ -98,7 +99,28 @@ export function UploadPanel(props: {
       const dir = targetDir.trim();
       if (!dir) return;
 
-      const batch = list.map((file) => ({
+      const maxBytes = Math.max(1, maxUploadMb) * 1024 * 1024;
+      const oversized = list.filter((file) => file.size > maxBytes);
+      const allowed = list.filter((file) => file.size <= maxBytes);
+
+      const overJobs: UploadJob[] = oversized.map((file) => ({
+        id: newId(),
+        file,
+        progress: 0,
+        loaded: 0,
+        total: file.size || 1,
+        speedBps: 0,
+        status: 'error' as const,
+        error: `Larger than the ${maxUploadMb} MB limit (Admin → Settings)`,
+        startedAt: Date.now(),
+      }));
+
+      if (!allowed.length) {
+        setJobs((prev) => [...prev, ...overJobs]);
+        return;
+      }
+
+      const batch = allowed.map((file) => ({
         id: newId(),
         file,
         startedAt: Date.now(),
@@ -111,6 +133,7 @@ export function UploadPanel(props: {
 
       setJobs((prev) => [
         ...prev,
+        ...overJobs,
         ...batch.map((b) => ({
           id: b.id,
           file: b.file,
@@ -177,7 +200,7 @@ export function UploadPanel(props: {
 
       if (outcomes.some(Boolean)) onAfterUpload?.();
     },
-    [disabled, targetDir, onAfterUpload],
+    [disabled, targetDir, onAfterUpload, maxUploadMb],
   );
 
   const onPick = (e: ChangeEvent<HTMLInputElement>) => {
@@ -240,7 +263,9 @@ export function UploadPanel(props: {
           disabled={!zoneActive}
         />
         <div className="upload-dropzone-text">Drop files here or click to upload</div>
-        <div className="upload-dropzone-sub">ZIP files are extracted automatically</div>
+        <div className="upload-dropzone-sub">
+          ZIP files extract automatically · max {maxUploadMb} MB
+        </div>
       </div>
 
       {jobs.length > 0 ? (

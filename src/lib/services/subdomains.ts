@@ -1,10 +1,12 @@
 import { prisma } from "@/lib/prisma";
 import { callAgent } from "@/lib/agent/client";
-import { getPanelBaseDomain } from "@/lib/base-domain";
-import { assertAllowedPanelSubdomainLabel } from "@/lib/panel-host";
+import { getDnsZoneApex } from "@/lib/base-domain";
+import { assertAllowedPanelSubdomainLabel, isReservedPanelSubdomain } from "@/lib/panel-host";
+import { mailHostLabel } from "@/lib/dns/zone";
 import {
   getAgentApiKey,
   getDefaultSubdomainRoot,
+  getMailHostname,
   resolveAllowedDocumentRoot,
 } from "@/lib/paths";
 import { assertValidSubdomainLabels } from "@/lib/hostname";
@@ -53,7 +55,7 @@ export function parseCustomSubdomainFqdn(
     }
   }
 
-  const panelBase = getPanelBaseDomain();
+  const panelBase = getDnsZoneApex();
   const owned = domains.map((d) => d.name).filter(Boolean);
   const hint =
     owned.length > 0
@@ -73,7 +75,7 @@ export async function resolveCustomSubdomainFqdn(
   role: "ADMIN" | "RESELLER" | "USER"
 ): Promise<{ domainId: string; name: string; domainName: string }> {
   const fqdn = normalizeSubdomainName(fqdnRaw);
-  const panelBase = getPanelBaseDomain();
+  const panelBase = getDnsZoneApex();
 
   if (role === "ADMIN" && panelBase && fqdn.endsWith(`.${panelBase}`) && fqdn !== panelBase) {
     await ensurePanelBaseDomain(userId);
@@ -93,49 +95,96 @@ export async function resolveCustomSubdomainFqdn(
   return parseCustomSubdomainFqdn(fqdn, domains);
 }
 
+const subdomainListInclude = {
+  domain: { select: { name: true, appType: true, phpEnabled: true, id: true } },
+  sslCerts: { orderBy: { createdAt: "desc" as const }, take: 1 },
+};
+
+/** Recreate mail.* / webmail.* panel rows so reserved hosts stay visible for SSL. */
+async function ensureMissingMailSubdomains() {
+  const domains = await prisma.domain.findMany({
+    select: { id: true, name: true, userId: true },
+  });
+  for (const domain of domains) {
+    const mailLabel = mailHostLabel(getMailHostname(domain.name), domain.name);
+    if (!mailLabel || mailLabel === "@") continue;
+    const existing = await prisma.subdomain.findFirst({
+      where: { domainId: domain.id, name: mailLabel },
+      select: { id: true },
+    });
+    if (existing) continue;
+    try {
+      await createSubdomain({
+        domainId: domain.id,
+        userId: domain.userId,
+        name: mailLabel,
+        appType: "STATIC",
+        allowMailHost: true,
+        allowPanelDomain: true,
+      });
+    } catch (error) {
+      console.error(
+        `Failed to restore reserved mail host ${mailLabel}.${domain.name}:`,
+        error
+      );
+    }
+  }
+}
+
 export async function listSubdomains(
   domainId: string,
   userId: string,
   opts?: { role?: "ADMIN" | "RESELLER" | "USER" }
 ) {
-  const panelBase = getPanelBaseDomain();
+  if (opts?.role === "ADMIN") {
+    await ensureMissingMailSubdomains().catch(() => undefined);
+    return prisma.subdomain.findMany({
+      where: { domainId },
+      include: subdomainListInclude,
+      orderBy: { createdAt: "desc" },
+    });
+  }
+
+  const panelBase = getDnsZoneApex();
   return prisma.subdomain.findMany({
     where: {
       domainId,
       domain: {
         OR: [
           { userId },
-          ...(opts?.role === "ADMIN" && panelBase ? [{ name: panelBase }] : []),
+          ...(panelBase ? [{ name: panelBase }] : []),
         ],
       },
     },
-    include: {
-      domain: { select: { name: true, appType: true, phpEnabled: true } },
-      sslCerts: { orderBy: { createdAt: "desc" }, take: 1 },
-    },
+    include: subdomainListInclude,
     orderBy: { createdAt: "desc" },
   });
 }
 
-/** All subdomains for the user (admins also see panel-base domain). */
+/** All subdomains for the user (admins see every domain, including reserved mail hosts). */
 export async function listAllSubdomains(
   userId: string,
   opts?: { role?: "ADMIN" | "RESELLER" | "USER" }
 ) {
-  const panelBase = getPanelBaseDomain();
+  if (opts?.role === "ADMIN") {
+    await ensureMissingMailSubdomains().catch(() => undefined);
+    return prisma.subdomain.findMany({
+      include: subdomainListInclude,
+      orderBy: { createdAt: "desc" },
+    });
+  }
+
+  const panelBase = getDnsZoneApex();
   return prisma.subdomain.findMany({
     where: {
       domain: {
         OR: [
           { userId },
-          ...(opts?.role === "ADMIN" && panelBase ? [{ name: panelBase }] : []),
+          ...(panelBase ? [{ name: panelBase }] : []),
         ],
       },
     },
-    include: {
-      domain: { select: { name: true, appType: true, phpEnabled: true, id: true } },
-      sslCerts: { orderBy: { createdAt: "desc" }, take: 1 },
-    },
+    include: subdomainListInclude,
     orderBy: { createdAt: "desc" },
   });
 }
@@ -197,7 +246,7 @@ export async function createSubdomain(input: {
   /** When true, allow reserved mail/webmail label on the panel apex (mail host setup). */
   allowMailHost?: boolean;
 }) {
-  const panelBase = getPanelBaseDomain();
+  const panelBase = getDnsZoneApex();
   const domain = await prisma.domain.findFirst({
     where: {
       id: input.domainId,
@@ -307,6 +356,12 @@ export async function updateSubdomainPath(
     include: { domain: { include: { server: true } } },
   });
 
+  if (isReservedPanelSubdomain(subdomain.name, subdomain.domain.name)) {
+    throw new Error(
+      "This hostname is reserved for panel infrastructure and cannot be edited"
+    );
+  }
+
   const safeRoot = resolveAllowedDocumentRoot(documentRoot);
 
   await prisma.subdomain.update({
@@ -343,6 +398,12 @@ export async function deleteSubdomain(
     where: { id: subdomainId, domain: { userId } },
     include: { domain: { include: { server: true } } },
   });
+
+  if (isReservedPanelSubdomain(subdomain.name, subdomain.domain.name)) {
+    throw new Error(
+      "This hostname is reserved for panel infrastructure and cannot be deleted"
+    );
+  }
 
   const domainId = subdomain.domainId;
   const subdomainName = subdomain.name;

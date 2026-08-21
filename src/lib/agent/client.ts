@@ -25,6 +25,20 @@ export type AgentAction =
       roleName: string;
       password: string;
     }
+  | { action: "postgres_database_exists"; dbName: string }
+  | {
+      action: "export_postgres_database";
+      dbName: string;
+      format?: "sql" | "custom";
+    }
+  | {
+      action: "import_postgres_database";
+      dbName: string;
+      roleName?: string;
+      format?: "sql" | "custom";
+      fileName?: string;
+      contentBase64: string;
+    }
   | { action: "delete_postgres_database"; dbName: string; roleName: string }
   | { action: "reset_postgres_password"; roleName: string; password: string }
   | { action: "inspect_postgres_schema"; dbName: string }
@@ -195,7 +209,8 @@ export type AgentAction =
       schedule: string;
       panelPort?: number;
       workerToken?: string;
-    };
+    }
+  | { action: "set_nginx_upload_limit"; maxMb: number };
 
 export type AgentResponse<T = unknown> = {
   success: boolean;
@@ -267,7 +282,9 @@ async function callAgentAt<T = unknown>(
           : payload.action === "run_backup" ||
               payload.action === "run_domain_backup" ||
               payload.action === "restore_backup" ||
-              payload.action === "restore_domain_backup"
+              payload.action === "restore_domain_backup" ||
+              payload.action === "export_postgres_database" ||
+              payload.action === "import_postgres_database"
             ? 600000
             : postgresAction
               ? 300000

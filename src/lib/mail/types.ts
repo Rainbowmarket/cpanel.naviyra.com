@@ -22,9 +22,23 @@ export type MailMessage = {
   read: boolean;
   /** Folder before Trash/Junk — used by Restore. */
   originalFolder?: MailFolder;
+  attachments?: MailAttachmentMeta[];
   /** Internal Maildir metadata (not shown in UI). */
   _maildirFile?: string;
   _maildirNew?: boolean;
+};
+
+export type MailAttachmentMeta = {
+  filename: string;
+  contentType: string;
+  size: number;
+};
+
+export type MailAttachmentPayload = {
+  filename: string;
+  contentType?: string;
+  contentBase64: string;
+  size?: number;
 };
 
 export type MailFolderCounts = Record<MailFolder, number>;

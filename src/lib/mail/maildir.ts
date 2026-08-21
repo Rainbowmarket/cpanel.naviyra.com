@@ -7,7 +7,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { simpleParser } from "mailparser";
-import type { MailFolder, MailMessage } from "./types";
+import type { MailAttachmentMeta, MailFolder, MailMessage } from "./types";
 
 const exec = promisify(execFile);
 const VHOSTS = process.env.MAIL_VHOSTS_DIR?.trim() || "/var/mail/vhosts";
@@ -224,17 +224,29 @@ function extractTextBodyFallback(raw: string): string {
   return text.trim();
 }
 
-async function extractTextBody(raw: string): Promise<string> {
+async function parseMailContent(raw: string): Promise<{
+  body: string;
+  attachments: MailAttachmentMeta[];
+}> {
   try {
     const parsed = await simpleParser(Buffer.from(raw));
-    if (parsed.text?.trim()) return parsed.text.trim();
-    if (typeof parsed.html === "string" && parsed.html.trim()) {
-      return htmlToPlainText(parsed.html);
+    const attachments: MailAttachmentMeta[] = (parsed.attachments ?? []).map(
+      (att) => ({
+        filename: String(att.filename || "attachment").replace(/[/\\]/g, "_"),
+        contentType: att.contentType || "application/octet-stream",
+        size: att.size || (Buffer.isBuffer(att.content) ? att.content.length : 0),
+      })
+    );
+    if (parsed.text?.trim()) {
+      return { body: parsed.text.trim(), attachments };
     }
+    if (typeof parsed.html === "string" && parsed.html.trim()) {
+      return { body: htmlToPlainText(parsed.html), attachments };
+    }
+    return { body: extractTextBodyFallback(raw), attachments };
   } catch {
-    /* fall through */
+    return { body: extractTextBodyFallback(raw), attachments: [] };
   }
-  return extractTextBodyFallback(raw);
 }
 
 async function fileToMessage(
@@ -257,6 +269,7 @@ async function fileToMessage(
   const originalRaw = headers["x-naviyra-original-folder"];
   const originalFolder = isMailFolder(originalRaw) ? originalRaw : undefined;
 
+  const parsed = await parseMailContent(raw);
   return {
     id,
     folder,
@@ -265,10 +278,11 @@ async function fileToMessage(
     cc: parseAddressList(headers.cc),
     bcc: parseAddressList(headers.bcc),
     subject,
-    body: await extractTextBody(raw),
+    body: parsed.body,
     date: Number.isNaN(Date.parse(date)) ? new Date().toISOString() : date,
     read: seen,
     originalFolder,
+    attachments: parsed.attachments.length ? parsed.attachments : undefined,
     _maildirFile: fileName,
     _maildirNew: inNew,
   } as MailMessage & { _maildirFile?: string; _maildirNew?: boolean };
@@ -322,6 +336,40 @@ export async function getMaildirMessage(
 ): Promise<(MailMessage & MaildirMeta) | null> {
   const all = await listMaildirMessages(email, folder);
   return (all.find((m) => m.id === id) as (MailMessage & MaildirMeta) | undefined) ?? null;
+}
+
+export async function getMaildirAttachment(
+  email: string,
+  folder: MailFolder,
+  id: string,
+  index: number
+): Promise<{ filename: string; contentType: string; content: Buffer } | null> {
+  const msg = await getMaildirMessage(email, folder, id);
+  if (!msg?._maildirFile) return null;
+  const base = maildirFolderPath(email, folder);
+  const sub = msg._maildirNew ? "new" : "cur";
+  const fullPath = path.join(base, sub, msg._maildirFile);
+  let raw: Buffer;
+  try {
+    raw = await fs.readFile(fullPath);
+  } catch {
+    return null;
+  }
+  try {
+    const parsed = await simpleParser(raw);
+    const att = parsed.attachments?.[index];
+    if (!att?.content) return null;
+    const content = Buffer.isBuffer(att.content)
+      ? att.content
+      : Buffer.from(att.content as Uint8Array);
+    return {
+      filename: String(att.filename || "attachment").replace(/[/\\]/g, "_"),
+      contentType: att.contentType || "application/octet-stream",
+      content,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export async function countMaildirFolder(
@@ -460,9 +508,15 @@ export function buildRfc822(input: {
   bcc?: string[];
   subject: string;
   body: string;
+  attachments?: Array<{
+    filename: string;
+    contentType: string;
+    content: Buffer;
+  }>;
 }): string {
   const date = new Date().toUTCString();
-  const lines = [
+  const atts = input.attachments ?? [];
+  const headerLines = [
     `From: ${input.from}`,
     `To: ${input.to.join(", ")}`,
     ...(input.cc?.length ? [`Cc: ${input.cc.join(", ")}`] : []),
@@ -470,11 +524,52 @@ export function buildRfc822(input: {
     `Subject: ${input.subject}`,
     `Date: ${date}`,
     "MIME-Version: 1.0",
+  ];
+  const bodyText = input.body.replace(/\r?\n/g, "\n");
+
+  if (atts.length === 0) {
+    return [
+      ...headerLines,
+      'Content-Type: text/plain; charset="utf-8"',
+      "Content-Transfer-Encoding: 8bit",
+      "",
+      bodyText,
+      "",
+    ].join("\r\n");
+  }
+
+  const boundary = `naviyra_${randomBytes(12).toString("hex")}`;
+  const parts: string[] = [
+    ...headerLines,
+    `Content-Type: multipart/mixed; boundary="${boundary}"`,
+    "",
+    `--${boundary}`,
     'Content-Type: text/plain; charset="utf-8"',
     "Content-Transfer-Encoding: 8bit",
     "",
-    input.body.replace(/\r?\n/g, "\n"),
-    "",
+    bodyText,
   ];
-  return lines.join("\r\n");
+
+  for (const att of atts) {
+    const name = att.filename.replace(/[/\\]/g, "_").replace(/"/g, "");
+    const ascii = /^[\x20-\x7e]+$/.test(name);
+    const nameParam = ascii
+      ? `filename="${name}"`
+      : `filename="=?UTF-8?B?${Buffer.from(name, "utf8").toString("base64")}?="`;
+    const ct = att.contentType || "application/octet-stream";
+    const b64 = att.content
+      .toString("base64")
+      .replace(/(.{76})/g, "$1\r\n");
+    parts.push(
+      `--${boundary}`,
+      `Content-Type: ${ct}; ${nameParam}`,
+      "Content-Transfer-Encoding: base64",
+      `Content-Disposition: attachment; ${nameParam}`,
+      "",
+      b64
+    );
+  }
+
+  parts.push(`--${boundary}--`, "");
+  return parts.join("\r\n");
 }

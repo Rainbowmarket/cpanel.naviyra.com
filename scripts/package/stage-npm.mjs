@@ -37,6 +37,8 @@ const SKIP_FILES = new Set([
   ".env.local",
   ".env.production",
   "commit_to_npx.txt",
+  ".npmrc",
+  ".npm-token",
 ]);
 
 const rootPkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));

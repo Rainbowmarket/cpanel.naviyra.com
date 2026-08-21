@@ -433,6 +433,17 @@ export async function executeLocalAgent<T = unknown>(
           } as T,
         };
 
+      case "set_nginx_upload_limit":
+        return {
+          success: true,
+          data: {
+            applied: false,
+            maxMb: Number(payload.maxMb) || 512,
+            path: "data/agent-config/naviyra-upload.conf",
+            dryRun: true,
+          } as T,
+        };
+
       case "delete_backup": {
         const archivePath = String(payload.archivePath || "");
         if (!archivePath) {
@@ -467,6 +478,9 @@ export async function executeLocalAgent<T = unknown>(
             "Server agent is not reachable. Domain backup needs the live agent (files, DNS, mail, PostgreSQL).",
         };
 
+      case "postgres_database_exists":
+      case "export_postgres_database":
+      case "import_postgres_database":
       case "create_postgres_database":
       case "delete_postgres_database":
       case "reset_postgres_password":

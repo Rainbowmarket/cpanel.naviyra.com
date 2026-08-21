@@ -8,7 +8,7 @@
 import "dotenv/config";
 import { randomBytes } from "node:crypto";
 import { prisma } from "../src/lib/prisma";
-import { getPanelBaseDomain } from "../src/lib/base-domain";
+import { getDnsZoneApex } from "../src/lib/base-domain";
 import { getSystemMailFromAddress } from "../src/lib/mail/system-mail";
 import { ensurePanelBaseDomain } from "../src/lib/services/domains";
 import {
@@ -18,9 +18,9 @@ import {
 import { hashPassword } from "../src/lib/auth";
 
 async function main() {
-  const panelDomain = getPanelBaseDomain();
+  const panelDomain = getDnsZoneApex();
   if (!panelDomain) {
-    console.log("ensure_panel_mail=skipped (no PANEL_HOSTNAME / PANEL_PUBLIC_URL)");
+    console.log("ensure_panel_mail=skipped (no PANEL_HOSTNAME / DNS_NS1)");
     return;
   }
 

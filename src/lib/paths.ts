@@ -1,5 +1,5 @@
 import path from "node:path";
-import { getPanelBaseDomain } from "@/lib/base-domain";
+import { getDnsZoneApex } from "@/lib/base-domain";
 import {
   assertSafeDocumentRoot,
   defaultDomainDocumentRoot,
@@ -34,13 +34,13 @@ export function getDnsRoot(): string {
 
 export function getDnsNs1(): string {
   if (process.env.DNS_NS1?.trim()) return process.env.DNS_NS1.trim();
-  const base = getPanelBaseDomain();
+  const base = getDnsZoneApex();
   return base ? `ns1.${base}` : "ns1.localhost";
 }
 
 export function getDnsNs2(): string {
   if (process.env.DNS_NS2?.trim()) return process.env.DNS_NS2.trim();
-  const base = getPanelBaseDomain();
+  const base = getDnsZoneApex();
   return base ? `ns2.${base}` : "ns2.localhost";
 }
 
@@ -48,7 +48,7 @@ export function getDefaultServerHostname(): string {
   if (process.env.DEFAULT_SERVER_HOSTNAME?.trim()) {
     return process.env.DEFAULT_SERVER_HOSTNAME.trim();
   }
-  const base = getPanelBaseDomain();
+  const base = getDnsZoneApex();
   return base ? `s1.${base}` : "s1.localhost";
 }
 
@@ -56,7 +56,7 @@ export function getLetsEncryptEmail(): string {
   if (process.env.LETSENCRYPT_EMAIL?.trim()) {
     return process.env.LETSENCRYPT_EMAIL.trim();
   }
-  const base = getPanelBaseDomain();
+  const base = getDnsZoneApex();
   return base ? `admin@${base}` : "admin@localhost";
 }
 

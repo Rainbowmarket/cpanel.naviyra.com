@@ -8,7 +8,7 @@ import {
 import { applyPending2faCookie } from "@/lib/auth-2fa";
 import { prisma } from "@/lib/prisma";
 import { bootstrapMainServer } from "@/lib/services/bootstrap";
-import { getPanelBaseDomain } from "@/lib/base-domain";
+import { getPanelHostname } from "@/lib/base-domain";
 import {
   assertLoginAllowed,
   clearLoginFailures,
@@ -111,7 +111,7 @@ export async function PUT(request: Request) {
 
   try {
     const body = registerSchema.parse(await request.json());
-    const domainName = getPanelBaseDomain() || body.domain?.trim();
+    const domainName = getPanelHostname() || body.domain?.trim();
     if (!domainName) {
       return NextResponse.json(
         {

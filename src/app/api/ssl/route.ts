@@ -11,7 +11,7 @@ import {
 export async function GET() {
   try {
     const user = await requireSessionUser("ssl");
-    const certificates = await listSslCertificates(user.id);
+    const certificates = await listSslCertificates(user.id, user.role);
     return NextResponse.json({ certificates });
   } catch (error) {
     return authFailureResponse(error);
@@ -71,7 +71,9 @@ export async function PATCH(request: Request) {
     }
     const certificate = await renewSslCertificate(id, user.id);
     return NextResponse.json({ certificate });
-  } catch {
-    return NextResponse.json({ error: "Failed to renew SSL" }, { status: 500 });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to renew SSL";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

@@ -3,6 +3,9 @@
  * Reads one JSON action from stdin, prints JSON { success, data?, error? }.
  */
 import {
+  exportPostgresDatabaseOnServer,
+  importPostgresDatabaseOnServer,
+  postgresDatabaseExistsOnServer,
   createPostgresDatabaseOnServer,
   deletePostgresDatabaseOnServer,
   resetPostgresPasswordOnServer,
@@ -34,6 +37,26 @@ type Payload = {
 
 async function run(payload: Payload) {
   switch (payload.action) {
+    case "export_postgres_database":
+      return exportPostgresDatabaseOnServer({
+        dbName: String(payload.dbName),
+        format: payload.format === "custom" ? "custom" : "sql",
+        dryRun: DRY_RUN,
+      });
+    case "import_postgres_database":
+      return importPostgresDatabaseOnServer({
+        dbName: String(payload.dbName),
+        roleName: payload.roleName ? String(payload.roleName) : undefined,
+        format: payload.format === "custom" ? "custom" : payload.format === "sql" ? "sql" : undefined,
+        fileName: payload.fileName ? String(payload.fileName) : undefined,
+        contentBase64: String(payload.contentBase64 || ""),
+        dryRun: DRY_RUN,
+      });
+    case "postgres_database_exists":
+      return postgresDatabaseExistsOnServer({
+        dbName: String(payload.dbName),
+        dryRun: DRY_RUN,
+      });
     case "create_postgres_database":
       return createPostgresDatabaseOnServer({
         dbName: String(payload.dbName),

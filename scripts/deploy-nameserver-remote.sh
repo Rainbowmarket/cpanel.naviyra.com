@@ -21,8 +21,6 @@ from pathlib import Path
 p = Path("/opt/naviyra-panel/.env")
 text = p.read_text() if p.exists() else ""
 updates = {
-    "PANEL_HOSTNAME": "${BASE_DOMAIN}",
-    "PANEL_PUBLIC_URL": "https://${BASE_DOMAIN}",
     "DNS_NS1": "${NS1}",
     "DNS_NS2": "${NS2}",
     "SERVER_PUBLIC_IP": "${PUBLIC_IP}",

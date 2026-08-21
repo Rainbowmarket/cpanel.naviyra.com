@@ -33,6 +33,6 @@ export const config = {
     "/dashboard/:path*",
     "/file-manager",
     "/file-manager/:path*",
-    "/api/((?!file-manager/upload$).*)",
+    "/api/((?!file-manager/upload$|databases/[^/]+/import$).*)",
   ],
 };

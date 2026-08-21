@@ -131,11 +131,7 @@ export default function MailPage() {
   }
 
   function openMailbox(accountId: string) {
-    window.open(
-      `/mailbox/${accountId}`,
-      `mailbox-${accountId}`,
-      "width=1280,height=820,menubar=no,toolbar=no,location=no,status=no"
-    );
+    window.open(`/mailbox/${accountId}`, "_blank", "noopener,noreferrer");
   }
 
   function openCreate() {

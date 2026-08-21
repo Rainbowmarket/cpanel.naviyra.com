@@ -172,6 +172,7 @@ export function WorkspacePage({
   const [perms, setPerms] = useState<string[]>([]);
   const [home, setHome] = useState('/');
   const [allowedPaths, setAllowedPaths] = useState<string[]>([]);
+  const [maxUploadMb, setMaxUploadMb] = useState(512);
   const [listPath, setListPath] = useState('');
   const [items, setItems] = useState<ListItem[]>([]);
   const [filter, setFilter] = useState('');
@@ -271,6 +272,9 @@ export function WorkspacePage({
         return;
       }
       setPerms(s.permissions || []);
+      if (typeof s.maxUploadMb === 'number' && s.maxUploadMb > 0) {
+        setMaxUploadMb(s.maxUploadMb);
+      }
       const h = s.breadcrumbHome || '/';
       setHome(h);
       setAllowedPaths((s.allowedPaths || []).map(normFsPath));
@@ -1268,6 +1272,7 @@ export function WorkspacePage({
                   disabled={!effectiveDir}
                   onAfterUpload={bumpList}
                   layout="editor"
+                  maxUploadMb={maxUploadMb}
                 />
               ) : (
                 <div className="empty-state">Select a file in the sidebar or open a folder. Use the toolbar for folder actions.</div>

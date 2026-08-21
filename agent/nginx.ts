@@ -417,14 +417,6 @@ function panelHostnames(): Set<string> {
   } catch {
     /* ignore */
   }
-  const serverHost = process.env.DEFAULT_SERVER_HOSTNAME?.trim();
-  if (serverHost) {
-    add(serverHost.replace(/^server\d+\./i, ""));
-  }
-  const ns1 = process.env.DNS_NS1?.trim();
-  if (ns1) {
-    add(ns1.replace(/^ns\d+\./i, ""));
-  }
   return hosts;
 }
 
@@ -715,8 +707,8 @@ export async function issueLetsEncrypt(
 
   await fs.mkdir(ACME_WEBROOT, { recursive: true });
 
-  // Panel apex (e.g. naviyra.uk) already has a reverse-proxy vhost.
-  // Only run certbot — never replace the panel nginx config with a site document-root.
+  // Control-panel host (e.g. hpanel.naviyra.uk) already has a reverse-proxy vhost.
+  // Never replace that nginx config with a site document-root.
   if (!panelHost) {
     await ensureDefaultIndex(documentRoot, safeDomain);
     const httpConf = isMailHostname(safeDomain)
@@ -778,4 +770,98 @@ export async function readCertDates(
     ? new Date(after).toISOString()
     : new Date(Date.now() + 90 * 864e5).toISOString();
   return { issuedAt, expiresAt, certDir };
+}
+
+export const NGINX_UPLOAD_HTTP_CONF = "/etc/nginx/conf.d/naviyra-upload.conf";
+export const NGINX_UPLOAD_SNIPPET = "/etc/nginx/snippets/naviyra-upload-limit.conf";
+
+function uploadLimitConfBody(maxMb: number): string {
+  return `# Managed by Naviyra Panel (Admin → Settings)
+client_max_body_size ${maxMb}M;
+`;
+}
+
+function clampUploadMb(maxMb: number): number {
+  if (!Number.isFinite(maxMb)) return 512;
+  return Math.max(1, Math.min(2048, Math.floor(maxMb)));
+}
+
+/** http-level + snippet so File Manager is not stuck on nginx's default 1m. */
+export async function applyNginxUploadLimit(options: {
+  maxMb: number;
+  dryRun?: boolean;
+}): Promise<{ applied: boolean; maxMb: number; path: string; dryRun?: boolean }> {
+  const maxMb = clampUploadMb(options.maxMb);
+  const body = uploadLimitConfBody(maxMb);
+  if (options.dryRun) {
+    return { applied: false, maxMb, path: NGINX_UPLOAD_HTTP_CONF, dryRun: true };
+  }
+  if (process.platform === "win32") {
+    return { applied: false, maxMb, path: NGINX_UPLOAD_HTTP_CONF, dryRun: true };
+  }
+
+  await fs.mkdir("/etc/nginx/conf.d", { recursive: true });
+  await fs.mkdir("/etc/nginx/snippets", { recursive: true });
+
+  const previousHttp = (await fileExists(NGINX_UPLOAD_HTTP_CONF))
+    ? await fs.readFile(NGINX_UPLOAD_HTTP_CONF, "utf8")
+    : "";
+  const previousSnippet = (await fileExists(NGINX_UPLOAD_SNIPPET))
+    ? await fs.readFile(NGINX_UPLOAD_SNIPPET, "utf8")
+    : "";
+
+  await fs.writeFile(NGINX_UPLOAD_HTTP_CONF, body, "utf8");
+  await fs.writeFile(NGINX_UPLOAD_SNIPPET, body, "utf8");
+
+  const vhostBackups = await syncVhostBodySize(maxMb);
+
+  try {
+    await exec("nginx", ["-t"]);
+    await exec("systemctl", ["reload", "nginx"]);
+  } catch (error) {
+    await fs.writeFile(NGINX_UPLOAD_HTTP_CONF, previousHttp, "utf8");
+    await fs.writeFile(NGINX_UPLOAD_SNIPPET, previousSnippet, "utf8");
+    for (const [filePath, contents] of vhostBackups) {
+      await fs.writeFile(filePath, contents, "utf8");
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`nginx rejected upload limit ${maxMb}M: ${message}`);
+  }
+
+  return { applied: true, maxMb, path: NGINX_UPLOAD_HTTP_CONF };
+}
+
+async function syncVhostBodySize(maxMb: number): Promise<Map<string, string>> {
+  const backups = new Map<string, string>();
+  const seen = new Set<string>();
+  for (const dir of [SITES_AVAILABLE, SITES_ENABLED]) {
+    if (!fsSync.existsSync(dir)) continue;
+    const names = await fs.readdir(dir);
+    for (const name of names) {
+      const filePath = path.join(dir, name);
+      let real = filePath;
+      try {
+        real = fsSync.realpathSync(filePath);
+      } catch {
+        continue;
+      }
+      if (seen.has(real)) continue;
+      seen.add(real);
+      let text: string;
+      try {
+        text = await fs.readFile(real, "utf8");
+      } catch {
+        continue;
+      }
+      if (!/client_max_body_size\s+\S+;/.test(text)) continue;
+      const next = text.replace(
+        /client_max_body_size\s+\S+;/g,
+        `client_max_body_size ${maxMb}M;`
+      );
+      if (next === text) continue;
+      backups.set(real, text);
+      await fs.writeFile(real, next, "utf8");
+    }
+  }
+  return backups;
 }

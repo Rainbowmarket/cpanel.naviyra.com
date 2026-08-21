@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { callAgent } from "@/lib/agent/client";
 import { getAgentApiKey, getDefaultDocumentRoot } from "@/lib/paths";
-import { getPanelBaseDomain } from "@/lib/base-domain";
+import { getDnsZoneApex } from "@/lib/base-domain";
 import { isPanelHostname, panelHostnameError } from "@/lib/panel-host";
 import { assertValidHostname } from "@/lib/hostname";
 import { deleteDnsZoneForDomain, syncDnsZone } from "@/lib/services/dns";
@@ -10,12 +10,12 @@ import { ensurePanelSslSynced } from "@/lib/services/ssl";
 import type { AppType, DomainStatus } from "@/generated/prisma/client";
 
 /**
- * Ensure the panel apex (e.g. naviyra.uk) exists as a Domain row so admins can
- * host subdomains like block.naviyra.uk. Does not provision an apex vhost
- * (that would conflict with the panel itself).
+ * Ensure the DNS/marketing apex (e.g. naviyra.uk) exists as a Domain row so
+ * admins can host the brand site and subdomains like block.naviyra.uk.
+ * Does not provision the control-panel vhost (PANEL_HOSTNAME).
  */
 export async function ensurePanelBaseDomain(userId: string) {
-  const name = getPanelBaseDomain();
+  const name = getDnsZoneApex();
   if (!name) return null;
 
   const existing = await prisma.domain.findUnique({

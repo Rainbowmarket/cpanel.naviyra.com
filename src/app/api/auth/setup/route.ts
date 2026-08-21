@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getPanelBaseDomain } from "@/lib/base-domain";
+import { getPanelHostname } from "@/lib/base-domain";
 import { getDefaultServerHostname } from "@/lib/paths";
 
 export async function GET() {
   try {
     const count = await prisma.user.count();
-    const panelDomain = getPanelBaseDomain();
+    const panelDomain = getPanelHostname();
     return NextResponse.json({
       needsSetup: count === 0,
       panelDomain,
@@ -16,7 +16,7 @@ export async function GET() {
     console.error("[auth/setup]", error);
     return NextResponse.json({
       needsSetup: true,
-      panelDomain: getPanelBaseDomain(),
+      panelDomain: getPanelHostname(),
       primaryHostname: getDefaultServerHostname(),
       error:
         error instanceof Error

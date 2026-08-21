@@ -46,6 +46,7 @@ export type SessionResponse = {
   permissions?: string[];
   breadcrumbHome?: string;
   allowedPaths?: string[];
+  maxUploadMb?: number;
   message?: string;
 };
 
@@ -222,6 +223,14 @@ export function uploadFileToFolder(
       const text = xhr.responseText ?? "";
       if (xhr.status >= 200 && xhr.status < 300) {
         resolve(text);
+        return;
+      }
+      if (xhr.status === 413) {
+        reject(
+          new Error(
+            "Upload too large (413). Ask an admin to raise the limit under Settings."
+          )
+        );
         return;
       }
       reject(new Error(text.trim() || `HTTP ${xhr.status}`));

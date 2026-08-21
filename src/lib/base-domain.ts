@@ -13,10 +13,21 @@ export function normalizeApexDomain(input: string): string {
 }
 
 /**
- * Panel / nameserver base domain from .env (set at install or first admin login).
- * Sources (first match): PANEL_HOSTNAME → PANEL_PUBLIC_URL → DEFAULT_SERVER_HOSTNAME → DNS_NS1
+ * DNS / marketing zone apex from a hostname.
+ * `hpanel.naviyra.uk` → `naviyra.uk`; `naviyra.uk` stays `naviyra.uk`.
  */
-export function getPanelBaseDomain(): string | null {
+export function zoneApexFromHostname(host: string): string {
+  const h = normalizeApexDomain(host);
+  const parts = h.split(".").filter(Boolean);
+  if (parts.length >= 3) return parts.slice(1).join(".");
+  return h;
+}
+
+/**
+ * Control-panel hostname only (e.g. hpanel.naviyra.uk).
+ * Sources: PANEL_HOSTNAME → PANEL_PUBLIC_URL.
+ */
+export function getPanelHostname(): string | null {
   const explicit = process.env.PANEL_HOSTNAME?.trim();
   if (explicit) return normalizeApexDomain(explicit);
 
@@ -29,19 +40,36 @@ export function getPanelBaseDomain(): string | null {
     }
   }
 
-  const serverHost = process.env.DEFAULT_SERVER_HOSTNAME?.trim();
-  if (serverHost) {
-    const apex = normalizeApexDomain(serverHost).replace(/^(server\d+|s\d+)\./, "");
-    if (apex.includes(".")) return apex;
-  }
+  return null;
+}
 
+/**
+ * Nameserver / marketing zone apex (e.g. naviyra.uk).
+ * Sources: DNS_NS1 → DEFAULT_SERVER_HOSTNAME → parent of panel hostname.
+ */
+export function getDnsZoneApex(): string | null {
   const ns1 = process.env.DNS_NS1?.trim();
   if (ns1) {
     const apex = normalizeApexDomain(ns1).replace(/^ns\d+\./, "");
     if (apex.includes(".")) return apex;
   }
 
+  const serverHost = process.env.DEFAULT_SERVER_HOSTNAME?.trim();
+  if (serverHost) {
+    const apex = normalizeApexDomain(serverHost).replace(/^(server\d+|s\d+)\./, "");
+    if (apex.includes(".")) return apex;
+  }
+
+  const panel = getPanelHostname();
+  if (panel) return zoneApexFromHostname(panel);
   return null;
+}
+
+/**
+ * Panel hostname (PANEL_HOSTNAME). Prefer getDnsZoneApex() for NS/marketing.
+ */
+export function getPanelBaseDomain(): string | null {
+  return getPanelHostname();
 }
 
 export function requirePanelBaseDomain(): string {
@@ -95,9 +123,10 @@ export function upsertEnvKeys(updates: Record<string, string>): void {
   fs.writeFileSync(envPath, next, "utf8");
 }
 
-/** Persist base domain + derived DNS/panel keys after admin first login. */
+/** Persist panel hostname + derived DNS keys after admin first login. */
 export function persistPanelBaseDomainFromLogin(domainInput: string): string {
   const domain = normalizeApexDomain(domainInput);
+  const apex = zoneApexFromHostname(domain);
   const panelPort = process.env.PANEL_PORT?.trim() || "3100";
   const useHttps = shouldUseSecureCookies() || /^https:\/\//i.test(
     process.env.PANEL_PUBLIC_URL?.trim() || ""
@@ -110,10 +139,10 @@ export function persistPanelBaseDomainFromLogin(domainInput: string): string {
   upsertEnvKeys({
     PANEL_HOSTNAME: domain,
     PANEL_PUBLIC_URL: cleanPublicUrl,
-    DNS_NS1: process.env.DNS_NS1?.trim() || `ns1.${domain}`,
-    DNS_NS2: process.env.DNS_NS2?.trim() || `ns2.${domain}`,
-    DEFAULT_SERVER_HOSTNAME: existingServerHost || `s1.${domain}`,
-    LETSENCRYPT_EMAIL: process.env.LETSENCRYPT_EMAIL?.trim() || `admin@${domain}`,
+    DNS_NS1: process.env.DNS_NS1?.trim() || `ns1.${apex}`,
+    DNS_NS2: process.env.DNS_NS2?.trim() || `ns2.${apex}`,
+    DEFAULT_SERVER_HOSTNAME: existingServerHost || `s1.${apex}`,
+    LETSENCRYPT_EMAIL: process.env.LETSENCRYPT_EMAIL?.trim() || `admin@${apex}`,
     NEXT_PUBLIC_TERMINAL_WS_URL: `wss://${domain}/terminal-ws/terminal`,
   });
 

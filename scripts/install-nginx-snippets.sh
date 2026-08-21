@@ -41,3 +41,15 @@ if [ -f "$ROOT/scripts/nginx-terminal-ws.conf" ]; then
   chmod 644 /etc/nginx/snippets/naviyra-terminal-ws.conf
   echo "install-nginx-snippets: wrote terminal-ws (agent :${AGENT_PORT})"
 fi
+
+mkdir -p /etc/nginx/conf.d /etc/nginx/snippets
+if [ -f "$ROOT/scripts/nginx-upload.conf" ]; then
+  if [ ! -f /etc/nginx/conf.d/naviyra-upload.conf ]; then
+    install -m 0644 "$ROOT/scripts/nginx-upload.conf" /etc/nginx/conf.d/naviyra-upload.conf
+    echo "install-nginx-snippets: wrote upload body-size (512M default)"
+  fi
+  if [ ! -f /etc/nginx/snippets/naviyra-upload-limit.conf ]; then
+    install -m 0644 "$ROOT/scripts/nginx-upload.conf" \
+      /etc/nginx/snippets/naviyra-upload-limit.conf
+  fi
+fi

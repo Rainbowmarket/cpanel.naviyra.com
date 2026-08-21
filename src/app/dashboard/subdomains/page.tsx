@@ -38,6 +38,7 @@ type Subdomain = {
   appStatus?: string | null;
   appEnv?: string | null;
   lastError?: string | null;
+  reserved?: boolean;
   domain: { name: string };
   sslCerts: Array<{
     id: string;
@@ -51,6 +52,10 @@ type Subdomain = {
 function isMailHostSubdomain(s: Subdomain): boolean {
   const label = s.name.split(".")[0]?.toLowerCase() ?? "";
   return label === "mail" || label === "webmail";
+}
+
+function isReservedSubdomain(s: Subdomain): boolean {
+  return Boolean(s.reserved) || isMailHostSubdomain(s);
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -272,7 +277,13 @@ export default function SubdomainsPage() {
   async function handleRenewSsl(certId: string, subdomainId: string) {
     setSslError("");
     setSslLoading(subdomainId);
-    await fetch(`/api/ssl?id=${certId}`, { method: "PATCH" });
+    const res = await fetch(`/api/ssl?id=${certId}`, { method: "PATCH" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setSslError(typeof data.error === "string" ? data.error : "Failed to renew SSL");
+    } else if (data.certificate?.status === "FAILED") {
+      setSslError(data.certificate.lastError ?? "SSL renewal failed");
+    }
     setSslLoading(null);
     loadAllSubdomains();
   }
@@ -492,6 +503,7 @@ export default function SubdomainsPage() {
           const ssl = s.sslCerts[0];
           const fqdn = `${s.name}.${s.domain.name}`;
           const mailHost = isMailHostSubdomain(s);
+          const reserved = isReservedSubdomain(s);
           const btn =
             "inline-flex items-center justify-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-medium transition disabled:opacity-50";
 
@@ -512,12 +524,17 @@ export default function SubdomainsPage() {
 
               <div className="mt-1.5 flex flex-wrap items-center gap-1">
                 <StatusBadge status={s.status} />
+                {reserved ? (
+                  <span className="inline-flex rounded-md bg-slate-500/20 px-1.5 py-0.5 text-[10px] font-medium text-slate-300 ring-1 ring-slate-500/40">
+                    Reserved
+                  </span>
+                ) : null}
                 {mailHost ? (
                   <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300 ring-1 ring-emerald-500/30">
                     <Mail className="h-3 w-3" />
                     Webmail
                   </span>
-                ) : (
+                ) : reserved ? null : (
                   <span className="rounded-md bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-300">
                     {s.appType ?? "PHP"}
                   </span>
@@ -538,6 +555,10 @@ export default function SubdomainsPage() {
               {mailHost ? (
                 <p className="mt-1.5 text-[11px] text-slate-500">
                   Proxies to panel webmail — not a website root.
+                </p>
+              ) : reserved ? (
+                <p className="mt-1.5 text-[11px] text-slate-500">
+                  Reserved panel hostname — SSL only; path and files are locked.
                 </p>
               ) : editingId === s.id ? (
                 <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -583,17 +604,19 @@ export default function SubdomainsPage() {
               ) : null}
 
               <div className="mt-2.5 grid grid-cols-2 gap-1.5 sm:mt-3 sm:flex sm:flex-wrap sm:justify-end">
-                {mailHost ? (
+                {reserved ? (
                   <>
-                    <a
-                      href={`https://${fqdn}/webmail`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={`${btn} border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10`}
-                    >
-                      <Mail className="h-3 w-3" />
-                      Webmail
-                    </a>
+                    {mailHost ? (
+                      <a
+                        href={`https://${fqdn}/webmail`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={`${btn} border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10`}
+                      >
+                        <Mail className="h-3 w-3" />
+                        Webmail
+                      </a>
+                    ) : null}
                     {ssl?.status === "ACTIVE" ? (
                       <button
                         type="button"
@@ -617,14 +640,6 @@ export default function SubdomainsPage() {
                         {ssl ? "Re-issue SSL" : "Issue SSL"}
                       </button>
                     )}
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(s.id, s.documentRoot)}
-                      className={`${btn} col-span-2 border-red-500/30 text-red-400 hover:bg-red-500/10 sm:col-span-1`}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                      Delete
-                    </button>
                   </>
                 ) : (
                   <>

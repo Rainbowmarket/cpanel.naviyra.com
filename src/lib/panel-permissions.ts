@@ -1,4 +1,10 @@
 export const PANEL_PERMISSION_CATALOG = [
+  {
+    key: "admin",
+    label: "Administrator",
+    description:
+      "Full panel access: users, groups, settings, backups, terminal, and every hosting feature",
+  },
   { key: "domains", label: "Domains", description: "Add and manage domains" },
   { key: "subdomains", label: "Subdomains", description: "Create and manage subdomains" },
   { key: "apps", label: "Apps", description: "Start and manage Node, Python, and Go apps" },
@@ -18,6 +24,7 @@ export const PANEL_PERMISSION_KEYS = PANEL_PERMISSION_CATALOG.map((item) => item
 const ADMIN_PATH_PREFIXES = [
   "/dashboard/users",
   "/dashboard/groups",
+  "/dashboard/settings",
   "/dashboard/backups",
   "/dashboard/terminal",
   "/dashboard/speed-test",
@@ -53,17 +60,22 @@ export type PanelAccessUser = {
   permissionKeys: string[] | null;
 };
 
+export function userHasAdminAccess(user: PanelAccessUser): boolean {
+  if (user.role === "ADMIN") return true;
+  return user.permissionKeys?.includes("admin") === true;
+}
+
 export function userHasPanelPermission(
   user: PanelAccessUser,
   key: PanelPermissionKey
 ): boolean {
-  if (user.role === "ADMIN") return true;
+  if (userHasAdminAccess(user)) return true;
   if (user.permissionKeys === null) return true;
   return user.permissionKeys.includes(key);
 }
 
 export function canAccessDashboardPath(user: PanelAccessUser, pathname: string): boolean {
-  if (user.role === "ADMIN") return true;
+  if (userHasAdminAccess(user)) return true;
 
   if (
     ADMIN_PATH_PREFIXES.some(

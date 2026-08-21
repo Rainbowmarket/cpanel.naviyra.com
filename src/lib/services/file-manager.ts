@@ -2,6 +2,7 @@ import path from "node:path";
 import { prisma } from "@/lib/prisma";
 import { callAgent, uploadFileToAgent } from "@/lib/agent/client";
 import { isPathUnderRoot, resolvePathWithinRoot } from "@/lib/file-manager-path";
+import { getMaxUploadMb } from "@/lib/services/panel-settings";
 import {
   type AccessActor,
   domainAccessWhere,
@@ -112,12 +113,14 @@ export async function fileManagerSession(
   actor: AccessActor | string
 ) {
   const ctx = await getTargetContext(target, actor);
+  const maxUploadMb = await getMaxUploadMb();
   return {
     success: true,
     user: toAccessActor(actor).id,
     permissions: ["read", "edit", "upload", "download", "delete", "admin"],
     breadcrumbHome: ctx.documentRoot,
     allowedPaths: ctx.allowedPaths,
+    maxUploadMb,
   };
 }
 
@@ -297,6 +300,13 @@ export async function fileManagerUpload(
   assertPathAllowed(dirReal, ctx.documentRoot);
   const filePath = path.join(dirReal, path.basename(fileName));
   assertPathAllowed(filePath, ctx.documentRoot);
+  const maxUploadMb = await getMaxUploadMb();
+  const maxBytes = maxUploadMb * 1024 * 1024;
+  if (content.length > maxBytes) {
+    throw new Error(
+      `File is larger than the ${maxUploadMb} MB upload limit. An admin can raise this under Settings.`
+    );
+  }
   const response = await uploadFileToAgent(filePath, content, {
     removeZip: true,
     serverAgentKey: ctx.agentKey,

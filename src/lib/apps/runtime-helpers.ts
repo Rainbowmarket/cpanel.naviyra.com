@@ -33,6 +33,20 @@ export function syncUvicornModule(
   return command.replace(/(\buvicorn\s+)([A-Za-z0-9_.]+)(:)/, `$1${mod}$3`);
 }
 
+/** If the command would run a .py file and exit, bind it with uvicorn instead. */
+export function ensureLongRunningPythonCommand(command: string): string {
+  const trimmed = command.trim();
+  if (!trimmed) return trimmed;
+  if (/\b(uvicorn|gunicorn|hypercorn|daphne)\b/.test(trimmed)) return trimmed;
+  const fileMatch = trimmed.match(
+    /(?:python3?|python)\s+(?:-u\s+)?(\S+\.py)\s*$/i
+  );
+  if (fileMatch?.[1]) {
+    return fastapiStartCommand(fileMatch[1]);
+  }
+  return trimmed;
+}
+
 /** Build default ExecStart from startup file when start command is empty. */
 export function resolveStartCommand(opts: {
   appType: string;
@@ -42,14 +56,16 @@ export function resolveStartCommand(opts: {
   const explicit = opts.startCommand?.trim() || "";
   if (explicit) {
     if (opts.appType === "PYTHON") {
-      return syncUvicornModule(explicit, opts.appStartupFile);
+      return ensureLongRunningPythonCommand(
+        syncUvicornModule(explicit, opts.appStartupFile)
+      );
     }
     return explicit;
   }
   const file = (opts.appStartupFile || "").trim().replace(/^[/\\]+/, "");
   if (!file || file.includes("..") || /[;&|<>`$]/.test(file)) return "";
   if (opts.appType === "NODE") return `node ${file}`;
-  if (opts.appType === "PYTHON") return `python3 -u ${file}`;
+  if (opts.appType === "PYTHON") return fastapiStartCommand(file || "app.py");
   if (opts.appType === "GO") return file.startsWith("./") ? file : `./${file}`;
   return "";
 }
@@ -106,4 +122,32 @@ export function parseAppModeFromEnv(
   const m = /^NODE_ENV=(development|production)\s*$/m.exec(appEnv ?? "");
   if (m?.[1] === "development" || m?.[1] === "production") return m[1];
   return "production";
+}
+
+/** Customer apps must not log in as the PostgreSQL superuser. */
+export function assertCustomerAppDatabaseEnv(appEnv: string | null | undefined) {
+  if (!appEnv?.trim()) return;
+  for (const line of appEnv.split(/\r?\n/)) {
+    const t = line.trim();
+    if (!t || t.startsWith("#")) continue;
+    const eq = t.indexOf("=");
+    if (eq <= 0) continue;
+    const key = t.slice(0, eq).trim().toUpperCase();
+    const value = t
+      .slice(eq + 1)
+      .trim()
+      .replace(/^['"]|['"]$/g, "")
+      .toLowerCase();
+    if (
+      (key === "DB_USER" ||
+        key === "POSTGRES_USER" ||
+        key === "PGUSER" ||
+        key === "DATABASE_USER") &&
+      (value === "postgres" || value === "root")
+    ) {
+      throw new Error(
+        "Do not use DB_USER=postgres. Use the database name from Databases as both DB_USER and DB_NAME."
+      );
+    }
+  }
 }

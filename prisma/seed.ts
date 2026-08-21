@@ -23,9 +23,13 @@ async function main() {
 
   const hostname =
     process.env.DEFAULT_SERVER_HOSTNAME?.trim() ||
-    (process.env.PANEL_HOSTNAME?.trim()
-      ? `s1.${process.env.PANEL_HOSTNAME.trim().replace(/^www\./, "")}`
-      : "s1.localhost");
+    (() => {
+      const panel = process.env.PANEL_HOSTNAME?.trim().replace(/^www\./, "") || "";
+      if (!panel) return "s1.localhost";
+      const parts = panel.split(".").filter(Boolean);
+      const apex = parts.length >= 3 ? parts.slice(1).join(".") : panel;
+      return `s1.${apex}`;
+    })();
 
   const server = await prisma.server.upsert({
     where: { hostname },

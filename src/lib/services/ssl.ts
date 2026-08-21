@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { callAgent } from "@/lib/agent/client";
 import { getAgentApiKey } from "@/lib/paths";
-import { isPanelHostname } from "@/lib/panel-host";
+import { isPanelHostname, isReservedPanelSubdomain } from "@/lib/panel-host";
 import type { SslStatus } from "@/generated/prisma/client";
 
 function getCertificateHostname(cert: {
@@ -171,18 +171,25 @@ export async function ensurePanelSslSynced(userId?: string) {
   }
 }
 
-export async function listSslCertificates(userId: string) {
-  await dedupeSslCertificates(userId);
+export async function listSslCertificates(userId: string, role?: string) {
+  await dedupeSslCertificates(role === "ADMIN" ? undefined : userId);
   await ensurePanelSslSynced(userId);
 
-  return prisma.sslCertificate.findMany({
-    where: { domain: { userId } },
+  const certificates = await prisma.sslCertificate.findMany({
+    where: role === "ADMIN" ? undefined : { domain: { userId } },
     include: {
       domain: { select: { name: true, id: true } },
       subdomain: { select: { name: true, id: true } },
     },
     orderBy: { createdAt: "desc" },
   });
+
+  return certificates.map((cert) => ({
+    ...cert,
+    reserved: cert.subdomain
+      ? isReservedPanelSubdomain(cert.subdomain.name, cert.domain.name)
+      : isPanelHostname(cert.domain.name),
+  }));
 }
 
 async function finalizeSslCertificate(

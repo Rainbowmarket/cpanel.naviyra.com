@@ -35,7 +35,7 @@ export const DOC_ARTICLES: DocArticle[] = [
         heading: "Roles",
         body: [
           "USER and RESELLER manage their own domains and related services.",
-          "ADMIN can manage all users, backups, speed test, and Terminal (host shell).",
+          "ADMIN can manage all users, Settings (upload size), backups, speed test, and Terminal (host shell).",
         ],
         tips: [
           "Live hosting changes need the agent running as root/Administrator with AGENT_DRY_RUN=false.",
@@ -244,6 +244,7 @@ export const DOC_ARTICLES: DocArticle[] = [
         ],
         tips: [
           "The panel allocates a port in 12000–12999 and injects it as $PORT / PORT for the systemd unit.",
+          "Python/Node/Go: a .env file in the site folder is loaded into the process. Extra keys in Runtime env vars override it.",
           "Never bind 0.0.0.0 publicly for the app — nginx is the public entry; the app stays on localhost.",
         ],
       },
@@ -309,6 +310,7 @@ export const DOC_ARTICLES: DocArticle[] = [
         tips: [
           "MAIL_FROM / SPF must allow this server IP for outbound system mail (password reset).",
           "Public DNS for mail.* should point at SERVER_PUBLIC_IP.",
+          "Webmail Compose can attach up to 10 files (20 MB total).",
         ],
       },
       {
@@ -369,7 +371,7 @@ export const DOC_ARTICLES: DocArticle[] = [
         steps: [
           "Open Services → Databases.",
           "Select the owning domain/target.",
-          "Create database — the panel provisions DB name, role, and password (localhost only).",
+          "Create database — the name you type is the PostgreSQL database name (no prefix). If that name already exists, the panel warns and does not create another.",
         ],
       },
       {
@@ -378,6 +380,7 @@ export const DOC_ARTICLES: DocArticle[] = [
           "Copy connection details (host 127.0.0.1, port often 5433 if 5432 is busy).",
           "Open Databases and click Browse (opens a new tab).",
           "Select a table to view rows. Add, Edit, or Delete rows when the table has a primary key.",
+          "Export SQL or a PostgreSQL custom dump from Browse. Import a .sql or .dump file into the same database.",
           "Create / edit / delete table structure still works from the database list schema tools.",
         ],
         tips: [
@@ -487,6 +490,7 @@ export const DOC_ARTICLES: DocArticle[] = [
           "Use Upload — drop files or click to choose.",
           "Progress shows percent, transferred size, speed (KB/s or MB/s), and ETA.",
           "ZIP uploads are extracted automatically into the target folder.",
+          "Admins set the max file size under Admin → Settings (nginx 413 means the limit is still 1 MB).",
         ],
         tips: [
           "Large uploads (tens of MB+) are supported after the panel body-size / binary agent upload fixes.",
@@ -607,6 +611,27 @@ export const DOC_ARTICLES: DocArticle[] = [
     ],
   },
   {
+    slug: "settings",
+    title: "Settings",
+    summary: "Admin upload size (File Manager and nginx body limit).",
+    href: "/dashboard/settings",
+    audience: "admin",
+    category: "Admin",
+    sections: [
+      {
+        heading: "How to raise the upload limit",
+        steps: [
+          "Open Admin → Settings.",
+          "Set max upload size in MB (or pick 64 / 128 / 256 / 512 / 1024).",
+          "Save and apply — nginx reloads with that client_max_body_size.",
+        ],
+        tips: [
+          "A 413 HTML page from nginx usually means the vhost still uses the default 1 MB limit. Saving Settings writes /etc/nginx/conf.d/naviyra-upload.conf.",
+        ],
+      },
+    ],
+  },
+  {
     slug: "backups",
     title: "Backups",
     summary: "Schedule, run, restore, and retain server/domain backups (admin).",
@@ -664,6 +689,7 @@ export const DOC_ARTICLES: DocArticle[] = [
         heading: "How to manage",
         body: [
           "Reset passwords, change roles, or delete users from the same page.",
+          "Or create a group under Admin → Groups, enable Administrator, and add users — they get full admin access without changing their account role.",
           "Deleting a user removes their domains and related records (cascade).",
         ],
       },

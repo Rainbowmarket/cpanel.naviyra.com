@@ -14,8 +14,9 @@ import {
   resolveRestoreFolder,
   seedWelcomeMessage,
   sendMessage,
+  getMessageAttachment,
 } from "@/lib/mail/store";
-import type { MailFolder } from "@/lib/mail/types";
+import type { MailAttachmentPayload, MailFolder } from "@/lib/mail/types";
 import { MAIL_FOLDERS } from "@/lib/mail/types";
 
 async function getOwnedAccount(accountId: string, userId: string) {
@@ -90,6 +91,7 @@ export async function composeWebmailMessage(
     body: string;
     draft?: boolean;
     draftId?: string;
+    attachments?: MailAttachmentPayload[];
   }
 ) {
   const account = await getWebmailAccount(accountId);
@@ -98,6 +100,18 @@ export async function composeWebmailMessage(
     ...input,
   });
   return { account, message };
+}
+
+export async function downloadWebmailAttachment(
+  accountId: string,
+  folder: MailFolder,
+  messageId: string,
+  index: number
+) {
+  const account = await getWebmailAccount(accountId);
+  const file = await getMessageAttachment(account.email, folder, messageId, index);
+  if (!file) throw new Error("Attachment not found");
+  return { account, ...file };
 }
 
 export async function moveWebmailMessage(

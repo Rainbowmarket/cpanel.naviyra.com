@@ -2,11 +2,16 @@
  * Customer PostgreSQL databases (Linux).
  * Creates roles + databases via psql as the postgres OS user.
  */
-import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { CONFIG_ROOT } from "./paths";
-import { psqlExec, psqlQuery } from "./pg-bin";
+import {
+  execAsPostgres,
+  ensurePostgresReady,
+  PG_DUMP_TIMEOUT_MS,
+  psqlExec,
+  psqlQuery,
+} from "./pg-bin";
 
 function quoteIdent(ident: string): string {
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(ident)) {
@@ -25,28 +30,30 @@ export function sanitizePgLabel(raw: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9_]+/g, "_")
     .replace(/^_+|_+$/g, "")
-    .slice(0, 24);
+    .slice(0, 63);
   if (!cleaned || !/^[a-z]/.test(cleaned)) {
     throw new Error(
       "Database name must start with a letter and use letters, digits, or _"
     );
   }
+  if (
+    cleaned === "postgres" ||
+    cleaned === "template0" ||
+    cleaned === "template1" ||
+    cleaned.startsWith("pg_")
+  ) {
+    throw new Error(`'${cleaned}' is reserved. Choose another database name.`);
+  }
   return cleaned;
 }
 
-export function buildPgNames(domainName: string, label: string): {
+export function buildPgNames(_domainName: string, label: string): {
   label: string;
   dbName: string;
   roleName: string;
 } {
   const safe = sanitizePgLabel(label);
-  const hash = createHash("sha1")
-    .update(domainName.toLowerCase())
-    .digest("hex")
-    .slice(0, 8);
-  const dbName = `n_${hash}_${safe}`.slice(0, 63);
-  const roleName = dbName;
-  return { label: safe, dbName, roleName };
+  return { label: safe, dbName: safe, roleName: safe };
 }
 
 async function appendMap(line: string) {
@@ -69,6 +76,20 @@ async function databaseExists(dbName: string): Promise<boolean> {
   return stdout.trim() === "1";
 }
 
+export async function postgresDatabaseExistsOnServer(input: {
+  dbName: string;
+  dryRun: boolean;
+}): Promise<{ dbName: string; exists: boolean; dryRun: boolean }> {
+  if (process.platform === "win32" || input.dryRun) {
+    return { dbName: input.dbName, exists: false, dryRun: true };
+  }
+  return {
+    dbName: input.dbName,
+    exists: await databaseExists(input.dbName),
+    dryRun: false,
+  };
+}
+
 export async function createPostgresDatabaseOnServer(input: {
   dbName: string;
   roleName: string;
@@ -89,6 +110,12 @@ export async function createPostgresDatabaseOnServer(input: {
     };
   }
 
+  if (await databaseExists(input.dbName)) {
+    throw new Error(
+      `Database '${input.dbName}' already exists on the server. Choose another name.`
+    );
+  }
+
   await runPsql(
     `DO $$ BEGIN
        CREATE ROLE ${role} LOGIN PASSWORD ${password};
@@ -98,14 +125,10 @@ export async function createPostgresDatabaseOnServer(input: {
     false
   );
 
-  if (!(await databaseExists(input.dbName))) {
-    await runPsql(
-      `CREATE DATABASE ${db} OWNER ${role} ENCODING 'UTF8' TEMPLATE template0;`,
-      false
-    );
-  } else {
-    await runPsql(`ALTER DATABASE ${db} OWNER TO ${role};`, false);
-  }
+  await runPsql(
+    `CREATE DATABASE ${db} OWNER ${role} ENCODING 'UTF8' TEMPLATE template0;`,
+    false
+  );
 
   await runPsql(`GRANT ALL PRIVILEGES ON DATABASE ${db} TO ${role};`, false);
   await runPsql(
@@ -859,4 +882,158 @@ export async function mutatePostgresTableRowsOnServer(input: {
 
   await runPsql(sql, false, dbName);
   return { dbName, schema, table, op: input.op, dryRun: false };
+}
+
+export type PostgresDumpFormat = "sql" | "custom";
+
+const MAX_DUMP_BYTES = 200 * 1024 * 1024;
+
+function dumpTempPath(dbName: string, ext: string): string {
+  return path.join(
+    "/tmp",
+    `naviyra-db-${dbName}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
+  );
+}
+
+export async function exportPostgresDatabaseOnServer(input: {
+  dbName: string;
+  format?: PostgresDumpFormat;
+  dryRun: boolean;
+}): Promise<{
+  dbName: string;
+  format: PostgresDumpFormat;
+  fileName: string;
+  contentBase64: string;
+  bytes: number;
+  dryRun: boolean;
+}> {
+  const dbName = assertSafeIdent(input.dbName.trim().toLowerCase(), "database name");
+  const format: PostgresDumpFormat = input.format === "custom" ? "custom" : "sql";
+  const fileName =
+    format === "custom" ? `${dbName}.dump` : `${dbName}.sql`;
+
+  if (process.platform === "win32" || input.dryRun) {
+    const placeholder = `-- Naviyra dry-run dump of ${dbName}\n`;
+    return {
+      dbName,
+      format: "sql",
+      fileName: `${dbName}.sql`,
+      contentBase64: Buffer.from(placeholder, "utf8").toString("base64"),
+      bytes: placeholder.length,
+      dryRun: true,
+    };
+  }
+
+  if (!(await databaseExists(dbName))) {
+    throw new Error(`Database '${dbName}' was not found on the server`);
+  }
+
+  const bins = await ensurePostgresReady();
+  if (!bins.pgDump) throw new Error("pg_dump not found");
+  const ext = format === "custom" ? "dump" : "sql";
+  const tmp = dumpTempPath(dbName, ext);
+  const args =
+    format === "custom"
+      ? ["-Fc", "-f", tmp, dbName]
+      : ["-Fp", "--no-owner", "--no-acl", "-f", tmp, dbName];
+
+  try {
+    await execAsPostgres(bins.pgDump, args, undefined, {
+      timeout: PG_DUMP_TIMEOUT_MS,
+    });
+    await execAsPostgres("/usr/bin/chmod", ["644", tmp], undefined, {
+      timeout: 15_000,
+    }).catch(() => undefined);
+    const buf = await fs.readFile(tmp);
+    if (buf.length > MAX_DUMP_BYTES) {
+      throw new Error(
+        `Dump is ${Math.round(buf.length / 1024 / 1024)} MB (limit ${MAX_DUMP_BYTES / 1024 / 1024} MB). Use Backups for larger databases.`
+      );
+    }
+    return {
+      dbName,
+      format,
+      fileName,
+      contentBase64: buf.toString("base64"),
+      bytes: buf.length,
+      dryRun: false,
+    };
+  } finally {
+    await fs.rm(tmp, { force: true }).catch(() => undefined);
+  }
+}
+
+export function detectPostgresDumpFormat(
+  fileName: string,
+  header: Buffer
+): PostgresDumpFormat {
+  if (header.subarray(0, 5).toString("ascii") === "PGDMP") return "custom";
+  if (/\.dump$/i.test(fileName) || /\.backup$/i.test(fileName)) return "custom";
+  return "sql";
+}
+
+export async function importPostgresDatabaseOnServer(input: {
+  dbName: string;
+  roleName?: string;
+  format?: PostgresDumpFormat;
+  fileName?: string;
+  contentBase64: string;
+  dryRun: boolean;
+}): Promise<{ dbName: string; format: PostgresDumpFormat; dryRun: boolean }> {
+  const dbName = assertSafeIdent(input.dbName.trim().toLowerCase(), "database name");
+  const buf = Buffer.from(input.contentBase64, "base64");
+  if (!buf.length) throw new Error("Import file is empty");
+  if (buf.length > MAX_DUMP_BYTES) {
+    throw new Error(
+      `Import is ${Math.round(buf.length / 1024 / 1024)} MB (limit ${MAX_DUMP_BYTES / 1024 / 1024} MB).`
+    );
+  }
+  const format =
+    input.format ??
+    detectPostgresDumpFormat(input.fileName || "", buf.subarray(0, 16));
+
+  if (process.platform === "win32" || input.dryRun) {
+    return { dbName, format, dryRun: true };
+  }
+
+  if (!(await databaseExists(dbName))) {
+    throw new Error(`Database '${dbName}' was not found on the server`);
+  }
+
+  const bins = await ensurePostgresReady();
+  const ext = format === "custom" ? "dump" : "sql";
+  const tmp = dumpTempPath(dbName, ext);
+  await fs.writeFile(tmp, buf);
+  await fs.chmod(tmp, 0o644);
+
+  try {
+    if (format === "custom") {
+      if (!bins.pgRestore) throw new Error("pg_restore not found");
+      await execAsPostgres(
+        bins.pgRestore,
+        [
+          "-d",
+          dbName,
+          "--no-owner",
+          "--no-acl",
+          "--clean",
+          "--if-exists",
+          tmp,
+        ],
+        undefined,
+        { timeout: PG_DUMP_TIMEOUT_MS }
+      );
+    } else {
+      await execAsPostgres(
+        bins.psql,
+        ["-v", "ON_ERROR_STOP=1", "-d", dbName, "-f", tmp],
+        undefined,
+        { timeout: PG_DUMP_TIMEOUT_MS }
+      );
+    }
+  } finally {
+    await fs.rm(tmp, { force: true }).catch(() => undefined);
+  }
+
+  return { dbName, format, dryRun: false };
 }

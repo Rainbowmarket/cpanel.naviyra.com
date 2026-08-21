@@ -1,6 +1,6 @@
 {
   "name": "naviyra-hosting-pannel",
-  "version": "0.0.23",
+  "version": "0.0.30",
   "private": true,
   "description": "Naviyra Hosting Panel — self-hosted cPanel alternative. Install with: npx naviyra-hosting-pannel",
   "license": "MIT",
@@ -33,7 +33,8 @@
     "zip": "node scripts/make-zip.mjs",
     "deploy": "node scripts/deploy.mjs",
     "cli": "node cli/npx.mjs",
-    "npm:pack": "node scripts/package/stage-npm.mjs"
+    "npm:pack": "node scripts/package/stage-npm.mjs",
+    "npm:publish": "node scripts/package/stage-npm.mjs && npm publish ./dist/npm --access public --userconfig .npmrc"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

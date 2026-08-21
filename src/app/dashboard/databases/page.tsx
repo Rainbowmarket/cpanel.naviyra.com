@@ -7,6 +7,7 @@ import { Modal, modalInputClass, modalLabelClass } from "@/components/ui/modal";
 import { ModalActions, PageHeader } from "@/components/ui/page-header";
 import { useAlert } from "@/components/ui/alert-provider";
 import { matchesSearch } from "@/lib/utils";
+import { DatabaseDumpActions } from "@/components/databases/DatabaseDumpActions";
 
 type HostingTarget = { id: string; label: string; documentRoot: string };
 
@@ -175,9 +176,12 @@ export default function DatabasesPage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(
-          typeof data.error === "string" ? data.error : "Failed to create database"
-        );
+        const message =
+          typeof data.error === "string" ? data.error : "Failed to create database";
+        setError(message);
+        if (res.status === 409 || /already exists/i.test(message)) {
+          await alert(message, { title: "Database already exists", tone: "warning" });
+        }
         return;
       }
       setLabel("");
@@ -516,7 +520,7 @@ export default function DatabasesPage() {
         open={createOpen}
         onClose={() => setCreateOpen(false)}
         title="Create Database"
-        description="Creates a PostgreSQL database and login scoped to a domain."
+        description="PostgreSQL name is exactly what you type (no n_ or domain prefix)."
       >
         <form onSubmit={handleCreate} className="space-y-4">
           <div>
@@ -537,7 +541,8 @@ export default function DatabasesPage() {
               className={modalInputClass}
               required
               pattern="[A-Za-z][A-Za-z0-9_]*"
-              maxLength={32}
+              maxLength={63}
+              title="Exact PostgreSQL name — no prefix is added"
             />
           </div>
           <div>
@@ -685,14 +690,22 @@ export default function DatabasesPage() {
                 {schemaTables.length} table
                 {schemaTables.length === 1 ? "" : "s"}
               </p>
-              <button
-                type="button"
-                onClick={openCreateTableForm}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/15 px-3 py-1.5 text-xs font-medium text-emerald-300 hover:bg-emerald-500/25"
-              >
-                <Table2 className="h-3.5 w-3.5" />
-                Create table
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                {browseDb ? (
+                  <DatabaseDumpActions
+                    databaseId={browseDb.id}
+                    onImported={() => void reloadSchema(browseDb)}
+                  />
+                ) : null}
+                <button
+                  type="button"
+                  onClick={openCreateTableForm}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/15 px-3 py-1.5 text-xs font-medium text-emerald-300 hover:bg-emerald-500/25"
+                >
+                  <Table2 className="h-3.5 w-3.5" />
+                  Create table
+                </button>
+              </div>
             </div>
 
             {createTableOpen ? (

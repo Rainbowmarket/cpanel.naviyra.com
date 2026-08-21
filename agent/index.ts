@@ -50,6 +50,7 @@ import {
   resolveVhostOptions,
   writeAndEnableNginxSite,
   ensureNaviyraVisitorLog,
+  applyNginxUploadLimit,
 } from "./nginx";
 import { resolvePhpFpmPass } from "./php-fpm";
 import { attachTerminalWs } from "./terminal";
@@ -81,6 +82,9 @@ import {
   deleteFtpAccountOnServer,
 } from "./ftp";
 import {
+  exportPostgresDatabaseOnServer,
+  importPostgresDatabaseOnServer,
+  postgresDatabaseExistsOnServer,
   createPostgresDatabaseOnServer,
   createPostgresTableOnServer,
   alterPostgresTableOnServer,
@@ -398,29 +402,37 @@ async function handleAction(payload: Action) {
           : undefined
       );
 
-      const result = await issueLetsEncrypt(
-        domain,
-        documentRoot,
-        DRY_RUN,
-        subdomains,
-        payload.phpEnabled !== false && String(payload.appType ?? "PHP") === "PHP",
-        {
-          appType: payload.appType ? String(payload.appType) : undefined,
-          upstreamPort: payload.upstreamPort ? Number(payload.upstreamPort) : null,
-        }
-      );
-      await fs.writeFile(
-        path.join(CONFIG_ROOT, `ssl-${domain}.txt`),
-        `issued ${result.issuedAt}\nexpires ${result.expiresAt}\ncert ${result.certDir}\n`,
-        "utf8"
-      );
-      return {
-        success: true,
-        data: {
-          issuedAt: result.issuedAt,
-          expiresAt: result.expiresAt,
-        },
-      };
+      try {
+        const result = await issueLetsEncrypt(
+          domain,
+          documentRoot,
+          DRY_RUN,
+          subdomains,
+          payload.phpEnabled !== false && String(payload.appType ?? "PHP") === "PHP",
+          {
+            appType: payload.appType ? String(payload.appType) : undefined,
+            upstreamPort: payload.upstreamPort ? Number(payload.upstreamPort) : null,
+          }
+        );
+        await fs.writeFile(
+          path.join(CONFIG_ROOT, `ssl-${domain}.txt`),
+          `issued ${result.issuedAt}\nexpires ${result.expiresAt}\ncert ${result.certDir}\n`,
+          "utf8"
+        );
+        return {
+          success: true,
+          data: {
+            issuedAt: result.issuedAt,
+            expiresAt: result.expiresAt,
+          },
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error:
+            error instanceof Error ? error.message : "SSL issue/renew failed",
+        };
+      }
     }
 
     case "ssl_cert_info": {
@@ -531,6 +543,35 @@ async function handleAction(payload: Action) {
       const username = String(payload.username);
       const data = await deleteFtpAccountOnServer({
         username,
+        dryRun: DRY_RUN,
+      });
+      return { success: true, data };
+    }
+
+    case "export_postgres_database": {
+      const data = await exportPostgresDatabaseOnServer({
+        dbName: String(payload.dbName),
+        format: payload.format === "custom" ? "custom" : "sql",
+        dryRun: DRY_RUN,
+      });
+      return { success: true, data };
+    }
+
+    case "import_postgres_database": {
+      const data = await importPostgresDatabaseOnServer({
+        dbName: String(payload.dbName),
+        roleName: payload.roleName ? String(payload.roleName) : undefined,
+        format: payload.format === "custom" ? "custom" : payload.format === "sql" ? "sql" : undefined,
+        fileName: payload.fileName ? String(payload.fileName) : undefined,
+        contentBase64: String(payload.contentBase64 || ""),
+        dryRun: DRY_RUN,
+      });
+      return { success: true, data };
+    }
+
+    case "postgres_database_exists": {
+      const data = await postgresDatabaseExistsOnServer({
+        dbName: String(payload.dbName),
         dryRun: DRY_RUN,
       });
       return { success: true, data };
@@ -1084,6 +1125,15 @@ async function handleAction(payload: Action) {
             process.env.AGENT_API_KEY ||
             API_KEY
         ),
+        dryRun: DRY_RUN,
+      });
+      return { success: true, data: result };
+    }
+
+    case "set_nginx_upload_limit": {
+      const maxMb = Number(payload.maxMb);
+      const result = await applyNginxUploadLimit({
+        maxMb,
         dryRun: DRY_RUN,
       });
       return { success: true, data: result };

@@ -1,8 +1,14 @@
-import { createHash } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { callAgent } from "@/lib/agent/client";
 import { hashPassword } from "@/lib/auth";
 import { resolveHostingTarget } from "@/lib/hosting-targets";
+
+const RESERVED_PG_NAMES = new Set([
+  "postgres",
+  "template0",
+  "template1",
+  "template_postgres",
+]);
 
 function sanitizePgLabel(raw: string): string {
   const cleaned = raw
@@ -10,23 +16,22 @@ function sanitizePgLabel(raw: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9_]+/g, "_")
     .replace(/^_+|_+$/g, "")
-    .slice(0, 24);
+    .slice(0, 63);
   if (!cleaned || !/^[a-z]/.test(cleaned)) {
     throw new Error(
       "Database name must start with a letter and use letters, digits, or _"
     );
   }
+  if (RESERVED_PG_NAMES.has(cleaned) || cleaned.startsWith("pg_")) {
+    throw new Error(`'${cleaned}' is reserved. Choose another database name.`);
+  }
   return cleaned;
 }
 
-function buildPgNames(domainName: string, label: string) {
+/** Exact PostgreSQL name — no domain hash or n_ prefix. */
+function buildPgNames(label: string) {
   const safe = sanitizePgLabel(label);
-  const hash = createHash("sha1")
-    .update(domainName.toLowerCase())
-    .digest("hex")
-    .slice(0, 8);
-  const dbName = `n_${hash}_${safe}`.slice(0, 63);
-  return { label: safe, dbName, roleName: dbName };
+  return { label: safe, dbName: safe, roleName: safe };
 }
 
 export function postgresConnectionInfo() {
@@ -90,14 +95,35 @@ export async function createPostgresDatabase(input: {
     include: { server: true },
   });
 
-  const names = buildPgNames(domain.name, input.label);
+  const names = buildPgNames(input.label);
   const existing = await prisma.postgresDatabase.findFirst({
     where: {
-      OR: [{ dbName: names.dbName }, { roleName: names.roleName }],
+      OR: [
+        { dbName: names.dbName },
+        { roleName: names.roleName },
+        { label: names.label },
+      ],
     },
   });
   if (existing) {
-    throw new Error(`Database '${names.label}' already exists for this domain`);
+    throw new Error(
+      `Database '${names.dbName}' already exists in the panel. Choose another name.`
+    );
+  }
+
+  const existsOnServer = await callAgent<{ exists?: boolean }>(
+    { action: "postgres_database_exists", dbName: names.dbName },
+    domain.server.agentKey
+  );
+  if (!existsOnServer.success) {
+    throw new Error(
+      existsOnServer.error ?? "Could not check whether the database already exists"
+    );
+  }
+  if (existsOnServer.data?.exists) {
+    throw new Error(
+      `Database '${names.dbName}' already exists on the server. Choose another name.`
+    );
   }
 
   const passwordHash = await hashPassword(input.password);
@@ -539,4 +565,87 @@ export async function mutatePostgresDatabaseRows(input: {
     table: string;
     op: string;
   };
+}
+
+export async function exportPostgresDatabaseDump(input: {
+  id: string;
+  userId: string;
+  role?: string;
+  format?: "sql" | "custom";
+}) {
+  const record = await prisma.postgresDatabase.findFirstOrThrow({
+    where: {
+      id: input.id,
+      ...(input.role === "ADMIN" ? {} : { domain: { userId: input.userId } }),
+    },
+    include: { domain: { include: { server: true } } },
+  });
+
+  const agentResult = await callAgent<{
+    fileName?: string;
+    contentBase64?: string;
+    bytes?: number;
+    format?: string;
+  }>(
+    {
+      action: "export_postgres_database",
+      dbName: record.dbName,
+      format: input.format === "custom" ? "custom" : "sql",
+    },
+    record.domain.server.agentKey
+  );
+  if (!agentResult.success || !agentResult.data?.contentBase64) {
+    throw new Error(
+      agentResult.error ?? "Failed to export PostgreSQL database"
+    );
+  }
+
+  return {
+    dbName: record.dbName,
+    fileName: agentResult.data.fileName || `${record.dbName}.sql`,
+    contentBase64: agentResult.data.contentBase64,
+    bytes: agentResult.data.bytes ?? 0,
+  };
+}
+
+export async function importPostgresDatabaseDump(input: {
+  id: string;
+  userId: string;
+  role?: string;
+  fileName: string;
+  content: Buffer;
+}) {
+  const record = await prisma.postgresDatabase.findFirstOrThrow({
+    where: {
+      id: input.id,
+      ...(input.role === "ADMIN" ? {} : { domain: { userId: input.userId } }),
+    },
+    include: { domain: { include: { server: true } } },
+  });
+
+  const { getMaxUploadMb } = await import("@/lib/services/panel-settings");
+  const maxMb = await getMaxUploadMb();
+  const maxBytes = maxMb * 1024 * 1024;
+  if (input.content.length > maxBytes) {
+    throw new Error(
+      `Import is larger than the ${maxMb} MB upload limit. An admin can raise this under Settings.`
+    );
+  }
+
+  const agentResult = await callAgent(
+    {
+      action: "import_postgres_database",
+      dbName: record.dbName,
+      roleName: record.roleName,
+      fileName: input.fileName,
+      contentBase64: input.content.toString("base64"),
+    },
+    record.domain.server.agentKey
+  );
+  if (!agentResult.success) {
+    throw new Error(
+      agentResult.error ?? "Failed to import PostgreSQL dump"
+    );
+  }
+  return { dbName: record.dbName };
 }

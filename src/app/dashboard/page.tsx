@@ -11,6 +11,7 @@ import { getSecurityOverview } from "@/lib/services/security";
 import { collectDiskReport, formatDiskBytes } from "@/lib/system/disk";
 import { ServerResourcesWatch } from "@/components/system/ServerResourcesWatch";
 import { canAccessDashboardPath } from "@/lib/panel-permissions";
+import { formatDate } from "@/lib/utils";
 import {
   Activity,
   ArrowRight,

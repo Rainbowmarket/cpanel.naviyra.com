@@ -10,14 +10,21 @@ import {
   retrySubdomain,
   updateSubdomainPath,
 } from "@/lib/services/subdomains";
+import { isReservedPanelSubdomain } from "@/lib/panel-host";
 
 export async function GET(request: Request) {
   try {
     const user = await requireSessionUser("subdomains");
     const domainId = new URL(request.url).searchParams.get("domainId");
-    const subdomains = domainId
+    const rows = domainId
       ? await listSubdomains(domainId, user.id, { role: user.role })
       : await listAllSubdomains(user.id, { role: user.role });
+    const subdomains = rows
+      .map((s) => ({
+        ...s,
+        reserved: isReservedPanelSubdomain(s.name, s.domain.name),
+      }))
+      .sort((a, b) => Number(b.reserved) - Number(a.reserved));
     return NextResponse.json({ subdomains });
   } catch (error) {
     return authFailureResponse(error);
@@ -94,7 +101,10 @@ export async function DELETE(request: Request) {
     const deleteFiles = searchParams.get("deleteFiles") === "true";
     await deleteSubdomain(id, user.id, deleteFiles);
     return NextResponse.json({ ok: true });
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("reserved")) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     return NextResponse.json({ error: "Failed to delete subdomain" }, { status: 500 });
   }
 }

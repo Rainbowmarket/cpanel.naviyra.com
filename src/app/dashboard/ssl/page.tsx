@@ -15,6 +15,7 @@ type Certificate = {
   issuedAt: string | null;
   expiresAt: string | null;
   lastError?: string | null;
+  reserved?: boolean;
   domain: { name: string; id: string };
   subdomain?: { name: string; id: string } | null;
 };
@@ -45,6 +46,7 @@ export default function SslPage() {
   const [target, setTarget] = useState("domain");
   const [certificates, setCertificates] = useState<Certificate[]>([]);
   const [loading, setLoading] = useState(false);
+  const [renewingId, setRenewingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
@@ -141,10 +143,17 @@ export default function SslPage() {
   }
 
   async function handleRenew(id: string) {
-    setLoading(true);
-    await fetch(`/api/ssl?id=${id}`, { method: "PATCH" });
-    setLoading(false);
-    loadCerts();
+    setRenewingId(id);
+    setError("");
+    const res = await fetch(`/api/ssl?id=${id}`, { method: "PATCH" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setError(typeof data.error === "string" ? data.error : "Failed to renew SSL");
+    } else if (data.certificate?.status === "FAILED") {
+      setError(data.certificate.lastError ?? "SSL renewal failed");
+    }
+    setRenewingId(null);
+    await loadCerts();
   }
 
   return (
@@ -218,6 +227,13 @@ export default function SslPage() {
         </form>
       </Modal>
 
+      {error && !createOpen ? (
+        <p className="flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+          <AlertCircle className="h-4 w-4" />
+          {error}
+        </p>
+      ) : null}
+
       <div className="space-y-2">
         {filteredCertificates.map((c) => (
           <div
@@ -230,12 +246,20 @@ export default function SslPage() {
                 {c.subdomain && (
                   <span
                     className={`rounded-full px-2 py-0.5 text-xs ring-1 ${
-                      c.subdomain.name === "mail"
+                      c.reserved ||
+                      c.subdomain.name === "mail" ||
+                      c.subdomain.name === "webmail"
                         ? "bg-purple-500/15 text-purple-300 ring-purple-500/30"
                         : "bg-blue-500/15 text-blue-300 ring-blue-500/30"
                     }`}
                   >
-                    {c.subdomain.name === "mail" ? "Mail" : "Subdomain"}
+                    {c.reserved
+                      ? c.subdomain.name === "mail" || c.subdomain.name === "webmail"
+                        ? "Reserved · Mail"
+                        : "Reserved"
+                      : c.subdomain.name === "mail" || c.subdomain.name === "webmail"
+                        ? "Mail"
+                        : "Subdomain"}
                   </span>
                 )}
               </div>
@@ -248,10 +272,12 @@ export default function SslPage() {
             </div>
             <button
               onClick={() => handleRenew(c.id)}
-              disabled={loading}
+              disabled={renewingId !== null}
               className="flex items-center gap-1.5 text-sm text-emerald-400 hover:text-emerald-300 disabled:opacity-50"
             >
-              <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+              <RefreshCw
+                className={`h-3.5 w-3.5 ${renewingId === c.id ? "animate-spin" : ""}`}
+              />
               Renew
             </button>
           </div>
