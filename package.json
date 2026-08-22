@@ -1,10 +1,12 @@
 {
-  "name": "naviyra-hosting-pannel",
-  "version": "0.0.43",
+  "name": "@naviyra/hosting-panel",
+  "version": "0.0.2",
   "private": true,
-  "description": "Naviyra Hosting Panel — self-hosted cPanel alternative. Install with: npx naviyra-hosting-pannel",
+  "description": "Naviyra Hosting Panel — self-hosted cPanel alternative. Official: npx @naviyra/hosting-panel — test: npx naviyra-hosting-pannel",
   "license": "MIT",
   "bin": {
+    "hosting-panel": "cli/npx.mjs",
+    "naviyra-hosting-panel": "cli/npx.mjs",
     "naviyra-hosting-pannel": "cli/npx.mjs"
   },
   "engines": {
@@ -20,6 +22,8 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
     "agent:dev": "cd agent && npm run dev",
+    "test": "npm run test:agent",
+    "test:agent": "cd agent && npx tsx --test hostname.test.ts",
     "setup": "npm install && npm install --prefix agent && npx prisma generate && npx prisma db push && npm run db:seed",
     "app": "node launcher/index.mjs start",
     "start:all": "node launcher/index.mjs start",
@@ -34,7 +38,8 @@
     "deploy": "node scripts/deploy.mjs",
     "cli": "node cli/npx.mjs",
     "npm:pack": "node scripts/package/stage-npm.mjs",
-    "npm:publish": "node scripts/package/stage-npm.mjs && npm publish ./dist/npm --access public --userconfig .npmrc"
+    "npm:publish": "node scripts/package/stage-npm.mjs && npm publish ./dist/npm --access public",
+    "npm:publish:test": "node scripts/package/stage-npm.mjs --test && npm publish ./dist/npm --access public"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

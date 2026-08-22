@@ -20,6 +20,7 @@ import {
   askYesNo,
   banner,
   copyPanelFiles,
+  npxCommand,
   createRl,
   defaultInstallDir,
   detectPublicIp,
@@ -47,16 +48,17 @@ import {
 const SOURCE = packageRootFromCli();
 
 function printHelp() {
+  const npx = npxCommand();
   console.log(`
 Naviyra Hosting Panel — npm installer
 
 Usage:
-  npx naviyra-hosting-pannel              Interactive menu
-  npx naviyra-hosting-pannel install      New install (prompts for .env values)
-  npx naviyra-hosting-pannel upgrade      Upgrade an existing install (keeps .env + data)
-  npx naviyra-hosting-pannel reconfigure  Re-run the .env wizard on an existing install
-  npx naviyra-hosting-pannel uninstall    Stop services, remove nginx/systemd leftovers, delete the panel database and install directory
-  npx naviyra-hosting-pannel status       Show green/red systemd + nginx + panel port status
+  ${npx}              Interactive menu
+  ${npx} install      New install (prompts for .env values)
+  ${npx} upgrade      Upgrade an existing install (keeps .env + data)
+  ${npx} reconfigure  Re-run the .env wizard on an existing install
+  ${npx} uninstall    Stop services, remove nginx/systemd leftovers, delete the panel database and install directory
+  ${npx} status       Show green/red systemd + nginx + panel port status
 
 
 Options:
@@ -65,10 +67,10 @@ Options:
   --help           Show this help
 
 Examples:
-  npx naviyra-hosting-pannel
-  npx naviyra-hosting-pannel install --dir /opt/naviyra-panel
-  npx naviyra-hosting-pannel upgrade --dir /opt/naviyra-panel
-  npx naviyra-hosting-pannel uninstall --dir /opt/naviyra-panel
+  ${npx}
+  ${npx} install --dir /opt/naviyra-panel
+  ${npx} upgrade --dir /opt/naviyra-panel
+  ${npx} uninstall --dir /opt/naviyra-panel
 
 Node: Linux installs use nvm’s latest LTS when nvm is present (nvm install --lts
 if that version is missing). systemd ExecStart is that same Node binary.
@@ -454,7 +456,7 @@ async function cmdInstall(rl, flags) {
     console.log("  Start: cd " + dest + " && npm run app");
     console.log("  Or:    sudo ./scripts/install-linux-service.sh " + dest);
   }
-  console.log(`  Later: npx naviyra-hosting-pannel upgrade --dir ${dest}`);
+  console.log(`  Later: ${npxCommand()} upgrade --dir ${dest}`);
   printLinuxInstallStatus(dest);
   console.log("");
 }
@@ -529,7 +531,7 @@ async function cmdUpgrade(rl, flags) {
 
   log(`Upgrade complete (${fromVer} → ${panelVersion(dest)}).`);
   console.log(`  .env and data/ were kept.`);
-  console.log(`  Reconfigure: npx naviyra-hosting-pannel reconfigure --dir ${dest}`);
+  console.log(`  Reconfigure: ${npxCommand()} reconfigure --dir ${dest}`);
   printLinuxInstallStatus(dest);
 }
 

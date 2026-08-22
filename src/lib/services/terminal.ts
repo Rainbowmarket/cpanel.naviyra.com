@@ -44,8 +44,8 @@ export async function createTerminalSession(
       { id: user.id, role: user.role },
       { excludeMailSubdomains: true }
     );
-    mode = "full";
-    dbMode = "FULL";
+    mode = "jail";
+    dbMode = "JAIL";
     cwd = target.documentRoot;
     targetLabel = target.label;
   }

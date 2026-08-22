@@ -86,6 +86,10 @@ $router->post('/api/ingest/batch', function () use ($ingest) {
     AuthMiddleware::requireIngestKey();
     $ingest->batch();
 });
+$router->post('/api/ingest/blocklist', function () use ($ingest) {
+    AuthMiddleware::requireIngestKey();
+    $ingest->blocklist();
+});
 
 // Protected
 $router->get('/api/auth/me', function () use ($auth) {

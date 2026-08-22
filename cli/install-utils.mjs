@@ -61,6 +61,18 @@ export function panelVersion(root) {
   return pkg.version || "0.0.0";
 }
 
+/** npm package name of this installer (staged package.json, else repo root). */
+export function publishedPackageName() {
+  const staged = readJson(path.join(CLI_DIR, "package.json"), null);
+  if (staged?.name && staged.bin) return staged.name;
+  const root = readJson(path.join(packageRootFromCli(), "package.json"), {});
+  return root.name || "naviyra-hosting-pannel";
+}
+
+export function npxCommand() {
+  return `npx ${publishedPackageName()}`;
+}
+
 export function generateSecret() {
   return crypto.randomBytes(32).toString("hex");
 }
@@ -238,7 +250,7 @@ export function banner() {
   console.log("");
   console.log("  ╔══════════════════════════════════════════════╗");
   console.log("  ║     NAVIYRA HOSTING PANEL — npm installer    ║");
-  console.log("  ║     npx naviyra-hosting-pannel               ║");
+  console.log(`  ║     ${npxCommand().padEnd(41)}║`);
   console.log("  ╚══════════════════════════════════════════════╝");
   console.log("");
 }
@@ -838,7 +850,7 @@ export function dropHostedPostgresDatabases() {
 
 export function writeInstallMeta(dest, extra = {}) {
   const meta = {
-    name: "naviyra-hosting-pannel",
+    name: publishedPackageName(),
     version: panelVersion(dest),
     installedAt: extra.installedAt || new Date().toISOString(),
     upgradedAt: extra.upgradedAt || null,

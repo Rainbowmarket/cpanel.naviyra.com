@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "start": "tsx index.ts",
-    "dev": "tsx watch index.ts"
+    "dev": "tsx watch index.ts",
+    "test": "tsx --test hostname.test.ts"
   },
   "devDependencies": {
     "@types/ws": "^8.18.1",

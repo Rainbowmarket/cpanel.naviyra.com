@@ -57,6 +57,14 @@ The dashboard shows your **platform** and **permission level** (Administrator / 
 
 Requires **Node.js 20+**. On Linux the installer prefers **nvm’s latest LTS** (installs it if missing) so systemd and native modules use the same Node — not Ubuntu’s older `/usr/bin/node`. Run with `sudo` so the panel can install to `/opt/naviyra-panel`, install **PostgreSQL** if it is not already present, and optionally register a systemd service.
 
+**Official** (scoped, new npm org):
+
+```bash
+npx @naviyra/hosting-panel
+```
+
+**Testing** (unscoped package already on npm):
+
 ```bash
 npx naviyra-hosting-pannel
 ```
@@ -64,7 +72,7 @@ npx naviyra-hosting-pannel
 That opens a menu: **Install**, **Upgrade**, or **Reconfigure**. To install in one step:
 
 ```bash
-npx naviyra-hosting-pannel install --dir /opt/naviyra-panel
+npx @naviyra/hosting-panel install --dir /opt/naviyra-panel
 ```
 
 The installer asks for the same values stored in `.env` and shows an example for each field:

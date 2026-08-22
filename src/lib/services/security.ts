@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { callAgent } from "@/lib/agent/client";
 import { agentTargetForServerId, controllerAgentTarget } from "@/lib/agent/target";
 import { assertValidIpAddress, sanitizeBlockReason } from "@/lib/ip";
+import { syncBlocklistToSecurityManager } from "@/lib/services/security-manager-sync";
 import {
   analyzeThreats,
   lookupGeo,
@@ -395,6 +396,11 @@ export async function blockIp(
       ? await agentTargetForServerId(serverId)
       : await controllerAgentTarget()
   );
+  void syncBlocklistToSecurityManager({
+    op: "block",
+    ip: safeIp,
+    reason: safeReason,
+  });
 }
 
 export async function unblockIp(ip: string, serverId?: string) {
@@ -409,6 +415,7 @@ export async function unblockIp(ip: string, serverId?: string) {
       ? await agentTargetForServerId(serverId)
       : await controllerAgentTarget()
   );
+  void syncBlocklistToSecurityManager({ op: "unblock", ip: safeIp });
 }
 
 export async function addWhitelist(ip: string, label?: string) {
@@ -416,13 +423,24 @@ export async function addWhitelist(ip: string, label?: string) {
   const safeLabel = label
     ? sanitizeBlockReason(label, 120)
     : undefined;
-  return prisma.whitelistedIp.create({
+  const row = await prisma.whitelistedIp.create({
     data: { ipAddress: safeIp, label: safeLabel },
   });
+  void syncBlocklistToSecurityManager({
+    op: "whitelist",
+    ip: safeIp,
+    label: safeLabel,
+  });
+  return row;
 }
 
 export async function removeWhitelist(id: string) {
-  return prisma.whitelistedIp.delete({ where: { id } });
+  const row = await prisma.whitelistedIp.delete({ where: { id } });
+  void syncBlocklistToSecurityManager({
+    op: "unwhitelist",
+    ip: row.ipAddress,
+  });
+  return row;
 }
 
 async function purgeStaleLive() {

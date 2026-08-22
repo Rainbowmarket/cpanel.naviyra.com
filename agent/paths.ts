@@ -39,9 +39,20 @@ function resolveApiKey(): string {
 const API_KEY = resolveApiKey();
 export { API_KEY };
 
-/** Bind address — default loopback so the agent is not exposed on the LAN/internet. */
+/** Bind address — default loopback. Wildcard bind requires AGENT_ALLOW_REMOTE=true. */
 export function getAgentBindHost(): string {
-  return process.env.AGENT_BIND_HOST?.trim() || "127.0.0.1";
+  const requested = process.env.AGENT_BIND_HOST?.trim() || "127.0.0.1";
+  const remote =
+    requested === "0.0.0.0" ||
+    requested === "::" ||
+    requested === "*";
+  if (remote && process.env.AGENT_ALLOW_REMOTE !== "true") {
+    console.warn(
+      `[security] Refusing AGENT_BIND_HOST=${requested}; binding 127.0.0.1. Set AGENT_ALLOW_REMOTE=true to override.`
+    );
+    return "127.0.0.1";
+  }
+  return requested;
 }
 
 export function getBindZonesDir(): string | undefined {

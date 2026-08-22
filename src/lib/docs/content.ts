@@ -69,17 +69,29 @@ export const DOC_ARTICLES: DocArticle[] = [
         body: [
           "In production the Server Agent is a privileged process (uid 0 on Linux). The web UI is a front end for that process: nginx, BIND, mail, PostgreSQL, FTP, backups, and Terminal all go through it.",
           "Compromise of an ADMIN session (weak password, stolen cookie, XSS) is therefore full host access, not only panel takeover.",
+          "The agent re-validates every /execute action (hostname, path allowlist, plugin id, SQL) even after the panel already checked the request. A panel bug must not become shell injection on the node.",
         ],
         tips: [
+          "Bind the agent to 127.0.0.1 (default). Wildcard 0.0.0.0 is refused unless AGENT_ALLOW_REMOTE=true.",
           "Do not expose PANEL_PORT or AGENT_PORT on the public internet. nginx should proxy to 127.0.0.1 and overwrite X-Real-IP.",
-          "Keep AGENT_API_KEY and SESSION_SECRET long and unique.",
+          "Keep AGENT_API_KEY and SESSION_SECRET long and unique. Rotate with: sudo bash scripts/rotate-secrets.sh",
         ],
       },
       {
-        heading: "Terminal is not a jail",
+        heading: "What if X is compromised",
         body: [
-          "The web Terminal is administrators only. “Jail” mode only sets the starting directory; it is not chroot, namespaces, or a sandbox.",
-          "Enable 2FA in Account security before opening Terminal. Treat every Terminal session as a root shell.",
+          "Stolen USER cookie: that account’s domains, files, mail, and databases only. File Manager paths are checked again on the agent under /var/www (symlink-aware).",
+          "Stolen ADMIN cookie: host-level actions through the agent, including a full Terminal session at / if no site is selected.",
+          "Stolen AGENT_API_KEY: the same as holding the agent — treat as root. Rotate the key and restart panel + agent.",
+          "Stolen Security Manager DB: visitor/block UI only unless that process also has firewall rights. Panel SQLite remains the blocklist source of truth; the manager is mirrored via /api/ingest/blocklist.",
+        ],
+      },
+      {
+        heading: "Terminal jail vs full shell",
+        body: [
+          "Terminal is administrators only and requires 2FA.",
+          "Opening Terminal on a site uses jail mode: bubblewrap binds only that document root so cd .. and /var/www/other-site fail. Install bubblewrap on the node.",
+          "Opening Terminal with no site selected is a full root shell. That is intentional for ops, not a tenant sandbox.",
         ],
       },
       {
@@ -87,6 +99,20 @@ export const DOC_ARTICLES: DocArticle[] = [
         body: [
           "File Manager paths are checked in the panel and again in the agent (sites root allowlist, symlink resolution, optional tenant document root).",
           "USER accounts are scoped to their own document roots. Do not give those roles admin or agent keys.",
+        ],
+      },
+      {
+        heading: "Dry-run vs live",
+        body: [
+          "Dry-run still runs the same hostname/path/action validators. It skips privileged mutations (nginx reload, apt, systemd).",
+          "Windows defaults to dry-run so local tests do not require root. Linux production must set AGENT_DRY_RUN=false.",
+        ],
+      },
+      {
+        heading: "Backups",
+        body: [
+          "Create a backup, then restore it onto a staging copy of the same node (or a snapshot) at least once. Creation-only tests do not prove restore.",
+          "Archives must stay under the backup root; the agent rejects path traversal on download/upload/restore.",
         ],
       },
     ],

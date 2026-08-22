@@ -4,6 +4,7 @@ import fs from "node:fs";
 import { WebSocketServer, WebSocket } from "ws";
 import { API_KEY } from "./paths";
 import { verifyTerminalToken, type TerminalTokenClaims } from "./terminal-token";
+import { assertSafeDocumentRoot } from "./hostname";
 
 const MAX_SESSIONS = 5;
 const IDLE_MS = 30 * 60 * 1000;
@@ -27,19 +28,73 @@ function send(ws: WebSocket, msg: Record<string, unknown>) {
 }
 
 /**
- * "jail" mode is NOT a security boundary: no chroot, namespaces, or FS
- * sandbox. It only sets the initial cwd and HOME. Users can still `cd /`
- * and traverse anything the agent process OS user can read. Treat it as
- * convenience / UX restriction only — never as containment.
+ * Jail mode binds only the tenant document root (bubblewrap) so `cd ..` and
+ * `/etc` walks cannot reach other sites. Full mode remains an admin host shell.
  */
 function resolveCwd(claims: TerminalTokenClaims): string {
-  const cwd = path.resolve(claims.cwd);
   if (claims.mode === "jail") {
-    if (!fs.existsSync(cwd)) {
-      fs.mkdirSync(cwd, { recursive: true });
-    }
+    return assertSafeDocumentRoot(claims.cwd);
+  }
+  const cwd = path.resolve(claims.cwd || "/");
+  if (!fs.existsSync(cwd)) {
+    fs.mkdirSync(cwd, { recursive: true });
   }
   return cwd;
+}
+
+function findBwrap(): string | null {
+  for (const file of ["/usr/bin/bwrap", "/bin/bwrap"]) {
+    if (fs.existsSync(file)) return file;
+  }
+  return null;
+}
+
+function jailArgs(cwd: string, shell: string): { bin: string; args: string[] } {
+  const bwrap = findBwrap();
+  if (!bwrap) {
+    if (process.env.AGENT_ALLOW_WEAK_JAIL === "true") {
+      return { bin: shell, args: ["--noprofile", "--norc", "-r"] };
+    }
+    throw new Error(
+      "Jail terminal requires bubblewrap (apt install bubblewrap). " +
+        "Set AGENT_ALLOW_WEAK_JAIL=true only for lab hosts."
+    );
+  }
+  const args = [
+    "--unshare-pid",
+    "--unshare-uts",
+    "--unshare-ipc",
+    "--die-with-parent",
+    "--share-net",
+    "--ro-bind",
+    "/usr",
+    "/usr",
+    "--ro-bind",
+    "/bin",
+    "/bin",
+    "--dev",
+    "/dev",
+    "--proc",
+    "/proc",
+    "--tmpfs",
+    "/tmp",
+    "--bind",
+    cwd,
+    cwd,
+    "--chdir",
+    cwd,
+    "--setenv",
+    "HOME",
+    cwd,
+    "--setenv",
+    "PATH",
+    "/usr/bin:/bin",
+  ];
+  if (fs.existsSync("/lib")) args.push("--ro-bind", "/lib", "/lib");
+  if (fs.existsSync("/lib64")) args.push("--ro-bind", "/lib64", "/lib64");
+  if (fs.existsSync("/etc")) args.push("--ro-bind", "/etc", "/etc");
+  args.push(shell, "--noprofile", "--norc", "-i");
+  return { bin: bwrap, args };
 }
 
 async function spawnPty(
@@ -80,21 +135,27 @@ async function spawnPty(
     : fs.existsSync("/bin/bash")
       ? "/bin/bash"
       : "/bin/sh";
-  const args = isWindows
-    ? []
-    : claims.mode === "jail"
-      ? ["--noprofile", "--norc", "-i"]
-      : ["-i"];
+
+  let bin = shell;
+  let args: string[] = isWindows ? [] : ["-i"];
+  if (!isWindows && claims.mode === "jail") {
+    const jail = jailArgs(cwd, shell);
+    bin = jail.bin;
+    args = jail.args;
+  }
 
   const env: Record<string, string> = {
     ...process.env,
     TERM: "xterm-256color",
     COLORTERM: "truecolor",
-    // Restricted cwd only — not a jail; HOME nudge does not block `cd /`.
     HOME: claims.mode === "jail" ? cwd : process.env.HOME || cwd,
+    PATH:
+      claims.mode === "jail"
+        ? "/usr/bin:/bin"
+        : process.env.PATH || "/usr/bin:/bin",
   };
 
-  const proc = pty.spawn(shell, args, {
+  const proc = pty.spawn(bin, args, {
     name: "xterm-256color",
     cols,
     rows,
@@ -116,8 +177,7 @@ async function spawnPty(
       if (claims.mode === "jail") {
         queueMicrotask(() =>
           cb(
-            "\r\n[Naviyra] Restricted start directory (not a security jail). " +
-              "You can still leave this path with the agent process privileges.\r\n\r\n"
+            "\r\n[Naviyra] Jail: this session can only see this site’s document root.\r\n\r\n"
           )
         );
       }

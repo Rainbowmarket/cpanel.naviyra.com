@@ -26,6 +26,7 @@ import {
 import {
   assertSafeDocumentRoot,
   assertPathUnderTenantRoot,
+  assertValidSubdomainLabels,
   sanitizeHostnameForPath,
 } from "./hostname";
 import { applyDnsZone, removeDnsZone, type SyncDnsZonePayload } from "./dns";
@@ -109,12 +110,20 @@ import {
   dockerComposeUp,
 } from "./docker";
 import { gitDeployOnServer } from "./git";
+import { syncCronJobsOnServer } from "./cron";
 import {
   initPluginRegistry,
   invokePlugin,
   listPluginManifests,
 } from "./plugins/registry";
 import type { PluginOp } from "./plugins/contract";
+import { assertKnownAction, assertPluginId, redactAuditPayload } from "./actions";
+import {
+  assertAgentRateLimit,
+  auditAgentEvent,
+  clientIp,
+  tooMany,
+} from "./http-guard";
 const exec = promisify(execFile);
 const PORT = Number(process.env.AGENT_PORT ?? 4000);
 const isWindows = process.platform === "win32";
@@ -252,7 +261,9 @@ async function writeVhostConfig(
 }
 
 async function handleAction(payload: Action) {
-  switch (payload.action) {
+  const action = assertKnownAction(payload.action);
+  payload.action = action;
+  switch (action) {
     case "ping":
       return {
         success: true,
@@ -271,7 +282,7 @@ async function handleAction(payload: Action) {
     }
 
     case "plugin_invoke": {
-      const pluginId = String(payload.pluginId ?? "");
+      const pluginId = assertPluginId(payload.pluginId);
       const op = String(payload.op ?? "health") as PluginOp;
       const params =
         payload.params && typeof payload.params === "object"
@@ -350,7 +361,7 @@ async function handleAction(payload: Action) {
 
     case "create_subdomain": {
       const domain = sanitizeHostnameForPath(String(payload.domain));
-      const subdomain = String(payload.subdomain);
+      const subdomain = assertValidSubdomainLabels(String(payload.subdomain));
       const documentRoot = resolveSubdomainRoot(
         String(payload.documentRoot ?? ""),
         domain,
@@ -401,7 +412,7 @@ async function handleAction(payload: Action) {
 
     case "delete_subdomain": {
       const domain = sanitizeHostnameForPath(String(payload.domain));
-      const subdomain = String(payload.subdomain);
+      const subdomain = assertValidSubdomainLabels(String(payload.subdomain));
       const hostname = sanitizeHostnameForPath(`${subdomain}.${domain}`);
       if (payload.deleteFiles && payload.documentRoot) {
         await fs.rm(assertSafeDocumentRoot(String(payload.documentRoot)), {
@@ -881,7 +892,7 @@ async function handleAction(payload: Action) {
     }
 
     case "delete_dns_zone": {
-      const domain = String(payload.domain);
+      const domain = sanitizeHostnameForPath(String(payload.domain));
       await removeDnsZone(DNS_ROOT, domain, {
         dryRun: DRY_RUN,
         bindZonesDir: getBindZonesDir(),
@@ -1377,16 +1388,42 @@ const server = http.createServer(async (req, res) => {
     if (!bearerTokenMatches(req.headers.authorization, API_KEY)) {
       return unauthorized(res);
     }
+    try {
+      assertAgentRateLimit(req, "/execute");
+    } catch (error) {
+      return tooMany(res, error instanceof Error ? error.message : "Rate limit exceeded");
+    }
 
     let body = "";
-    for await (const chunk of req) body += chunk;
+    for await (const chunk of req) {
+      body += chunk;
+      if (body.length > 32 * 1024 * 1024) {
+        res.writeHead(413, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: false, error: "Payload too large" }));
+        return;
+      }
+    }
 
+    const ip = clientIp(req);
     try {
       const payload = JSON.parse(body) as Action;
       const result = await handleAction(payload);
+      auditAgentEvent({
+        route: "/execute",
+        ip,
+        action: String(payload.action),
+        ok: Boolean((result as { success?: boolean }).success !== false),
+        payload: redactAuditPayload(payload),
+      });
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(result));
     } catch (error) {
+      auditAgentEvent({
+        route: "/execute",
+        ip,
+        ok: false,
+        detail: error instanceof Error ? error.message : "Agent error",
+      });
       res.writeHead(500, { "Content-Type": "application/json" });
       res.end(
         JSON.stringify({
@@ -1405,6 +1442,11 @@ const server = http.createServer(async (req, res) => {
     if (!bearerTokenMatches(req.headers.authorization, API_KEY)) {
       return unauthorized(res);
     }
+    try {
+      assertAgentRateLimit(req, "/upload-file");
+    } catch (error) {
+      return tooMany(res, error instanceof Error ? error.message : "Rate limit exceeded");
+    }
     const filePath = headerString(req.headers["x-naviyra-path"]);
     if (!filePath || filePath.includes("\0")) {
       res.writeHead(400, { "Content-Type": "application/json" });
@@ -1413,10 +1455,17 @@ const server = http.createServer(async (req, res) => {
     }
     const tenantRoot = headerString(req.headers["x-naviyra-root"]);
     const removeZip = headerString(req.headers["x-naviyra-remove-zip"]) !== "0";
+    const ip = clientIp(req);
     try {
       const chunks: Buffer[] = [];
+      let size = 0;
       for await (const chunk of req) {
-        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        size += buf.length;
+        if (size > 512 * 1024 * 1024) {
+          throw new Error("Upload too large");
+        }
+        chunks.push(buf);
       }
       const content = Buffer.concat(chunks);
       const result = await writeUploadedFile(
@@ -1425,9 +1474,21 @@ const server = http.createServer(async (req, res) => {
         removeZip,
         tenantRoot || undefined
       );
+      auditAgentEvent({
+        route: "/upload-file",
+        ip,
+        ok: true,
+        detail: filePath,
+      });
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(result));
     } catch (error) {
+      auditAgentEvent({
+        route: "/upload-file",
+        ip,
+        ok: false,
+        detail: error instanceof Error ? error.message : "Upload error",
+      });
       res.writeHead(500, { "Content-Type": "application/json" });
       res.end(
         JSON.stringify({
@@ -1443,6 +1504,11 @@ const server = http.createServer(async (req, res) => {
     if (!bearerTokenMatches(req.headers.authorization, API_KEY)) {
       return unauthorized(res);
     }
+    try {
+      assertAgentRateLimit(req, "/download-backup");
+    } catch (error) {
+      return tooMany(res, error instanceof Error ? error.message : "Rate limit exceeded");
+    }
     const filePath = headerString(req.headers["x-naviyra-path"]);
     const allowedRoot = headerString(req.headers["x-naviyra-backup-root"]);
     if (!filePath) {
@@ -1450,12 +1516,19 @@ const server = http.createServer(async (req, res) => {
       res.end(JSON.stringify({ success: false, error: "Missing X-Naviyra-Path" }));
       return;
     }
+    const ip = clientIp(req);
     try {
       const resolved = assertArchiveUnderAllowedRoot(
         filePath,
         allowedRoot || undefined
       );
       const stat = await fs.stat(resolved);
+      auditAgentEvent({
+        route: "/download-backup",
+        ip,
+        ok: true,
+        detail: path.basename(resolved),
+      });
       res.writeHead(200, {
         "Content-Type": "application/gzip",
         "Content-Disposition": `attachment; filename="${path.basename(resolved)}"`,
@@ -1463,6 +1536,12 @@ const server = http.createServer(async (req, res) => {
       });
       fsSync.createReadStream(resolved).pipe(res);
     } catch (error) {
+      auditAgentEvent({
+        route: "/download-backup",
+        ip,
+        ok: false,
+        detail: error instanceof Error ? error.message : "Download error",
+      });
       res.writeHead(500, { "Content-Type": "application/json" });
       res.end(
         JSON.stringify({
@@ -1478,6 +1557,11 @@ const server = http.createServer(async (req, res) => {
     if (!bearerTokenMatches(req.headers.authorization, API_KEY)) {
       return unauthorized(res);
     }
+    try {
+      assertAgentRateLimit(req, "/upload-backup");
+    } catch (error) {
+      return tooMany(res, error instanceof Error ? error.message : "Rate limit exceeded");
+    }
     const fileName = headerString(req.headers["x-naviyra-name"]);
     const allowedRoot = headerString(req.headers["x-naviyra-backup-root"]);
     if (!fileName) {
@@ -1485,6 +1569,7 @@ const server = http.createServer(async (req, res) => {
       res.end(JSON.stringify({ success: false, error: "Missing X-Naviyra-Name" }));
       return;
     }
+    const ip = clientIp(req);
     try {
       const chunks: Buffer[] = [];
       for await (const chunk of req) {
@@ -1496,9 +1581,21 @@ const server = http.createServer(async (req, res) => {
         allowedRoot: allowedRoot || undefined,
         dryRun: DRY_RUN,
       });
+      auditAgentEvent({
+        route: "/upload-backup",
+        ip,
+        ok: true,
+        detail: fileName,
+      });
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ success: true, data: result }));
     } catch (error) {
+      auditAgentEvent({
+        route: "/upload-backup",
+        ip,
+        ok: false,
+        detail: error instanceof Error ? error.message : "Upload error",
+      });
       res.writeHead(500, { "Content-Type": "application/json" });
       res.end(
         JSON.stringify({
