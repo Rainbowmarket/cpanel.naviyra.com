@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { callAgent } from "@/lib/agent/client";
 import { hashPassword } from "@/lib/auth";
-import { getAgentApiKey, getMailHostname } from "@/lib/paths";
+import { getMailHostname } from "@/lib/paths";
+import { agentTargetForServerId } from "@/lib/agent/target";
 import { mailHostLabel } from "@/lib/dns/zone";
 import { ensureMailDnsRecords } from "@/lib/services/dns";
 import { issueSubdomainSslCertificate } from "@/lib/services/ssl";
@@ -127,7 +128,7 @@ export async function ensureMailHostSetup(domainId: string, userId: string) {
     const mailHost = getMailHostname(domain.name);
     await callAgent(
       { action: "ensure_mail_proxy", hostname: mailHost },
-      domain.server?.agentKey || getAgentApiKey()
+      await agentTargetForServerId(domain.serverId)
     );
   } catch (error) {
     console.error("ensure_mail_proxy failed:", error);
@@ -174,7 +175,7 @@ export async function createMailAccount(input: {
       password: input.password,
       quotaMb: input.quotaMb,
     },
-    domain.server.agentKey || getAgentApiKey()
+    await agentTargetForServerId(domain.serverId)
   );
 
   try {
@@ -197,7 +198,7 @@ export async function deleteMailAccount(accountId: string, userId: string) {
 
   await callAgent(
     { action: "delete_mail_account", email: account.email },
-    account.mailDomain.domain.server.agentKey || getAgentApiKey()
+    await agentTargetForServerId(account.mailDomain.domain.serverId)
   );
 
   try {
@@ -223,7 +224,7 @@ export async function resetMailPassword(
       email: account.email,
       password,
     },
-    account.mailDomain.domain.server.agentKey || getAgentApiKey()
+    await agentTargetForServerId(account.mailDomain.domain.serverId)
   );
 
   return prisma.mailAccount.update({
@@ -245,7 +246,7 @@ export async function setMailAccountActive(
       email: account.email,
       isActive,
     },
-    account.mailDomain.domain.server.agentKey || getAgentApiKey()
+    await agentTargetForServerId(account.mailDomain.domain.serverId)
   );
 
   return prisma.mailAccount.update({

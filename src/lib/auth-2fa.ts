@@ -76,7 +76,7 @@ export async function getPending2faUser(): Promise<{
   id: string;
   email: string;
   name: string;
-  role: "ADMIN" | "RESELLER" | "USER";
+  role: "ADMIN" | "USER";
   sessionVersion: number;
   twoFactorEnabled: boolean;
   twoFactorSecret: string | null;
@@ -104,5 +104,8 @@ export async function getPending2faUser(): Promise<{
   if (user.sessionVersion !== claims.sv) return null;
   if (!user.twoFactorEnabled || !user.twoFactorSecret) return null;
 
-  return user;
+  return {
+    ...user,
+    role: user.role === "ADMIN" ? "ADMIN" : "USER",
+  };
 }

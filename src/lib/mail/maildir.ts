@@ -224,18 +224,30 @@ function extractTextBodyFallback(raw: string): string {
   return text.trim();
 }
 
-async function parseMailContent(raw: string): Promise<{
+function attachmentBytes(content: unknown): Buffer | null {
+  if (!content) return null;
+  if (Buffer.isBuffer(content)) return content;
+  if (content instanceof Uint8Array) return Buffer.from(content);
+  return null;
+}
+
+async function parseMailContent(raw: Buffer | string): Promise<{
   body: string;
   attachments: MailAttachmentMeta[];
 }> {
   try {
-    const parsed = await simpleParser(Buffer.from(raw));
+    const parsed = await simpleParser(raw);
     const attachments: MailAttachmentMeta[] = (parsed.attachments ?? []).map(
-      (att) => ({
-        filename: String(att.filename || "attachment").replace(/[/\\]/g, "_"),
-        contentType: att.contentType || "application/octet-stream",
-        size: att.size || (Buffer.isBuffer(att.content) ? att.content.length : 0),
-      })
+      (att) => {
+        const bytes = attachmentBytes(att.content);
+        const cid = String(att.cid || "").replace(/^<|>$/g, "").trim();
+        return {
+          filename: String(att.filename || "attachment").replace(/[/\\]/g, "_"),
+          contentType: att.contentType || "application/octet-stream",
+          size: att.size || bytes?.length || 0,
+          cid: cid || undefined,
+        };
+      }
     );
     if (parsed.text?.trim()) {
       return { body: parsed.text.trim(), attachments };
@@ -243,20 +255,24 @@ async function parseMailContent(raw: string): Promise<{
     if (typeof parsed.html === "string" && parsed.html.trim()) {
       return { body: htmlToPlainText(parsed.html), attachments };
     }
-    return { body: extractTextBodyFallback(raw), attachments };
+    return { body: extractTextBodyFallback(rawAsText(raw)), attachments };
   } catch {
-    return { body: extractTextBodyFallback(raw), attachments: [] };
+    return { body: extractTextBodyFallback(rawAsText(raw)), attachments: [] };
   }
+}
+
+function rawAsText(raw: Buffer | string): string {
+  return typeof raw === "string" ? raw : raw.toString("latin1");
 }
 
 async function fileToMessage(
   email: string,
   folder: MailFolder,
   fileName: string,
-  raw: string,
+  raw: Buffer,
   inNew: boolean
 ): Promise<MailMessage> {
-  const headers = parseHeaders(raw);
+  const headers = parseHeaders(raw.toString("latin1"));
   const id = createHash("sha1").update(`${email}:${folder}:${fileName}`).digest("hex").slice(0, 24);
   const from = decodeMimeWord(headers.from ?? "(unknown)")
     .replace(/<{2,}/g, "<")
@@ -314,8 +330,7 @@ export async function listMaildirMessages(
       if (file.startsWith(".")) continue;
       try {
         const raw = await fs.readFile(
-          path.join(/* turbopackIgnore: true */ dir, file),
-          "utf8"
+          path.join(/* turbopackIgnore: true */ dir, file)
         );
         messages.push(await fileToMessage(email, folder, file, raw, sub === "new"));
       } catch {
@@ -357,15 +372,14 @@ export async function getMaildirAttachment(
   }
   try {
     const parsed = await simpleParser(raw);
-    const att = parsed.attachments?.[index];
-    if (!att?.content) return null;
-    const content = Buffer.isBuffer(att.content)
-      ? att.content
-      : Buffer.from(att.content as Uint8Array);
+    const list = parsed.attachments ?? [];
+    const att = list[index] ?? null;
+    const bytes = attachmentBytes(att?.content);
+    if (!att || !bytes) return null;
     return {
       filename: String(att.filename || "attachment").replace(/[/\\]/g, "_"),
       contentType: att.contentType || "application/octet-stream",
-      content,
+      content: bytes,
     };
   } catch {
     return null;
@@ -445,7 +459,7 @@ export async function moveMaildirMessage(
   const toBase = maildirFolderPath(email, toFolder);
   const fromSub = msg._maildirNew ? "new" : "cur";
   const fromPath = path.join(fromBase, fromSub, msg._maildirFile);
-  let raw = await fs.readFile(fromPath, "utf8");
+  let raw = (await fs.readFile(fromPath)).toString("latin1");
 
   // Remember source folder when moving into Trash/Junk so Restore can return it.
   if (
@@ -470,9 +484,10 @@ export async function moveMaildirMessage(
     ? msg._maildirFile
     : `${msg._maildirFile}:2,`;
   const toPath = path.join(toBase, "cur", destName);
-  await fs.writeFile(toPath, raw, "utf8");
+  const out = Buffer.from(raw, "latin1");
+  await fs.writeFile(toPath, out);
   await fs.rm(fromPath, { force: true });
-  return fileToMessage(email, toFolder, destName, raw, false);
+  return fileToMessage(email, toFolder, destName, out, false);
 }
 
 export async function writeMaildirMessage(
@@ -497,7 +512,13 @@ export async function writeMaildirMessage(
       /* ignore */
     }
   }
-  return await fileToMessage(email, folder, fileName, rawRfc822, !read);
+  return await fileToMessage(
+    email,
+    folder,
+    fileName,
+    Buffer.from(rawRfc822, "utf8"),
+    !read
+  );
 }
 
 

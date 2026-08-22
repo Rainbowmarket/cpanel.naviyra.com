@@ -11,7 +11,11 @@ const routeLabels: Record<string, string> = {
   "/dashboard": "Overview",
   "/dashboard/domains": "Domains",
   "/dashboard/subdomains": "Subdomains",
-  "/dashboard/apps": "Apps",
+  "/dashboard/apps": "App Deployment",
+  "/dashboard/docker": "Docker",
+  "/dashboard/git": "Git Deployments",
+  "/dashboard/monitoring": "Monitoring",
+  "/dashboard/servers": "Servers",
   "/dashboard/mail": "Mail",
   "/dashboard/ftp": "FTP",
   "/dashboard/databases": "Databases",
@@ -27,6 +31,7 @@ const routeLabels: Record<string, string> = {
   "/dashboard/docs": "Docs",
   "/dashboard/account": "Account security",
   "/dashboard/files": "Files",
+  "/dashboard/cron": "Cron Jobs",
   "/file-manager": "File Manager",
 };
 

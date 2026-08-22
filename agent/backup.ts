@@ -72,7 +72,7 @@ export type DeleteBackupOptions = {
   dryRun?: boolean;
 };
 
-function assertArchiveUnderAllowedRoot(
+export function assertArchiveUnderAllowedRoot(
   archivePath: string,
   allowedRoot?: string
 ): string {
@@ -97,6 +97,44 @@ function assertArchiveUnderAllowedRoot(
     );
   }
   return resolved;
+}
+
+export function sanitizeBackupFileName(raw: string): string {
+  const base = path.basename(String(raw || "").replace(/\\/g, "/"));
+  if (!/^[A-Za-z0-9._-]+\.(tar\.gz|tgz)$/.test(base)) {
+    throw new Error("Backup file name must be a .tar.gz (letters, digits, . _ -)");
+  }
+  return base;
+}
+
+export function domainFromBackupFileName(fileName: string): string | undefined {
+  const m = /^naviyra-domain-(.+)-(\d{8}T\d{6}Z)\.(tar\.gz|tgz)$/i.exec(
+    path.basename(fileName)
+  );
+  return m?.[1];
+}
+
+export async function writeBackupArchiveFile(options: {
+  fileName: string;
+  content: Buffer;
+  allowedRoot?: string;
+  dryRun?: boolean;
+}): Promise<{ archivePath: string; bytes: number; dryRun: boolean }> {
+  const fileName = sanitizeBackupFileName(options.fileName);
+  const root = path.resolve(
+    options.allowedRoot || process.env.BACKUP_ROOT || "/var/backups/naviyra"
+  );
+  const archivePath = assertArchiveUnderAllowedRoot(
+    path.join(root, fileName),
+    root
+  );
+  if (options.dryRun) {
+    return { archivePath, bytes: options.content.length, dryRun: true };
+  }
+  await fs.mkdir(path.dirname(archivePath), { recursive: true });
+  await fs.writeFile(archivePath, options.content);
+  const stat = await fs.stat(archivePath);
+  return { archivePath, bytes: stat.size, dryRun: false };
 }
 
 const ON_CALENDAR: Record<BackupSchedulePreset, string> = {

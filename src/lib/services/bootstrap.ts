@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { persistPanelBaseDomainFromLogin, getPanelHostname, getDnsZoneApex } from "@/lib/base-domain";
 import { getAgentApiKey, getDefaultServerHostname, getServerPublicIp } from "@/lib/paths";
+import { defaultControllerAgentUrl } from "@/lib/agent/target";
 import { assertValidHostname, normalizeHostnameInput } from "@/lib/hostname";
 import { ensurePanelBaseDomain } from "@/lib/services/domains";
 
@@ -58,6 +59,7 @@ export async function bootstrapMainServer(input: {
         hostname,
         ipAddress,
         agentKey,
+        agentUrl: defaultControllerAgentUrl(),
         isActive: true,
       },
     });
@@ -68,6 +70,7 @@ export async function bootstrapMainServer(input: {
         hostname,
         ipAddress,
         agentKey,
+        agentUrl: defaultControllerAgentUrl(),
         isActive: true,
       },
     });

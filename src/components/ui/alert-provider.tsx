@@ -24,6 +24,8 @@ type AlertOptions = {
   title?: string;
   tone?: AlertTone;
   confirmLabel?: string;
+  /** Extra technical text shown in a scrollable block */
+  detail?: string;
 };
 
 type ConfirmOptions = AlertOptions & {
@@ -35,6 +37,7 @@ type ConfirmOptions = AlertOptions & {
 type DialogState = {
   mode: "alert" | "confirm";
   message: string;
+  detail: string;
   title: string;
   tone: AlertTone;
   confirmLabel: string;
@@ -132,6 +135,7 @@ export function AlertProvider({ children }: { children: ReactNode }) {
         enqueue({
           mode: "alert",
           message,
+          detail: options?.detail?.trim() ?? "",
           title: options?.title ?? defaultTitle("alert", tone),
           tone,
           confirmLabel: options?.confirmLabel ?? "OK",
@@ -151,6 +155,7 @@ export function AlertProvider({ children }: { children: ReactNode }) {
         enqueue({
           mode: "confirm",
           message,
+          detail: options?.detail?.trim() ?? "",
           title: options?.title ?? defaultTitle("confirm", tone),
           tone,
           confirmLabel:
@@ -210,7 +215,7 @@ export function AlertProvider({ children }: { children: ReactNode }) {
             aria-labelledby="naviyra-alert-title"
             aria-describedby="naviyra-alert-desc"
             className={cn(
-              "relative w-full max-w-md overflow-hidden rounded-t-2xl border border-slate-700 bg-slate-900 shadow-2xl ring-1 sm:rounded-xl",
+              "relative w-full max-w-lg overflow-hidden rounded-t-2xl border border-slate-700 bg-slate-900 shadow-2xl ring-1 sm:rounded-xl",
               meta.ring
             )}
           >
@@ -248,6 +253,11 @@ export function AlertProvider({ children }: { children: ReactNode }) {
                 >
                   {dialog.message}
                 </p>
+                {dialog.detail ? (
+                  <pre className="mt-3 max-h-48 overflow-auto rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-slate-400">
+                    {dialog.detail}
+                  </pre>
+                ) : null}
               </div>
             </div>
 

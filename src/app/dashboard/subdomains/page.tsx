@@ -468,15 +468,17 @@ export default function SubdomainsPage() {
         onClose={() => setRuntimeSub(null)}
         title={
           runtimeSub
-            ? `App runtime — ${runtimeSub.name}.${runtimeSub.domain.name}`
-            : "App runtime"
+            ? `Deploy — ${runtimeSub.name}.${runtimeSub.domain.name}`
+            : "App deployment"
         }
-        description="Choose how this subdomain is served and manage Node/Python/Go processes."
+        description="Upload code, start the app, or open it in the browser."
+        className="max-w-5xl"
       >
         {runtimeSub ? (
           <AppRuntimeControls
             kind="subdomain"
             id={runtimeSub.id}
+            hostname={`${runtimeSub.name}.${runtimeSub.domain.name}`}
             applicationUrl={`https://${runtimeSub.name}.${runtimeSub.domain.name}`}
             appType={runtimeSub.appType ?? "PHP"}
             startCommand={runtimeSub.startCommand}

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { callAgent } from "@/lib/agent/client";
+import { agentTargetForServerId } from "@/lib/agent/target";
 import { hashPassword } from "@/lib/auth";
 import { resolveHostingTarget } from "@/lib/hosting-targets";
 
@@ -23,7 +24,7 @@ export async function listFtpAccounts(userId: string, role?: string) {
 export async function createFtpAccount(input: {
   target: string;
   userId: string;
-  role?: "ADMIN" | "RESELLER" | "USER";
+  role?: "ADMIN" | "USER";
   username: string;
   password: string;
 }) {
@@ -62,7 +63,7 @@ export async function createFtpAccount(input: {
       password: input.password,
       homeDir,
     },
-    domain.server.agentKey
+    await agentTargetForServerId(domain.serverId)
   );
 
   if (!agentResult.success) {
@@ -94,7 +95,7 @@ export async function deleteFtpAccount(
 
   const agentResult = await callAgent(
     { action: "delete_ftp_account", username: account.username },
-    account.domain.server.agentKey
+    await agentTargetForServerId(account.domain.serverId)
   );
   if (!agentResult.success) {
     throw new Error(agentResult.error ?? "Failed to remove FTP account on server");
@@ -108,7 +109,7 @@ export async function reprovisionFtpAccount(input: {
   username: string;
   password: string;
   userId: string;
-  role?: "ADMIN" | "RESELLER" | "USER";
+  role?: "ADMIN" | "USER";
 }) {
   const username = validateFtpUsername(input.username);
   const account = await prisma.ftpAccount.findFirstOrThrow({
@@ -126,7 +127,7 @@ export async function reprovisionFtpAccount(input: {
       password: input.password,
       homeDir: account.homeDir,
     },
-    account.domain.server.agentKey
+    await agentTargetForServerId(account.domain.serverId)
   );
   if (!agentResult.success) {
     throw new Error(agentResult.error ?? "Failed to reprovision FTP account");

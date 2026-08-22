@@ -1,5 +1,8 @@
-import { executeLocalAgent, isAgentUnreachable } from "./local";
 import { requireAgentApiKey } from "@/lib/secrets";
+import type { AgentTarget } from "./target";
+import { notifyIfAgentUnreachable } from "@/lib/mail/admin-alerts";
+
+export type { AgentTarget } from "./target";
 
 export type AgentAction =
   | { action: "ping" }
@@ -39,15 +42,32 @@ export type AgentAction =
       fileName?: string;
       contentBase64: string;
     }
+  | { action: "reassign_postgres_ownership"; dbName: string; roleName: string }
   | { action: "delete_postgres_database"; dbName: string; roleName: string }
   | { action: "reset_postgres_password"; roleName: string; password: string }
   | { action: "inspect_postgres_schema"; dbName: string }
+  | {
+      action: "inspect_hosted_database";
+      engine: string;
+      dbName: string;
+    }
+  | {
+      action: "preview_hosted_table";
+      engine: string;
+      dbName: string;
+      table: string;
+      limit?: number;
+    }
   | {
       action: "preview_postgres_table";
       dbName: string;
       schema?: string;
       table: string;
       limit?: number;
+      search?: string;
+      filterColumn?: string;
+      filterOp?: "contains" | "equals";
+      filterValue?: string;
     }
   | {
       action: "create_postgres_table";
@@ -93,7 +113,10 @@ export type AgentAction =
       op: "insert" | "update" | "delete";
       values?: Record<string, unknown>;
       where?: Record<string, unknown>;
+      whereList?: Record<string, unknown>[];
     }
+  | { action: "query_postgres_sql"; dbName: string; sql: string }
+  | { action: "query_hosted_sql"; engine: string; dbName: string; sql: string }
   | { action: "list_files"; path: string; root?: string }
   | { action: "read_file"; path: string; root?: string }
   | { action: "write_file"; path: string; content: string; root?: string }
@@ -210,7 +233,41 @@ export type AgentAction =
       panelPort?: number;
       workerToken?: string;
     }
-  | { action: "set_nginx_upload_limit"; maxMb: number };
+      | { action: "set_nginx_upload_limit"; maxMb: number }
+  | { action: "docker_ps" }
+  | {
+      action: "docker_control";
+      id: string;
+      op: "start" | "stop" | "restart";
+    }
+  | { action: "docker_logs"; id: string; lines?: number }
+  | {
+      action: "docker_compose_up";
+      composePath: string;
+      documentRoot: string;
+    }
+  | {
+      action: "git_deploy";
+      documentRoot: string;
+      repoUrl: string;
+      branch?: string;
+    }
+  | {
+      action: "sync_cron_jobs";
+      jobs: Array<{
+        id: string;
+        schedule: string;
+        command: string;
+        enabled?: boolean;
+      }>;
+    }
+  | { action: "list_plugins" }
+  | {
+      action: "plugin_invoke";
+      pluginId: string;
+      op: "install" | "configure" | "health" | "create" | "delete" | "backup" | "restore" | "inspect" | "preview" | "query";
+      params?: Record<string, unknown>;
+    };
 
 export type AgentResponse<T = unknown> = {
   success: boolean;
@@ -219,42 +276,31 @@ export type AgentResponse<T = unknown> = {
   via?: "agent" | "local";
 };
 
-// Use 127.0.0.1 — avoids Windows localhost/IPv6 connection issues
-function agentUrls(): string[] {
-  const urls: string[] = [];
-  const seen = new Set<string>();
-  const add = (value: string) => {
-    const url = value.trim().replace(/\/$/, "");
-    if (!url || seen.has(url)) return;
-    seen.add(url);
-    urls.push(url);
-  };
-  const fromEnv = process.env.AGENT_URL?.trim();
-  const port = process.env.AGENT_PORT?.trim();
-  if (fromEnv) add(fromEnv);
-  if (port) add(`http://127.0.0.1:${port}`);
-  add("http://127.0.0.1:4000");
-  add("http://127.0.0.1:4100");
-  return urls;
+function agentAuthHeader(agentKey: string) {
+  return `Bearer ${agentKey.trim() || requireAgentApiKey()}`;
 }
 
-function getApiKey(serverAgentKey?: string): string {
-  // Always use the live process env key. Server.agentKey in SQLite can go
-  // stale after AGENT_API_KEY rotation and would 401 the local agent.
-  const envKey = requireAgentApiKey();
-  const fromServer = serverAgentKey?.trim();
-  if (fromServer && fromServer !== envKey) {
-    console.warn(
-      "[agent] Ignoring stale Server.agentKey; using AGENT_API_KEY from environment"
-    );
+function unreachableMessage(agentUrl: string, error: string) {
+  const msg = error.trim() || "Agent unreachable";
+  if (/fetch failed|ECONNREFUSED|ENOTFOUND|timed out|unreachable/i.test(msg)) {
+    return `Could not reach agent at ${agentUrl}`;
   }
-  return envKey;
+  return msg;
+}
+
+function failUnreachable<T = unknown>(
+  agentUrl: string,
+  extra: string
+): AgentResponse<T> {
+  const error = unreachableMessage(agentUrl, extra);
+  notifyIfAgentUnreachable(error);
+  return { success: false, error };
 }
 
 async function callAgentAt<T = unknown>(
   agentUrl: string,
   payload: AgentAction,
-  serverAgentKey?: string
+  agentKey: string
 ): Promise<AgentResponse<T>> {
   const postgresAction = payload.action.includes("postgres");
   const longRunning =
@@ -270,27 +316,39 @@ async function callAgentAt<T = unknown>(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${getApiKey(serverAgentKey)}`,
+        Authorization: agentAuthHeader(agentKey),
       },
       body: JSON.stringify(payload),
       cache: "no-store",
       signal: AbortSignal.timeout(
-        payload.action === "configure_site_app" ||
-          payload.action === "app_start" ||
-          payload.action === "app_restart"
-          ? 360000
-          : payload.action === "run_backup" ||
-              payload.action === "run_domain_backup" ||
-              payload.action === "restore_backup" ||
-              payload.action === "restore_domain_backup" ||
-              payload.action === "export_postgres_database" ||
-              payload.action === "import_postgres_database"
-            ? 600000
-            : postgresAction
-              ? 300000
-              : longRunning
-                ? 120000
-                : 10000
+        payload.action === "plugin_invoke"
+          ? 900000
+          : payload.action === "list_plugins"
+            ? 120000
+            : payload.action === "inspect_hosted_database" ||
+                payload.action === "preview_hosted_table" ||
+                payload.action === "query_hosted_sql"
+              ? 120000
+            : payload.action === "configure_site_app" ||
+                payload.action === "app_start" ||
+                payload.action === "app_restart"
+              ? 360000
+              : payload.action === "run_backup" ||
+                  payload.action === "run_domain_backup" ||
+                  payload.action === "restore_backup" ||
+                  payload.action === "restore_domain_backup" ||
+                  payload.action === "export_postgres_database" ||
+                  payload.action === "import_postgres_database" ||
+                  payload.action === "git_deploy" ||
+                  payload.action === "docker_compose_up"
+                ? 600000
+                : payload.action.startsWith("docker_")
+                  ? 90000
+                  : postgresAction
+                    ? 300000
+                    : longRunning
+                      ? 120000
+                      : 10000
       ),
     });
 
@@ -312,52 +370,46 @@ async function callAgentAt<T = unknown>(
   } catch (error) {
     return {
       success: false,
-      error: error instanceof Error ? error.message : "Agent unreachable",
+      error: unreachableMessage(
+        agentUrl,
+        error instanceof Error ? error.message : "Agent unreachable"
+      ),
     };
   }
 }
 
-async function callAgentRemote<T = unknown>(
-  payload: AgentAction,
-  serverAgentKey?: string
-): Promise<AgentResponse<T>> {
-  const urls = agentUrls();
-  let last: AgentResponse<T> = { success: false, error: "Agent unreachable" };
-  for (const url of urls) {
-    const result = await callAgentAt<T>(url, payload, serverAgentKey);
-    if (result.success) return result;
-    if (!isAgentUnreachable(result.error)) return result;
-    last = result;
-  }
-  return last;
-}
-
 export async function callAgent<T = unknown>(
   payload: AgentAction,
-  serverAgentKey?: string
+  target: AgentTarget
 ): Promise<AgentResponse<T>> {
-  const remote = await callAgentRemote<T>(payload, serverAgentKey);
-
-  if (remote.success) return remote;
-
-  const unknownPostgres =
-    payload.action.includes("postgres") &&
-    (remote.error || "").toLowerCase().includes("unknown action");
-
-  // Agent not running, or an older agent that does not know PostgreSQL yet
-  if (isAgentUnreachable(remote.error) || unknownPostgres) {
-    const local = await executeLocalAgent<T>(payload);
-    return { ...local, via: "local" };
+  const url = target.agentUrl.trim().replace(/\/$/, "");
+  if (!url.startsWith("http://") && !url.startsWith("https://")) {
+    return { success: false, error: "Agent URL must be http or https" };
   }
-
-  return remote;
+  if (!target.agentKey.trim()) {
+    return { success: false, error: "Agent key is missing" };
+  }
+  const result = await callAgentAt<T>(url, payload, target.agentKey);
+  if (!result.success) notifyIfAgentUnreachable(result.error);
+  return result;
 }
 
-/** Upload raw bytes to the agent (no base64). Falls back to upload_file JSON. */
+/** @deprecated Use callAgent(payload, target) */
+export async function callRemoteServerAgent<T = unknown>(
+  opts: AgentTarget,
+  payload: AgentAction
+): Promise<AgentResponse<T>> {
+  return callAgent<T>(payload, opts);
+}
+
 export async function uploadFileToAgent(
   filePath: string,
   content: Buffer,
-  options?: { removeZip?: boolean; serverAgentKey?: string; root?: string }
+  options: {
+    target: AgentTarget;
+    removeZip?: boolean;
+    root?: string;
+  }
 ): Promise<
   AgentResponse<{
     path: string;
@@ -366,72 +418,148 @@ export async function uploadFileToAgent(
     removedZip?: boolean;
   }>
 > {
-  const removeZip = options?.removeZip !== false;
-  let lastUnreachable = false;
-  let lastMsg = "Agent unreachable";
-
-  for (const agentUrl of agentUrls()) {
-    try {
-      const response = await fetch(`${agentUrl}/upload-file`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${getApiKey(options?.serverAgentKey)}`,
-          "Content-Type": "application/octet-stream",
-          "X-Naviyra-Path": filePath,
-          ...(options?.root ? { "X-Naviyra-Root": options.root } : {}),
-          "X-Naviyra-Remove-Zip": removeZip ? "1" : "0",
-        },
-        body: new Uint8Array(content),
-        cache: "no-store",
-        signal: AbortSignal.timeout(600000),
-      });
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || `Agent HTTP ${response.status}`);
+  const removeZip = options.removeZip !== false;
+  const agentUrl = options.target.agentUrl.trim().replace(/\/$/, "");
+  try {
+    const response = await fetch(`${agentUrl}/upload-file`, {
+      method: "POST",
+      headers: {
+        Authorization: agentAuthHeader(options.target.agentKey),
+        "Content-Type": "application/octet-stream",
+        "X-Naviyra-Path": filePath,
+        ...(options.root ? { "X-Naviyra-Root": options.root } : {}),
+        "X-Naviyra-Remove-Zip": removeZip ? "1" : "0",
+      },
+      body: new Uint8Array(content),
+      cache: "no-store",
+      signal: AbortSignal.timeout(600000),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      if (/404|Not found/i.test(text) || response.status === 404) {
+        return callAgent(
+          {
+            action: "upload_file",
+            path: filePath,
+            contentBase64: content.toString("base64"),
+            removeZip,
+            root: options.root,
+          },
+          options.target
+        );
       }
-      const result = (await response.json()) as AgentResponse<{
-        path: string;
-        extracted?: boolean;
-        extractedTo?: string;
-        removedZip?: boolean;
-      }>;
-      if (result.success) return { ...result, via: "agent" };
-      throw new Error(result.error || "Upload failed");
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      lastMsg = msg;
-      if (isAgentUnreachable(msg)) {
-        lastUnreachable = true;
-        continue;
-      }
-      if (!/404|Not found/i.test(msg)) {
-        return { success: false, error: msg };
-      }
-      lastUnreachable = true;
+      return {
+        success: false,
+        error: text || `Agent HTTP ${response.status}`,
+      };
     }
+    const result = (await response.json()) as AgentResponse<{
+      path: string;
+      extracted?: boolean;
+      extractedTo?: string;
+      removedZip?: boolean;
+    }>;
+    return { ...result, via: "agent" };
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    return failUnreachable(agentUrl, msg);
   }
-
-  if (!lastUnreachable) {
-    return { success: false, error: lastMsg };
-  }
-
-  return callAgent(
-    {
-      action: "upload_file",
-      path: filePath,
-      contentBase64: content.toString("base64"),
-      removeZip,
-      root: options?.root,
-    },
-    options?.serverAgentKey
-  );
 }
 
-export async function pingAgent(): Promise<boolean> {
-  const result = await callAgent({ action: "ping" });
+export async function downloadBackupFromAgent(opts: {
+  target: AgentTarget;
+  archivePath: string;
+  allowedRoot?: string;
+}): Promise<AgentResponse<{ content: Buffer; fileName: string }>> {
+  const agentUrl = opts.target.agentUrl.trim().replace(/\/$/, "");
+  try {
+    const response = await fetch(`${agentUrl}/download-backup`, {
+      method: "GET",
+      headers: {
+        Authorization: agentAuthHeader(opts.target.agentKey),
+        "X-Naviyra-Path": opts.archivePath,
+        ...(opts.allowedRoot
+          ? { "X-Naviyra-Backup-Root": opts.allowedRoot }
+          : {}),
+      },
+      cache: "no-store",
+      signal: AbortSignal.timeout(600000),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      return {
+        success: false,
+        error: text || `Agent HTTP ${response.status}`,
+      };
+    }
+    const buf = Buffer.from(await response.arrayBuffer());
+    const disp = response.headers.get("content-disposition") || "";
+    const named = /filename="([^"]+)"/.exec(disp)?.[1];
+    return {
+      success: true,
+      via: "agent",
+      data: {
+        content: buf,
+        fileName: named || opts.archivePath.split(/[/\\]/).pop() || "backup.tar.gz",
+      },
+    };
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    return failUnreachable(agentUrl, msg);
+  }
+}
+
+export async function uploadBackupToAgent(opts: {
+  target: AgentTarget;
+  fileName: string;
+  content: Buffer;
+  allowedRoot?: string;
+}): Promise<
+  AgentResponse<{ archivePath: string; bytes: number; dryRun?: boolean }>
+> {
+  const agentUrl = opts.target.agentUrl.trim().replace(/\/$/, "");
+  try {
+    const response = await fetch(`${agentUrl}/upload-backup`, {
+      method: "POST",
+      headers: {
+        Authorization: agentAuthHeader(opts.target.agentKey),
+        "Content-Type": "application/octet-stream",
+        "X-Naviyra-Name": opts.fileName,
+        ...(opts.allowedRoot
+          ? { "X-Naviyra-Backup-Root": opts.allowedRoot }
+          : {}),
+      },
+      body: new Uint8Array(opts.content),
+      cache: "no-store",
+      signal: AbortSignal.timeout(600000),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      return {
+        success: false,
+        error: text || `Agent HTTP ${response.status}`,
+      };
+    }
+    const result = (await response.json()) as AgentResponse<{
+      archivePath: string;
+      bytes: number;
+      dryRun?: boolean;
+    }>;
+    if (result.success && result.data?.archivePath) {
+      return { ...result, via: "agent" };
+    }
+    return { success: false, error: result.error || "Upload failed" };
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    return failUnreachable(agentUrl, msg);
+  }
+}
+
+export async function pingAgent(target: AgentTarget): Promise<boolean> {
+  const result = await callAgent({ action: "ping" }, target);
   return result.success;
 }
 
 export function getAgentMode(): "agent" | "local" | "offline" {
-  return "agent"; // resolved at runtime via ping in status API
+  return "agent";
 }

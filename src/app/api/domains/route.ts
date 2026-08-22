@@ -40,7 +40,7 @@ const createSchema = z.object({
       /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i,
       DOMAIN_NAME_MESSAGE
     ),
-  serverId: z.string(),
+  serverId: z.string().optional(),
   phpEnabled: z.boolean().optional(),
   appType: z.enum(["STATIC", "PHP", "PYTHON", "GO", "NODE"]).optional(),
 });

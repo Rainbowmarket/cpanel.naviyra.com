@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { authFailureResponse, requireSessionUser } from "@/lib/auth";
 import { csrfOk } from "@/lib/csrf";
-import { importPostgresDatabaseDump } from "@/lib/services/databases";
+import { importPostgresDatabaseDump, formatPostgresClientError } from "@/lib/services/databases";
 
 export const runtime = "nodejs";
 export const maxDuration = 600;
@@ -56,10 +56,9 @@ export async function POST(request: Request, context: RouteContext) {
       return authFailureResponse(error);
     }
     return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Failed to import database",
-      },
+      formatPostgresClientError(
+        error instanceof Error ? error.message : "Failed to import database"
+      ),
       { status: 500 }
     );
   }

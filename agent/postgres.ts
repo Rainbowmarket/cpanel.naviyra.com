@@ -208,7 +208,66 @@ export type PostgresTableInfo = {
   name: string;
   kind: "table" | "view" | "materialized_view" | "other";
   approxRows: number | null;
+  sizeBytes: number | null;
+  sizePretty: string | null;
+  indexCount: number;
+  lastUpdated: string | null;
   columns: PostgresColumnInfo[];
+};
+
+export type PostgresIndexInfo = {
+  schema: string;
+  table: string;
+  name: string;
+  unique: boolean;
+  definition: string;
+};
+
+export type PostgresRelationInfo = {
+  schema: string;
+  table: string;
+  column: string;
+  foreignSchema: string;
+  foreignTable: string;
+  foreignColumn: string;
+  name: string;
+};
+
+export type PostgresFunctionInfo = {
+  schema: string;
+  name: string;
+  args: string;
+  returns: string;
+  language: string;
+};
+
+export type PostgresTriggerInfo = {
+  schema: string;
+  table: string;
+  name: string;
+  timing: string;
+  event: string;
+  statement: string;
+};
+
+export type PostgresEnumInfo = {
+  schema: string;
+  name: string;
+  labels: string[];
+};
+
+export type PostgresSchemaInspect = {
+  dbName: string;
+  dbSizeBytes: number | null;
+  dbSizePretty: string | null;
+  pgVersion: string | null;
+  tables: PostgresTableInfo[];
+  indexes: PostgresIndexInfo[];
+  relations: PostgresRelationInfo[];
+  functions: PostgresFunctionInfo[];
+  triggers: PostgresTriggerInfo[];
+  enums: PostgresEnumInfo[];
+  dryRun: boolean;
 };
 
 function mapRelKind(kind: string): PostgresTableInfo["kind"] {
@@ -225,22 +284,44 @@ function mapRelKind(kind: string): PostgresTableInfo["kind"] {
   }
 }
 
+function emptySchemaInspect(dbName: string, dryRun: boolean): PostgresSchemaInspect {
+  return {
+    dbName,
+    dbSizeBytes: null,
+    dbSizePretty: null,
+    pgVersion: null,
+    tables: [],
+    indexes: [],
+    relations: [],
+    functions: [],
+    triggers: [],
+    enums: [],
+    dryRun,
+  };
+}
+
 export async function inspectPostgresSchemaOnServer(input: {
   dbName: string;
   dryRun: boolean;
-}): Promise<{ dbName: string; tables: PostgresTableInfo[]; dryRun: boolean }> {
+}): Promise<PostgresSchemaInspect> {
   const dbName = input.dbName.trim().toLowerCase();
   if (!/^[a-z_][a-z0-9_]*$/.test(dbName)) {
     throw new Error(`Invalid PostgreSQL database name: ${input.dbName}`);
   }
 
   if (process.platform === "win32" || input.dryRun) {
-    return { dbName, tables: [], dryRun: true };
+    return emptySchemaInspect(dbName, true);
   }
 
   if (!(await databaseExists(dbName))) {
     throw new Error(`Database '${dbName}' was not found on the server`);
   }
+
+  const sizeSql = `SELECT json_build_object(
+    'sizeBytes', pg_database_size(current_database()),
+    'sizePretty', pg_size_pretty(pg_database_size(current_database())),
+    'pgVersion', current_setting('server_version')
+  )`;
 
   const tablesSql = `
 SELECT COALESCE(json_agg(row_to_json(t) ORDER BY t.schema_name, t.table_name), '[]'::json)
@@ -249,7 +330,11 @@ FROM (
     n.nspname AS schema_name,
     c.relname AS table_name,
     c.relkind::text AS relkind,
-    COALESCE(s.n_live_tup, 0)::bigint AS approx_rows
+    COALESCE(s.n_live_tup, 0)::bigint AS approx_rows,
+    CASE WHEN c.relkind IN ('r', 'p', 'm') THEN pg_total_relation_size(c.oid) ELSE NULL END AS size_bytes,
+    CASE WHEN c.relkind IN ('r', 'p', 'm') THEN pg_size_pretty(pg_total_relation_size(c.oid)) ELSE NULL END AS size_pretty,
+    (SELECT count(*)::int FROM pg_index ix WHERE ix.indrelid = c.oid) AS index_count,
+    GREATEST(s.last_vacuum, s.last_autovacuum, s.last_analyze, s.last_autoanalyze) AS last_updated
   FROM pg_class c
   JOIN pg_namespace n ON n.oid = c.relnamespace
   LEFT JOIN pg_stat_all_tables s ON s.relid = c.oid
@@ -293,6 +378,10 @@ FROM (
     table_name: string;
     relkind: string;
     approx_rows: number | string | null;
+    size_bytes: number | string | null;
+    size_pretty: string | null;
+    index_count: number | string | null;
+    last_updated: string | null;
   }> | null;
 
   const rawColumns = (await psqlJsonQuery(dbName, columnsSql)) as Array<{
@@ -329,16 +418,242 @@ FROM (
       t.approx_rows == null || t.approx_rows === ""
         ? null
         : Number(t.approx_rows);
+    const sizeBytes =
+      t.size_bytes == null || t.size_bytes === ""
+        ? null
+        : Number(t.size_bytes);
     return {
       schema: t.schema_name,
       name: t.table_name,
       kind: mapRelKind(t.relkind),
       approxRows: Number.isFinite(approx as number) ? (approx as number) : null,
+      sizeBytes: Number.isFinite(sizeBytes as number) ? (sizeBytes as number) : null,
+      sizePretty: t.size_pretty || null,
+      indexCount: Number(t.index_count ?? 0) || 0,
+      lastUpdated: t.last_updated ? String(t.last_updated) : null,
       columns: columnsByTable.get(key) ?? [],
     };
   });
 
-  return { dbName, tables, dryRun: false };
+  let dbSizeBytes: number | null = null;
+  let dbSizePretty: string | null = null;
+  let pgVersion: string | null = null;
+  try {
+    const sizeRaw = (await psqlJsonQuery(dbName, sizeSql)) as {
+      sizeBytes?: number | string;
+      sizePretty?: string;
+      pgVersion?: string;
+    } | null;
+    if (sizeRaw?.sizeBytes != null) {
+      const n = Number(sizeRaw.sizeBytes);
+      dbSizeBytes = Number.isFinite(n) ? n : null;
+    }
+    dbSizePretty = sizeRaw?.sizePretty ?? null;
+    pgVersion = sizeRaw?.pgVersion ? String(sizeRaw.pgVersion) : null;
+  } catch {
+    /* optional */
+  }
+
+  async function extra<T>(sql: string): Promise<T[]> {
+    try {
+      const raw = await psqlJsonQuery(dbName, sql);
+      return Array.isArray(raw) ? (raw as T[]) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  const rawIndexes = await extra<{
+    schema_name: string;
+    table_name: string;
+    index_name: string;
+    is_unique: boolean;
+    definition: string;
+  }>(`
+SELECT COALESCE(json_agg(row_to_json(x) ORDER BY x.schema_name, x.table_name, x.index_name), '[]'::json)
+FROM (
+  SELECT n.nspname AS schema_name, t.relname AS table_name, i.relname AS index_name,
+    ix.indisunique AS is_unique, pg_get_indexdef(i.oid) AS definition
+  FROM pg_index ix
+  JOIN pg_class i ON i.oid = ix.indexrelid
+  JOIN pg_class t ON t.oid = ix.indrelid
+  JOIN pg_namespace n ON n.oid = t.relnamespace
+  WHERE n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+) x`);
+
+  const rawRelations = await extra<{
+    table_schema: string;
+    table_name: string;
+    column_name: string;
+    foreign_schema: string;
+    foreign_table: string;
+    foreign_column: string;
+    constraint_name: string;
+  }>(`
+SELECT COALESCE(json_agg(row_to_json(x)), '[]'::json)
+FROM (
+  SELECT
+    tc.table_schema, tc.table_name, kcu.column_name,
+    ccu.table_schema AS foreign_schema, ccu.table_name AS foreign_table,
+    ccu.column_name AS foreign_column, tc.constraint_name
+  FROM information_schema.table_constraints tc
+  JOIN information_schema.key_column_usage kcu
+    ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+  JOIN information_schema.constraint_column_usage ccu
+    ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema
+  WHERE tc.constraint_type = 'FOREIGN KEY'
+    AND tc.table_schema NOT IN ('pg_catalog', 'information_schema')
+) x`);
+
+  const rawFunctions = await extra<{
+    schema_name: string;
+    name: string;
+    args: string;
+    returns: string;
+    language: string;
+  }>(`
+SELECT COALESCE(json_agg(row_to_json(x) ORDER BY x.schema_name, x.name), '[]'::json)
+FROM (
+  SELECT n.nspname AS schema_name, p.proname AS name,
+    pg_get_function_identity_arguments(p.oid) AS args,
+    pg_get_function_result(p.oid) AS returns,
+    l.lanname AS language
+  FROM pg_proc p
+  JOIN pg_namespace n ON n.oid = p.pronamespace
+  JOIN pg_language l ON l.oid = p.prolang
+  WHERE n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+    AND p.prokind IN ('f', 'p')
+) x`);
+
+  const rawTriggers = await extra<{
+    event_object_schema: string;
+    event_object_table: string;
+    trigger_name: string;
+    action_timing: string;
+    event_manipulation: string;
+    action_statement: string;
+  }>(`
+SELECT COALESCE(json_agg(row_to_json(x)), '[]'::json)
+FROM (
+  SELECT event_object_schema, event_object_table, trigger_name,
+    action_timing, event_manipulation, action_statement
+  FROM information_schema.triggers
+  WHERE trigger_schema NOT IN ('pg_catalog', 'information_schema')
+) x`);
+
+  const rawEnums = await extra<{
+    schema_name: string;
+    name: string;
+    labels: string[] | null;
+  }>(`
+SELECT COALESCE(json_agg(row_to_json(x) ORDER BY x.schema_name, x.name), '[]'::json)
+FROM (
+  SELECT n.nspname AS schema_name, t.typname AS name,
+    (SELECT json_agg(e.enumlabel ORDER BY e.enumsortorder) FROM pg_enum e WHERE e.enumtypid = t.oid) AS labels
+  FROM pg_type t
+  JOIN pg_namespace n ON n.oid = t.typnamespace
+  WHERE t.typtype = 'e'
+    AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+) x`);
+
+  return {
+    dbName,
+    dbSizeBytes,
+    dbSizePretty,
+    pgVersion,
+    tables,
+    indexes: rawIndexes.map((i) => ({
+      schema: i.schema_name,
+      table: i.table_name,
+      name: i.index_name,
+      unique: Boolean(i.is_unique),
+      definition: i.definition || "",
+    })),
+    relations: rawRelations.map((r) => ({
+      schema: r.table_schema,
+      table: r.table_name,
+      column: r.column_name,
+      foreignSchema: r.foreign_schema,
+      foreignTable: r.foreign_table,
+      foreignColumn: r.foreign_column,
+      name: r.constraint_name,
+    })),
+    functions: rawFunctions.map((f) => ({
+      schema: f.schema_name,
+      name: f.name,
+      args: f.args || "",
+      returns: f.returns || "",
+      language: f.language || "",
+    })),
+    triggers: rawTriggers.map((t) => ({
+      schema: t.event_object_schema,
+      table: t.event_object_table,
+      name: t.trigger_name,
+      timing: t.action_timing || "",
+      event: t.event_manipulation || "",
+      statement: t.action_statement || "",
+    })),
+    enums: rawEnums.map((e) => ({
+      schema: e.schema_name,
+      name: e.name,
+      labels: Array.isArray(e.labels) ? e.labels.map(String) : [],
+    })),
+    dryRun: false,
+  };
+}
+
+function escapeLike(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+}
+
+async function listTableColumnNames(
+  dbName: string,
+  schema: string,
+  table: string
+): Promise<string[]> {
+  const colsSql = `
+SELECT COALESCE(json_agg(column_name ORDER BY ordinal_position), '[]'::json)
+FROM information_schema.columns
+WHERE table_schema = ${quoteLiteral(schema)}
+  AND table_name = ${quoteLiteral(table)}`;
+  const names = (await psqlJsonQuery(dbName, colsSql)) as string[] | null;
+  return Array.isArray(names)
+    ? names.filter((n) => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(String(n)))
+    : [];
+}
+
+function buildPreviewWhere(opts: {
+  columns: string[];
+  search?: string;
+  filterColumn?: string;
+  filterOp?: string;
+  filterValue?: string;
+}): string {
+  const parts: string[] = [];
+  const search = (opts.search || "").trim().slice(0, 120);
+  if (search && opts.columns.length > 0) {
+    const lit = quoteLiteral(`%${escapeLike(search)}%`);
+    parts.push(
+      `(${opts.columns
+        .map((c) => `${quoteIdent(c)}::text ILIKE ${lit} ESCAPE '\\'`)
+        .join(" OR ")})`
+    );
+  }
+  const col = (opts.filterColumn || "").trim();
+  const val = (opts.filterValue || "").trim().slice(0, 200);
+  if (col && val) {
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(col) || !opts.columns.includes(col)) {
+      throw new Error("Invalid filter column");
+    }
+    if (opts.filterOp === "equals") {
+      parts.push(`${quoteIdent(col)}::text = ${quoteLiteral(val)}`);
+    } else {
+      parts.push(
+        `${quoteIdent(col)}::text ILIKE ${quoteLiteral(`%${escapeLike(val)}%`)} ESCAPE '\\'`
+      );
+    }
+  }
+  return parts.length ? ` WHERE ${parts.join(" AND ")}` : "";
 }
 
 export async function previewPostgresTableOnServer(input: {
@@ -346,6 +661,10 @@ export async function previewPostgresTableOnServer(input: {
   schema: string;
   table: string;
   limit?: number;
+  search?: string;
+  filterColumn?: string;
+  filterOp?: string;
+  filterValue?: string;
   dryRun: boolean;
 }): Promise<{
   dbName: string;
@@ -382,39 +701,83 @@ export async function previewPostgresTableOnServer(input: {
     };
   }
 
+  const columns = await listTableColumnNames(dbName, schema, table);
   const qualified = `${quoteIdent(schema)}.${quoteIdent(table)}`;
+  const whereSql = buildPreviewWhere({
+    columns,
+    search: input.search,
+    filterColumn: input.filterColumn,
+    filterOp: input.filterOp,
+    filterValue: input.filterValue,
+  });
   const sql = `
 SELECT COALESCE(json_agg(row_to_json(q)), '[]'::json)
 FROM (
-  SELECT * FROM ${qualified} LIMIT ${limit}
+  SELECT * FROM ${qualified}${whereSql} LIMIT ${limit}
 ) q`;
 
   const raw = (await psqlJsonQuery(dbName, sql)) as
     | Record<string, unknown>[]
     | null;
   const rows = Array.isArray(raw) ? raw : [];
-  const columns = rows[0] ? Object.keys(rows[0]) : [];
-
-  // If empty table, still return column names from information_schema
-  if (columns.length === 0) {
-    const colsSql = `
-SELECT COALESCE(json_agg(column_name ORDER BY ordinal_position), '[]'::json)
-FROM information_schema.columns
-WHERE table_schema = ${quoteLiteral(schema)}
-  AND table_name = ${quoteLiteral(table)}`;
-    const names = (await psqlJsonQuery(dbName, colsSql)) as string[] | null;
-    return {
-      dbName,
-      schema,
-      table,
-      columns: Array.isArray(names) ? names : [],
-      rows: [],
-      limit,
-      dryRun: false,
-    };
-  }
 
   return { dbName, schema, table, columns, rows, limit, dryRun: false };
+}
+
+export async function queryPostgresSqlOnServer(input: {
+  dbName: string;
+  sql: string;
+  dryRun: boolean;
+}): Promise<{
+  command: string;
+  columns: string[];
+  rows: Record<string, unknown>[];
+  dryRun: boolean;
+}> {
+  const dbName = input.dbName.trim().toLowerCase();
+  if (!/^[a-z_][a-z0-9_]*$/.test(dbName)) {
+    throw new Error(`Invalid PostgreSQL database name: ${input.dbName}`);
+  }
+  const sql = input.sql.trim().replace(/;+\s*$/, "");
+  if (!sql || sql.length > 8000) {
+    throw new Error("SQL is required and must be under 8000 characters");
+  }
+  if (sql.includes(";")) {
+    throw new Error("Run one SQL statement at a time");
+  }
+  if (
+    /\b(drop\s+database|create\s+database|alter\s+system|copy\s+|pg_read_file|lo_import)\b/i.test(
+      sql
+    )
+  ) {
+    throw new Error("This statement is not allowed");
+  }
+
+  const command = (sql.match(/^\s*([a-zA-Z]+)/)?.[1] || "SQL").toUpperCase();
+  if (process.platform === "win32" || input.dryRun) {
+    return { command, columns: [], rows: [], dryRun: true };
+  }
+
+  const isResult =
+    /^\s*(with|select|table|values|explain|show)\b/i.test(sql);
+  if (isResult) {
+    const hasLimit = /\blimit\s+\d+/i.test(sql);
+    const inner = hasLimit ? sql : `${sql}\nLIMIT 200`;
+    const wrapped = `
+SELECT COALESCE(json_agg(row_to_json(q)), '[]'::json)
+FROM (
+  ${inner}
+) q`;
+    const raw = (await psqlJsonQuery(dbName, wrapped)) as
+      | Record<string, unknown>[]
+      | null;
+    const rows = Array.isArray(raw) ? raw : [];
+    const columns = rows[0] ? Object.keys(rows[0]) : [];
+    return { command, columns, rows, dryRun: false };
+  }
+
+  await runPsql(sql, false, dbName);
+  return { command, columns: [], rows: [], dryRun: false };
 }
 
 export type CreatePostgresColumnInput = {
@@ -806,6 +1169,17 @@ function assertIdent(name: string, label: string) {
   }
 }
 
+function sqlWhereAnd(where: Record<string, unknown>): string {
+  const whereCols = Object.keys(where);
+  if (whereCols.length === 0) {
+    throw new Error("A primary key is required to delete a row");
+  }
+  for (const k of whereCols) assertIdent(k, "column name");
+  return whereCols
+    .map((c) => `${quoteIdent(c)} = ${sqlLiteral(where[c])}`)
+    .join(" AND ");
+}
+
 export async function mutatePostgresTableRowsOnServer(input: {
   dbName: string;
   schema: string;
@@ -813,6 +1187,7 @@ export async function mutatePostgresTableRowsOnServer(input: {
   op: "insert" | "update" | "delete";
   values?: Record<string, unknown>;
   where?: Record<string, unknown>;
+  whereList?: Record<string, unknown>[];
   dryRun: boolean;
 }): Promise<{
   dbName: string;
@@ -832,6 +1207,7 @@ export async function mutatePostgresTableRowsOnServer(input: {
   const qualified = `${quoteIdent(schema)}.${quoteIdent(table)}`;
   const values = input.values ?? {};
   const where = input.where ?? {};
+  const whereList = Array.isArray(input.whereList) ? input.whereList : [];
 
   if (process.platform === "win32" || input.dryRun) {
     return { dbName, schema, table, op: input.op, dryRun: true };
@@ -868,14 +1244,16 @@ export async function mutatePostgresTableRowsOnServer(input: {
       .map((c) => `${quoteIdent(c)} = ${sqlLiteral(where[c])}`)
       .join(" AND ")}`;
   } else if (input.op === "delete") {
-    const whereCols = Object.keys(where);
-    if (whereCols.length === 0) {
-      throw new Error("A primary key is required to delete a row");
+    if (whereList.length > 0) {
+      if (whereList.length > 100) {
+        throw new Error("Cannot delete more than 100 rows at once");
+      }
+      sql = `DELETE FROM ${qualified} WHERE ${whereList
+        .map((w) => `(${sqlWhereAnd(w)})`)
+        .join(" OR ")}`;
+    } else {
+      sql = `DELETE FROM ${qualified} WHERE ${sqlWhereAnd(where)}`;
     }
-    for (const k of whereCols) assertIdent(k, "column name");
-    sql = `DELETE FROM ${qualified} WHERE ${whereCols
-      .map((c) => `${quoteIdent(c)} = ${sqlLiteral(where[c])}`)
-      .join(" AND ")}`;
   } else {
     throw new Error("Unsupported row operation");
   }
@@ -972,6 +1350,133 @@ export function detectPostgresDumpFormat(
   return "sql";
 }
 
+export async function reassignPostgresOwnershipOnServer(input: {
+  dbName: string;
+  roleName: string;
+  dryRun: boolean;
+}): Promise<{ dbName: string; roleName: string; dryRun: boolean }> {
+  const dbName = assertSafeIdent(
+    input.dbName.trim().toLowerCase(),
+    "database name"
+  );
+  const roleName = assertSafeIdent(
+    input.roleName.trim().toLowerCase(),
+    "role name"
+  );
+  const db = quoteIdent(dbName);
+  const role = quoteIdent(roleName);
+
+  if (process.platform === "win32" || input.dryRun) {
+    return { dbName, roleName, dryRun: true };
+  }
+
+  if (!(await databaseExists(dbName))) {
+    throw new Error(`Database '${dbName}' was not found on the server`);
+  }
+
+  await runPsql(`ALTER DATABASE ${db} OWNER TO ${role};`, false);
+  await runPsql(`GRANT ALL PRIVILEGES ON DATABASE ${db} TO ${role};`, false);
+  await runPsql(
+    `GRANT ALL ON SCHEMA public TO ${role}; ALTER SCHEMA public OWNER TO ${role};`,
+    false,
+    dbName
+  );
+  await runPsql(
+    `DO $naviyra$
+DECLARE
+  rec record;
+BEGIN
+  FOR rec IN
+    SELECT c.relkind, n.nspname, c.relname
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relkind IN ('r', 'p', 'v', 'm', 'S')
+  LOOP
+    EXECUTE format(
+      'ALTER %s %I.%I OWNER TO %I',
+      CASE rec.relkind
+        WHEN 'S' THEN 'SEQUENCE'
+        WHEN 'v' THEN 'VIEW'
+        WHEN 'm' THEN 'MATERIALIZED VIEW'
+        ELSE 'TABLE'
+      END,
+      rec.nspname,
+      rec.relname,
+      ${quoteLiteral(roleName)}
+    );
+  END LOOP;
+
+  FOR rec IN
+    SELECT n.nspname AS nsp, p.proname AS name,
+           pg_get_function_identity_arguments(p.oid) AS args
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+  LOOP
+    BEGIN
+      EXECUTE format(
+        'ALTER FUNCTION %I.%I(%s) OWNER TO %I',
+        rec.nsp,
+        rec.name,
+        rec.args,
+        ${quoteLiteral(roleName)}
+      );
+    EXCEPTION WHEN OTHERS THEN
+      NULL;
+    END;
+  END LOOP;
+END
+$naviyra$;`,
+    false,
+    dbName
+  );
+  await runPsql(
+    `GRANT ALL ON ALL TABLES IN SCHEMA public TO ${role};`,
+    false,
+    dbName
+  );
+  await runPsql(
+    `GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO ${role};`,
+    false,
+    dbName
+  );
+  await runPsql(
+    `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO ${role};`,
+    false,
+    dbName
+  );
+  await runPsql(
+    `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO ${role};`,
+    false,
+    dbName
+  );
+
+  return { dbName, roleName, dryRun: false };
+}
+
+function rewriteSqlDumpForReplace(sql: string): string {
+  return sql
+    .replace(/\bCREATE\s+SCHEMA\s+public\s*;/gi, "CREATE SCHEMA IF NOT EXISTS public;")
+    .replace(/\bDROP\s+SCHEMA\s+public\s*;/gi, "DROP SCHEMA IF EXISTS public CASCADE;")
+    .replace(/\bCREATE\s+(?!OR\s+REPLACE\s+)FUNCTION\b/gi, "CREATE OR REPLACE FUNCTION")
+    .replace(/\bCREATE\s+(?!OR\s+REPLACE\s+)PROCEDURE\b/gi, "CREATE OR REPLACE PROCEDURE")
+    .replace(/\bCREATE\s+(?!OR\s+REPLACE\s+)VIEW\b/gi, "CREATE OR REPLACE VIEW");
+}
+
+async function resetPublicSchemaForImport(dbName: string, roleName?: string) {
+  const role = roleName
+    ? quoteIdent(assertSafeIdent(roleName.trim().toLowerCase(), "role name"))
+    : null;
+  await runPsql(`DROP SCHEMA IF EXISTS public CASCADE;`, false, dbName);
+  await runPsql(`CREATE SCHEMA public;`, false, dbName);
+  await runPsql(`GRANT ALL ON SCHEMA public TO PUBLIC;`, false, dbName);
+  if (role) {
+    await runPsql(`GRANT ALL ON SCHEMA public TO ${role};`, false, dbName);
+    await runPsql(`ALTER SCHEMA public OWNER TO ${role};`, false, dbName);
+  }
+}
+
 export async function importPostgresDatabaseOnServer(input: {
   dbName: string;
   roleName?: string;
@@ -1000,10 +1505,16 @@ export async function importPostgresDatabaseOnServer(input: {
     throw new Error(`Database '${dbName}' was not found on the server`);
   }
 
+  await resetPublicSchemaForImport(dbName, input.roleName);
+
   const bins = await ensurePostgresReady();
   const ext = format === "custom" ? "dump" : "sql";
   const tmp = dumpTempPath(dbName, ext);
-  await fs.writeFile(tmp, buf);
+  const payload =
+    format === "sql"
+      ? Buffer.from(rewriteSqlDumpForReplace(buf.toString("utf8")), "utf8")
+      : buf;
+  await fs.writeFile(tmp, payload);
   await fs.chmod(tmp, 0o644);
 
   try {
@@ -1033,6 +1544,14 @@ export async function importPostgresDatabaseOnServer(input: {
     }
   } finally {
     await fs.rm(tmp, { force: true }).catch(() => undefined);
+  }
+
+  if (input.roleName) {
+    await reassignPostgresOwnershipOnServer({
+      dbName,
+      roleName: input.roleName,
+      dryRun: false,
+    });
   }
 
   return { dbName, format, dryRun: false };

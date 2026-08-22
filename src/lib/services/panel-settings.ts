@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { callAgent } from "@/lib/agent/client";
-import { getAgentApiKey } from "@/lib/paths";
+import { assertAgentTarget } from "@/lib/agent/target";
 
 const CONFIG_ID = "default";
 
@@ -32,38 +32,45 @@ export async function updateMaxUploadMb(maxUploadMb: number) {
   await getOrCreatePanelServerConfig();
   const next = clampMaxUploadMb(maxUploadMb);
 
-  const config = await prisma.panelServerConfig.update({
+  await prisma.panelServerConfig.update({
     where: { id: CONFIG_ID },
     data: { maxUploadMb: next, lastError: null },
   });
 
-  const result = await callAgent<{
-    applied?: boolean;
-    maxMb?: number;
-    dryRun?: boolean;
-  }>(
-    { action: "set_nginx_upload_limit", maxMb: next },
-    getAgentApiKey()
-  );
-
-  if (!result.success) {
-    return prisma.panelServerConfig.update({
-      where: { id: CONFIG_ID },
-      data: {
-        nginxApplied: false,
-        lastError: result.error ?? "Failed to apply nginx upload limit",
-      },
-    });
+  const servers = await prisma.server.findMany();
+  let lastError: string | null = null;
+  let applied = false;
+  for (const server of servers) {
+    if (!server.agentUrl?.trim() || !server.agentKey?.trim()) continue;
+    const result = await callAgent<{
+      applied?: boolean;
+      maxMb?: number;
+      dryRun?: boolean;
+    }>(
+      { action: "set_nginx_upload_limit", maxMb: next },
+      assertAgentTarget(server)
+    );
+    if (!result.success) {
+      lastError = result.error ?? "Failed to apply nginx upload limit";
+    } else if (Boolean(result.data?.applied) && !result.data?.dryRun) {
+      applied = true;
+    }
   }
 
-  const applied = Boolean(result.data?.applied) && !result.data?.dryRun;
+  if (!applied && !lastError) {
+    lastError =
+      servers.length === 0
+        ? "No server is registered"
+        : "Saved in the panel. nginx was not reloaded (dry-run or agent not on Linux).";
+  }
+
+  const nginxApplied = lastError ? false : applied;
+
   return prisma.panelServerConfig.update({
     where: { id: CONFIG_ID },
     data: {
-      nginxApplied: applied,
-      lastError: applied
-        ? null
-        : "Saved in the panel. nginx was not reloaded (dry-run or agent not on Linux).",
+      nginxApplied,
+      lastError: nginxApplied ? null : lastError,
     },
   });
 }

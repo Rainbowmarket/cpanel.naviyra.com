@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { callAgent } from "@/lib/agent/client";
+import { controllerAgentTarget } from "@/lib/agent/target";
 import { requireSessionUser } from "@/lib/auth";
 import {
   getPermissionLabel,
@@ -20,7 +21,7 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const ping = await callAgent({ action: "ping" });
+  const ping = await callAgent({ action: "ping" }, await controllerAgentTarget());
   const agentOnline = ping.success;
   const agentMode = ping.via ?? (agentOnline ? "agent" : "offline");
   const isAdmin = hasAdminPermission();

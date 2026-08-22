@@ -32,6 +32,7 @@ export type MailAttachmentMeta = {
   filename: string;
   contentType: string;
   size: number;
+  cid?: string;
 };
 
 export type MailAttachmentPayload = {

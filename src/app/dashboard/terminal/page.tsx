@@ -9,7 +9,7 @@ type HostingTarget = { id: string; label: string; documentRoot: string };
 type LogLine = { id?: string; at: string; kind: string; text: string };
 
 export default function TerminalPage() {
-  const [role, setRole] = useState<"ADMIN" | "RESELLER" | "USER" | "">("");
+  const [role, setRole] = useState<"ADMIN" | "USER" | "">("");
   const [targets, setTargets] = useState<HostingTarget[]>([]);
   const [targetId, setTargetId] = useState("");
   const [connected, setConnected] = useState(false);

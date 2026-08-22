@@ -1,6 +1,7 @@
 import path from "node:path";
 import { prisma } from "@/lib/prisma";
 import { callAgent, uploadFileToAgent } from "@/lib/agent/client";
+import { agentTargetForServerId, type AgentTarget } from "@/lib/agent/target";
 import { isPathUnderRoot, resolvePathWithinRoot } from "@/lib/file-manager-path";
 import { getMaxUploadMb } from "@/lib/services/panel-settings";
 import {
@@ -52,7 +53,7 @@ export async function getTargetContext(
     }
     return {
       documentRoot: subdomain.documentRoot,
-      agentKey: subdomain.domain.server.agentKey,
+      serverId: subdomain.domain.serverId,
       allowedPaths: [subdomain.documentRoot],
       label: `${subdomain.name}.${subdomain.domain.name}`,
     };
@@ -64,7 +65,7 @@ export async function getTargetContext(
   });
   return {
     documentRoot: domain.documentRoot,
-    agentKey: domain.server.agentKey,
+    serverId: domain.serverId,
     allowedPaths: [domain.documentRoot],
     label: domain.name,
   };
@@ -94,13 +95,14 @@ export async function listFileManagerTargets(actor: AccessActor | string) {
 }
 
 async function agentCall<T>(
-  agentKey: string | undefined,
+  serverId: string,
   payload: Parameters<typeof callAgent>[0],
   root: string
 ) {
+  const target: AgentTarget = await agentTargetForServerId(serverId);
   const result = await callAgent<T>(
     { ...payload, root } as Parameters<typeof callAgent>[0],
-    agentKey
+    target
   );
   if (!result.success) {
     throw new Error(result.error ?? "File operation failed");
@@ -133,7 +135,7 @@ export async function fileManagerList(
   const resolved = resolvePathWithinRoot(dirPath, ctx.documentRoot);
 
   const data = await agentCall<{ entries: Array<{ name: string; type: string; size?: number; modifiedAt?: string }> }>(
-    ctx.agentKey,
+    ctx.serverId,
     { action: "list_files", path: resolved },
     ctx.documentRoot
   );
@@ -191,10 +193,14 @@ export async function fileManagerRead(
   const filePath = path.join(dirReal, path.basename(fileName));
   assertPathAllowed(filePath, ctx.documentRoot);
 
-  const data = await agentCall<{ content: string }>(ctx.agentKey, {
-    action: "read_file",
-    path: filePath,
-  }, ctx.documentRoot);
+  const data = await agentCall<{ content: string }>(
+    ctx.serverId,
+    {
+      action: "read_file",
+      path: filePath,
+    },
+    ctx.documentRoot
+  );
 
   return {
     success: true,
@@ -217,7 +223,7 @@ export async function fileManagerWrite(
     ? path.resolve(raw)
     : path.join(path.resolve(ctx.documentRoot), raw.replace(/^[/\\]+/, ""));
   assertPathAllowed(finalPath, ctx.documentRoot);
-  await agentCall(ctx.agentKey, { action: "write_file", path: finalPath, content }, ctx.documentRoot);
+  await agentCall(ctx.serverId, { action: "write_file", path: finalPath, content }, ctx.documentRoot);
   return { success: true, message: "Saved." };
 }
 
@@ -235,9 +241,9 @@ export async function fileManagerCreate(
   assertPathAllowed(itemPath, ctx.documentRoot);
 
   if (kind === "createFolder") {
-    await agentCall(ctx.agentKey, { action: "create_directory", path: itemPath }, ctx.documentRoot);
+    await agentCall(ctx.serverId, { action: "create_directory", path: itemPath }, ctx.documentRoot);
   } else {
-    await agentCall(ctx.agentKey, { action: "write_file", path: itemPath, content: "" }, ctx.documentRoot);
+    await agentCall(ctx.serverId, { action: "write_file", path: itemPath, content: "" }, ctx.documentRoot);
   }
   return `${kind === "createFolder" ? "Folder" : "File"} '${name}' created successfully!`;
 }
@@ -251,7 +257,7 @@ export async function fileManagerDelete(
   const ctx = await getTargetContext(target, actor);
   const resolved = resolveUnderRoot(targetPath, ctx.documentRoot);
   assertPathAllowed(resolved, ctx.documentRoot);
-  await agentCall(ctx.agentKey, {
+  await agentCall(ctx.serverId, {
     action: isFile ? "delete_file" : "delete_directory",
     path: resolved,
   }, ctx.documentRoot);
@@ -273,14 +279,14 @@ export async function fileManagerAction(
     const parent = path.dirname(source);
     const target = path.join(parent, path.basename(params.name));
     assertPathAllowed(target, ctx.documentRoot);
-    await agentCall(ctx.agentKey, { action: "rename_path", source, dest: target }, ctx.documentRoot);
+    await agentCall(ctx.serverId, { action: "rename_path", source, dest: target }, ctx.documentRoot);
     return "Renamed successfully.";
   }
 
   if (!params.dest) throw new Error("Valid destination directory is required.");
   const destDir = resolveUnderRoot(params.dest, ctx.documentRoot);
   assertPathAllowed(destDir, ctx.documentRoot);
-  await agentCall(ctx.agentKey, {
+  await agentCall(ctx.serverId, {
     action: action === "move" ? "move_path" : "copy_path",
     source,
     dest: destDir,
@@ -309,7 +315,7 @@ export async function fileManagerUpload(
   }
   const response = await uploadFileToAgent(filePath, content, {
     removeZip: true,
-    serverAgentKey: ctx.agentKey,
+    target: await agentTargetForServerId(ctx.serverId),
     root: ctx.documentRoot,
   });
   if (!response.success) {
@@ -338,7 +344,7 @@ export async function fileManagerExtractZip(
     throw new Error("Only .zip files can be extracted");
   }
   const result = await agentCall<{ extractedTo: string; removedZip: boolean }>(
-    ctx.agentKey,
+    ctx.serverId,
     {
       action: "extract_zip",
       path: filePath,
@@ -361,7 +367,7 @@ export async function fileManagerDownloadPath(
   assertPathAllowed(dirReal, ctx.documentRoot);
   const filePath = path.join(dirReal, path.basename(fileName));
   assertPathAllowed(filePath, ctx.documentRoot);
-  const data = await agentCall<{ contentBase64: string; size: number }>(ctx.agentKey, {
+  const data = await agentCall<{ contentBase64: string; size: number }>(ctx.serverId, {
     action: "read_file_binary",
     path: filePath,
   }, ctx.documentRoot);

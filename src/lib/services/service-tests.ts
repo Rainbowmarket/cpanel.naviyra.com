@@ -3,6 +3,7 @@ import fs from "node:fs";
 import net from "node:net";
 import { prisma } from "@/lib/prisma";
 import { callAgent } from "@/lib/agent/client";
+import { controllerAgentTarget } from "@/lib/agent/target";
 
 export type ServiceTestId =
   | "panel-systemd"
@@ -182,7 +183,7 @@ async function runOne(id: ServiceTestId): Promise<Omit<ServiceTestResult, "ms">>
   }
 
   if (id === "agent") {
-    const ping = await callAgent({ action: "ping" });
+    const ping = await callAgent({ action: "ping" }, await controllerAgentTarget());
     return {
       id,
       name,

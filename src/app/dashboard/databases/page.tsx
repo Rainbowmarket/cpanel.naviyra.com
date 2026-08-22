@@ -1,7 +1,8 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
-import { Copy, Database, ExternalLink, KeyRound, Pencil, Table2, Trash2 } from "lucide-react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { Copy, Database, KeyRound, Pencil, Table2, Trash2 } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { Modal, modalInputClass, modalLabelClass } from "@/components/ui/modal";
 import { ModalActions, PageHeader } from "@/components/ui/page-header";
@@ -9,7 +10,9 @@ import { useAlert } from "@/components/ui/alert-provider";
 import { matchesSearch } from "@/lib/utils";
 import { DatabaseDumpActions } from "@/components/databases/DatabaseDumpActions";
 
-type HostingTarget = { id: string; label: string; documentRoot: string };
+type HostingTarget = { id: string; label: string; documentRoot: string; serverId?: string };
+
+type DbEngine = { id: string; label: string; serverId: string };
 
 type DbConnection = {
   host: string;
@@ -18,11 +21,13 @@ type DbConnection = {
   user: string;
   password?: string;
   uri: string;
+  engine?: string;
 };
 
 type PgDatabase = {
   id: string;
   label: string;
+  engine?: string;
   dbName: string;
   roleName: string;
   domain?: { id: string; name: string };
@@ -107,6 +112,8 @@ export default function DatabasesPage() {
     null
   );
   const [label, setLabel] = useState("");
+  const [engine, setEngine] = useState("postgres");
+  const [engines, setEngines] = useState<DbEngine[]>([]);
   const [password, setPassword] = useState("");
   const [search, setSearch] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
@@ -138,10 +145,23 @@ export default function DatabasesPage() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
+  const selectedTarget = targets.find((t) => t.id === target);
+  const enginesForTarget = useMemo(() => {
+    const sid = selectedTarget?.serverId;
+    const list = sid
+      ? engines.filter((e) => !e.serverId || e.serverId === sid)
+      : engines;
+    if (list.length === 0) return [{ id: "postgres", label: "PostgreSQL", serverId: "" }];
+    const uniq = new Map<string, DbEngine>();
+    for (const item of list) uniq.set(item.id, item);
+    return [...uniq.values()];
+  }, [engines, selectedTarget?.serverId]);
+
   const loadDatabases = useCallback(async () => {
     const res = await fetch("/api/databases");
     const data = await res.json();
     setDatabases(data.databases ?? []);
+    if (Array.isArray(data.engines)) setEngines(data.engines);
     if (data.connectionDefaults) setDefaults(data.connectionDefaults);
   }, []);
 
@@ -172,7 +192,7 @@ export default function DatabasesPage() {
       const res = await fetch("/api/databases", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ target, label, password }),
+        body: JSON.stringify({ target, label, password, engine }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -496,7 +516,7 @@ export default function DatabasesPage() {
     <div className="space-y-4">
       <PageHeader
         title="Databases"
-        description="Managed PostgreSQL databases for your apps (localhost)."
+        description="Managed databases on the site’s server (localhost)."
         actionLabel="Create Database"
         onAction={() => {
           setError("");
@@ -510,9 +530,11 @@ export default function DatabasesPage() {
 
       <div className="rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-3 text-sm text-slate-300">
         <p className="font-medium text-white">Connection</p>
-        <p className="mt-1 font-mono text-xs text-slate-400">
-          Host: {defaults?.host ?? "127.0.0.1"} · Port:{" "}
-          {defaults?.port ?? "…"} · Apps on this server connect locally
+        <p className="mt-1 text-xs text-slate-400">
+          Apps on this server connect to <span className="font-mono">127.0.0.1</span>.
+          Each database row shows its own engine, port, and URI. Use{" "}
+          <span className="text-slate-300">Browse</span> to open a native table view
+          (new tab).
         </p>
       </div>
 
@@ -520,7 +542,7 @@ export default function DatabasesPage() {
         open={createOpen}
         onClose={() => setCreateOpen(false)}
         title="Create Database"
-        description="PostgreSQL name is exactly what you type (no n_ or domain prefix)."
+        description="Name is what you type. Pick an engine installed on that site’s server (Servers → Plugins → Install)."
       >
         <form onSubmit={handleCreate} className="space-y-4">
           <div>
@@ -530,6 +552,18 @@ export default function DatabasesPage() {
               onChange={setTarget}
               options={targets.map((t) => ({ value: t.id, label: t.label }))}
               placeholder="Choose domain or subdomain..."
+            />
+          </div>
+          <div>
+            <label className={modalLabelClass}>Engine</label>
+            <Select
+              value={engine}
+              onChange={setEngine}
+              options={enginesForTarget.map((e) => ({
+                value: e.id,
+                label: e.label,
+              }))}
+              placeholder="Choose engine..."
             />
           </div>
           <div>
@@ -1263,7 +1297,12 @@ export default function DatabasesPage() {
           >
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="font-medium text-white">{db.label}</p>
+                <p className="font-medium text-white">
+                  {db.label}{" "}
+                  <span className="text-xs font-normal text-slate-500">
+                    ({db.engine || "postgres"})
+                  </span>
+                </p>
                 <p className="text-xs text-slate-500">
                   {db.domain?.name ?? "Domain"}
                 </p>
@@ -1272,16 +1311,15 @@ export default function DatabasesPage() {
                   {db.connection.port}/{db.connection.database}
                 </p>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <a
-                  href={`/dashboard/databases/${db.id}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
-                >
-                  <ExternalLink className="h-3.5 w-3.5" />
-                  Browse
-                </a>
+                <div className="flex flex-wrap gap-2">
+                  <Link
+                    href={`/db-browser/${db.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
+                  >
+                    Browse
+                  </Link>
                 <button
                   type="button"
                   onClick={() => copyText(db.connection.uri)}

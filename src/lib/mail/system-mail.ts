@@ -44,7 +44,7 @@ function buildRawMessage(opts: {
 async function sendViaSendmail(raw: string, fromEmail: string): Promise<void> {
   if (process.platform === "win32") {
     throw new Error(
-      "Password reset email requires the Linux mail server (sendmail)."
+      "System mail requires Linux sendmail (/usr/sbin/sendmail). Alerts and password reset are not sent on Windows."
     );
   }
   await new Promise<void>((resolve, reject) => {
@@ -92,6 +92,35 @@ export async function sendPasswordResetEmail(opts: {
     to: opts.to,
     subject: "Reset your Naviyra Panel password",
     text,
+  });
+
+  await sendViaSendmail(raw, from);
+}
+
+export async function sendAdminAlertEmail(opts: {
+  to: string;
+  name: string;
+  kind: string;
+  subject: string;
+  text: string;
+}): Promise<void> {
+  const from = systemFromAddress();
+  const greeting = opts.name?.trim() ? `Hi ${opts.name},` : "Hi,";
+  const body = [
+    greeting,
+    "",
+    opts.text.trim(),
+    "",
+    `Open the panel: ${panelPublicUrl()}/dashboard`,
+    "",
+    "— Naviyra Panel",
+  ].join("\n");
+
+  const raw = buildRawMessage({
+    from: `Naviyra Panel <${from}>`,
+    to: opts.to,
+    subject: opts.subject,
+    text: body,
   });
 
   await sendViaSendmail(raw, from);

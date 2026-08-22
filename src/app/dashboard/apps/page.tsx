@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Cpu, FolderOpen } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { PageHeader } from "@/components/ui/page-header";
 import { AppRuntimeControls } from "@/components/apps/AppRuntimeControls";
@@ -18,6 +17,7 @@ type AppSite = {
   upstreamPort?: number | null;
   appStatus?: string | null;
   appEnv?: string | null;
+  serverHostname?: string;
 };
 
 function targetId(site: AppSite) {
@@ -40,6 +40,11 @@ export default function AppsPage() {
     setSites(list);
     setSelected((prev) => {
       if (prev && list.some((s) => targetId(s) === prev)) return prev;
+      const fromUrl =
+        typeof window !== "undefined"
+          ? new URLSearchParams(window.location.search).get("site")
+          : null;
+      if (fromUrl && list.some((s) => targetId(s) === fromUrl)) return fromUrl;
       return list[0] ? targetId(list[0]) : "";
     });
   }, []);
@@ -54,50 +59,27 @@ export default function AppsPage() {
   );
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <PageHeader
-        title="Apps"
-        description="Start Node, Python, or Go backends for a domain. Nginx proxies HTTPS to the process."
+        title="App Deployment"
+        description="Upload code, set a startup file, and start your app."
       />
 
-      <p className="text-sm text-slate-400">
-        Select a domain or subdomain, upload code in Files, set the startup
-        file, then Start. The panel allocates a localhost port (12000–12999)
-        and rewrites nginx — you do not need a manual{" "}
-        <span className="font-mono">proxy_pass</span> to :8000.
-      </p>
-
-      <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-4">
+      <div className="max-w-md">
         <label className="mb-1.5 block text-xs font-medium text-slate-400">
-          Site
+          Application
         </label>
         <Select
           value={selected}
           onChange={setSelected}
           options={sites.map((s) => ({
             value: targetId(s),
-            label: `${s.hostname} · ${s.appType}${
-              s.upstreamPort ? ` :${s.upstreamPort}` : ""
-            }${s.appStatus === "RUNNING" ? " · running" : ""}`,
+            label: s.serverHostname
+              ? `${s.hostname} (${s.serverHostname})`
+              : s.hostname,
           }))}
           placeholder={sites.length ? "Choose a site…" : "No sites yet"}
         />
-        {site ? (
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-            <span className="font-mono text-xs text-slate-500">
-              {site.documentRoot}
-            </span>
-            <a
-              href={`/file-manager?target=${site.kind === "subdomain" ? "s" : "d"}:${site.id}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 px-2.5 py-1 text-xs font-medium text-emerald-400 hover:bg-emerald-500/10"
-            >
-              <FolderOpen className="h-3.5 w-3.5" />
-              Upload files
-            </a>
-          </div>
-        ) : null}
       </div>
 
       {error ? <p className="text-sm text-red-400">{error}</p> : null}
@@ -107,6 +89,7 @@ export default function AppsPage() {
           key={targetId(site)}
           kind={site.kind}
           id={site.id}
+          hostname={site.hostname}
           applicationUrl={`https://${site.hostname}`}
           appType={site.appType ?? "PHP"}
           startCommand={site.startCommand}
@@ -119,16 +102,10 @@ export default function AppsPage() {
           onUpdated={() => void load()}
         />
       ) : (
-        <p className="rounded-xl border border-dashed border-slate-800 px-5 py-10 text-center text-sm text-slate-500">
-          Add a domain first, then start a Node, Python, or Go app here.
+        <p className="rounded-2xl border border-dashed border-slate-800 px-5 py-14 text-center text-sm text-slate-500">
+          Add a domain first, then deploy Node, Python, PHP, or Go here.
         </p>
       )}
-
-      <p className="flex items-start gap-2 text-xs text-slate-500">
-        <Cpu className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-        FastAPI: click “Use FastAPI / uvicorn”. Node: server.js must listen on
-        process.env.PORT. Go: bind 127.0.0.1 and os.Getenv(&quot;PORT&quot;).
-      </p>
     </div>
   );
 }

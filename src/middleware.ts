@@ -29,10 +29,17 @@ export function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     "/",
+    "/login",
+    "/login/:path*",
     "/dashboard",
     "/dashboard/:path*",
     "/file-manager",
     "/file-manager/:path*",
-    "/api/((?!file-manager/upload$|databases/[^/]+/import$).*)",
+    "/db-browser",
+    "/db-browser/:path*",
+    "/webmail",
+    "/mailbox",
+    "/mailbox/:path*",
+    "/api/((?!file-manager/upload$|databases/[^/]+/import$|backups/upload$).*)",
   ],
 };

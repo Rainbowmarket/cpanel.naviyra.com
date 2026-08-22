@@ -36,7 +36,7 @@ export type SessionUser = {
   id: string;
   email: string;
   name: string;
-  role: "ADMIN" | "RESELLER" | "USER";
+  role: "ADMIN" | "USER";
   /** null = not in a group, so all non-admin panel features are allowed */
   permissionKeys: string[] | null;
 };
@@ -191,7 +191,7 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     id: user.id,
     email: user.email,
     name: user.name,
-    role: user.role === "ADMIN" || groupAdmin ? "ADMIN" : user.role,
+    role: user.role === "ADMIN" || groupAdmin ? "ADMIN" : "USER",
     permissionKeys: user.role === "ADMIN" || groupAdmin ? null : permissionKeys,
   };
 }

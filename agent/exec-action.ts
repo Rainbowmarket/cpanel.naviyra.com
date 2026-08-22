@@ -5,18 +5,28 @@
 import {
   exportPostgresDatabaseOnServer,
   importPostgresDatabaseOnServer,
+  reassignPostgresOwnershipOnServer,
   postgresDatabaseExistsOnServer,
   createPostgresDatabaseOnServer,
   deletePostgresDatabaseOnServer,
   resetPostgresPasswordOnServer,
   inspectPostgresSchemaOnServer,
   previewPostgresTableOnServer,
+  queryPostgresSqlOnServer,
   mutatePostgresTableRowsOnServer,
   createPostgresTableOnServer,
   deletePostgresTableOnServer,
   alterPostgresTableOnServer,
 } from "./postgres";
 import { redactPostgresError } from "./pg-bin";
+import {
+  listDockerContainers,
+  controlDockerContainer,
+  dockerContainerLogs,
+  dockerComposeUp,
+} from "./docker";
+import { gitDeployOnServer } from "./git";
+import { syncCronJobsOnServer } from "./cron";
 
 const DRY_RUN =
   process.env.AGENT_DRY_RUN === "true" ||
@@ -50,6 +60,12 @@ async function run(payload: Payload) {
         format: payload.format === "custom" ? "custom" : payload.format === "sql" ? "sql" : undefined,
         fileName: payload.fileName ? String(payload.fileName) : undefined,
         contentBase64: String(payload.contentBase64 || ""),
+        dryRun: DRY_RUN,
+      });
+    case "reassign_postgres_ownership":
+      return reassignPostgresOwnershipOnServer({
+        dbName: String(payload.dbName),
+        roleName: String(payload.roleName),
         dryRun: DRY_RUN,
       });
     case "postgres_database_exists":
@@ -87,6 +103,14 @@ async function run(payload: Payload) {
         schema: String(payload.schema || "public"),
         table: String(payload.table),
         limit: payload.limit !== undefined ? Number(payload.limit) : undefined,
+        search: payload.search ? String(payload.search) : undefined,
+        filterColumn: payload.filterColumn
+          ? String(payload.filterColumn)
+          : undefined,
+        filterOp: payload.filterOp ? String(payload.filterOp) : undefined,
+        filterValue: payload.filterValue
+          ? String(payload.filterValue)
+          : undefined,
         dryRun: DRY_RUN,
       });
     case "create_postgres_table": {
@@ -147,9 +171,59 @@ async function run(payload: Payload) {
             ? (payload.values as Record<string, unknown>)
             : {},
         where:
-          payload.where && typeof payload.where === "object"
+          payload.where &&
+          typeof payload.where === "object" &&
+          !Array.isArray(payload.where)
             ? (payload.where as Record<string, unknown>)
             : {},
+        whereList: Array.isArray(payload.whereList)
+          ? (payload.whereList as Record<string, unknown>[])
+          : undefined,
+        dryRun: DRY_RUN,
+      });
+    case "query_postgres_sql":
+      return queryPostgresSqlOnServer({
+        dbName: String(payload.dbName),
+        sql: String(payload.sql || ""),
+        dryRun: DRY_RUN,
+      });
+    case "docker_ps":
+      return listDockerContainers({ dryRun: DRY_RUN });
+    case "docker_control":
+      return controlDockerContainer({
+        id: String(payload.id),
+        op: String(payload.op) as "start" | "stop" | "restart",
+        dryRun: DRY_RUN,
+      });
+    case "docker_logs":
+      return dockerContainerLogs({
+        id: String(payload.id),
+        lines: payload.lines !== undefined ? Number(payload.lines) : undefined,
+        dryRun: DRY_RUN,
+      });
+    case "docker_compose_up":
+      return dockerComposeUp({
+        composePath: String(payload.composePath),
+        documentRoot: String(payload.documentRoot),
+        dryRun: DRY_RUN,
+      });
+    case "git_deploy":
+      return gitDeployOnServer({
+        documentRoot: String(payload.documentRoot),
+        repoUrl: String(payload.repoUrl),
+        branch: String(payload.branch || "main"),
+        dryRun: DRY_RUN,
+      });
+    case "sync_cron_jobs":
+      return syncCronJobsOnServer({
+        jobs: Array.isArray(payload.jobs)
+          ? (payload.jobs as Array<{
+              id: string;
+              schedule: string;
+              command: string;
+              enabled?: boolean;
+            }>)
+          : [],
         dryRun: DRY_RUN,
       });
     default:

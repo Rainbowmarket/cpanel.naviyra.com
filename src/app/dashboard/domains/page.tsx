@@ -9,6 +9,7 @@ import {
   Lock,
   RefreshCw,
   Settings2,
+  ArrowRightLeft,
 } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { Modal, modalInputClass, modalLabelClass } from "@/components/ui/modal";
@@ -33,7 +34,7 @@ type Domain = {
   appStatus?: string | null;
   appEnv?: string | null;
   lastError?: string | null;
-  server: { name: string; hostname: string };
+  server: { id: string; name: string; hostname: string };
   user?: { id: string; name: string; email: string };
   sslCerts: Array<{
     id: string;
@@ -103,7 +104,7 @@ function StatusBadge({ status, error }: { status: string; error?: string | null 
 
 export default function DomainsPage() {
   const router = useRouter();
-  const { confirm } = useAlert();
+  const { confirm, alert } = useAlert();
   const [domains, setDomains] = useState<Domain[]>([]);
   const [servers, setServers] = useState<ServerOption[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -117,6 +118,9 @@ export default function DomainsPage() {
   const [sslError, setSslError] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [runtimeDomain, setRuntimeDomain] = useState<Domain | null>(null);
+  const [migrateDomain, setMigrateDomain] = useState<Domain | null>(null);
+  const [migrateDest, setMigrateDest] = useState("");
+  const [migrating, setMigrating] = useState(false);
 
   async function load() {
     const [domainsRes, serversRes] = await Promise.all([
@@ -188,6 +192,35 @@ export default function DomainsPage() {
     await fetch(`/api/domains?id=${id}`, { method: "DELETE" });
     await load();
     router.refresh();
+  }
+
+  async function handleMigrate() {
+    if (!migrateDomain || !migrateDest) return;
+    setMigrating(true);
+    setError("");
+    try {
+      const res = await fetch("/api/migrations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          domainId: migrateDomain.id,
+          destServerId: migrateDest,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        await alert(
+          typeof data.error === "string" ? data.error : "Migration failed",
+          { title: "Migrate domain", tone: "danger" }
+        );
+        return;
+      }
+      setMigrateDomain(null);
+      await load();
+      router.refresh();
+    } finally {
+      setMigrating(false);
+    }
   }
 
   async function handleIssueSsl(domainId: string) {
@@ -286,13 +319,15 @@ export default function DomainsPage() {
       <Modal
         open={Boolean(runtimeDomain)}
         onClose={() => setRuntimeDomain(null)}
-        title={runtimeDomain ? `App runtime — ${runtimeDomain.name}` : "App runtime"}
-        description="Choose how this site is served and manage Node/Python/Go processes."
+        title={runtimeDomain ? `Deploy — ${runtimeDomain.name}` : "App deployment"}
+        description="Upload code, start the app, or open it in the browser."
+        className="max-w-5xl"
       >
         {runtimeDomain ? (
           <AppRuntimeControls
             kind="domain"
             id={runtimeDomain.id}
+            hostname={runtimeDomain.name}
             applicationUrl={`https://${runtimeDomain.name}`}
             appType={runtimeDomain.appType ?? "PHP"}
             startCommand={runtimeDomain.startCommand}
@@ -367,6 +402,12 @@ export default function DomainsPage() {
                     {d.user.name || d.user.email}
                   </span>
                 ) : null}
+                <span
+                  className="max-w-[12rem] truncate rounded-md bg-slate-900 px-1.5 py-0.5 text-[10px] text-slate-400"
+                  title={d.server.hostname}
+                >
+                  {d.server.name || d.server.hostname}
+                </span>
               </div>
 
               <p
@@ -417,6 +458,21 @@ export default function DomainsPage() {
                   <FolderOpen className="h-3 w-3" />
                   Files
                 </a>
+                {isAdmin && servers.length > 1 ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMigrateDomain(d);
+                      setMigrateDest(
+                        servers.find((s) => s.id !== d.server.id)?.id ?? ""
+                      );
+                    }}
+                    className={`${btn} border-violet-500/30 text-violet-300 hover:bg-violet-500/10`}
+                  >
+                    <ArrowRightLeft className="h-3 w-3" />
+                    Migrate
+                  </button>
+                ) : null}
                 {d.status === "ERROR" ? (
                   <button
                     type="button"
@@ -447,6 +503,48 @@ export default function DomainsPage() {
           </p>
         ) : null}
       </div>
+
+      <Modal
+        open={Boolean(migrateDomain)}
+        onClose={() => setMigrateDomain(null)}
+        title="Migrate domain"
+        description="Export on the current node, transfer through the panel, import on the destination, rebuild nginx/SSL, then switch serverId. DNS must point at the destination when you are ready."
+      >
+        {migrateDomain ? (
+          <form
+            className="space-y-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleMigrate();
+            }}
+          >
+            <p className="text-sm text-slate-300">
+              {migrateDomain.name} is on{" "}
+              <span className="font-mono">{migrateDomain.server.hostname}</span>
+            </p>
+            <label className="block">
+              <span className={modalLabelClass}>Destination server</span>
+              <Select
+                value={migrateDest}
+                onChange={setMigrateDest}
+                options={servers
+                  .filter((s) => s.id !== migrateDomain.server.id)
+                  .map((s) => ({
+                    value: s.id,
+                    label: `${s.name} (${s.hostname})`,
+                  }))}
+                placeholder="Choose a node…"
+              />
+            </label>
+            <ModalActions
+              onCancel={() => setMigrateDomain(null)}
+              submitLabel={migrating ? "Migrating…" : "Start migration"}
+              submitting={migrating}
+              submitDisabled={!migrateDest}
+            />
+          </form>
+        ) : null}
+      </Modal>
     </div>
   );
 }

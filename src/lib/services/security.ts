@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { prisma } from "@/lib/prisma";
 import { callAgent } from "@/lib/agent/client";
+import { agentTargetForServerId, controllerAgentTarget } from "@/lib/agent/target";
 import { assertValidIpAddress, sanitizeBlockReason } from "@/lib/ip";
 import {
   analyzeThreats,
@@ -11,7 +12,7 @@ import {
 } from "@/lib/security/threat-detector";
 import type { ThreatSeverity, ThreatType } from "@/generated/prisma/client";
 
-type AccessRole = "ADMIN" | "RESELLER" | "USER";
+type AccessRole = "ADMIN" | "USER";
 
 /** Admins can see all domains; others only their own. */
 function domainOwnerFilter(userId: string, role?: AccessRole) {
@@ -324,7 +325,7 @@ export async function logVisit(input: {
     });
 
     if (finding.severity === "high" || finding.severity === "critical") {
-      autoBlocked = (await maybeAutoBlock(input.ipAddress, finding, event.id, domain.server.agentKey)) || autoBlocked;
+      autoBlocked = (await maybeAutoBlock(input.ipAddress, finding, event.id, domain.serverId)) || autoBlocked;
     }
   }
 
@@ -335,7 +336,7 @@ async function maybeAutoBlock(
   ip: string,
   finding: ThreatFinding,
   eventId: string,
-  agentKey: string
+  serverId: string
 ): Promise<boolean> {
   const since = new Date(Date.now() - AUTO_BLOCK_WINDOW_MS);
   const count = await prisma.securityEvent.count({
@@ -348,7 +349,7 @@ async function maybeAutoBlock(
   if (count < AUTO_BLOCK_THRESHOLD) return false;
 
   try {
-    await blockIp(ip, `Auto-block: ${finding.type} (${finding.severity})`, "auto", eventId, agentKey);
+    await blockIp(ip, `Auto-block: ${finding.type} (${finding.severity})`, "auto", eventId, serverId);
     return true;
   } catch {
     return false;
@@ -360,7 +361,7 @@ export async function blockIp(
   reason: string,
   source = "manual",
   securityEventId?: string,
-  agentKey?: string
+  serverId?: string
 ) {
   const safeIp = assertValidIpAddress(ip);
   const safeReason = sanitizeBlockReason(reason);
@@ -390,17 +391,24 @@ export async function blockIp(
 
   await callAgent(
     { action: "block_ip", ip: safeIp, reason: safeReason },
-    agentKey
+    serverId
+      ? await agentTargetForServerId(serverId)
+      : await controllerAgentTarget()
   );
 }
 
-export async function unblockIp(ip: string, agentKey?: string) {
+export async function unblockIp(ip: string, serverId?: string) {
   const safeIp = assertValidIpAddress(ip);
   await prisma.blockedIp.updateMany({
     where: { ipAddress: safeIp },
     data: { isActive: false },
   });
-  await callAgent({ action: "unblock_ip", ip: safeIp }, agentKey);
+  await callAgent(
+    { action: "unblock_ip", ip: safeIp },
+    serverId
+      ? await agentTargetForServerId(serverId)
+      : await controllerAgentTarget()
+  );
 }
 
 export async function addWhitelist(ip: string, label?: string) {

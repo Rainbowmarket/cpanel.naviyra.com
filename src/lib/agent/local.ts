@@ -481,6 +481,7 @@ export async function executeLocalAgent<T = unknown>(
       case "postgres_database_exists":
       case "export_postgres_database":
       case "import_postgres_database":
+      case "reassign_postgres_ownership":
       case "create_postgres_database":
       case "delete_postgres_database":
       case "reset_postgres_password":
@@ -489,6 +490,14 @@ export async function executeLocalAgent<T = unknown>(
       case "create_postgres_table":
       case "delete_postgres_table":
       case "alter_postgres_table":
+      case "mutate_postgres_table_rows":
+      case "query_postgres_sql":
+      case "docker_ps":
+      case "docker_control":
+      case "docker_logs":
+      case "docker_compose_up":
+      case "git_deploy":
+      case "sync_cron_jobs":
         return runPostgresOneShot<T>(payload);
 
       case "restore_backup":

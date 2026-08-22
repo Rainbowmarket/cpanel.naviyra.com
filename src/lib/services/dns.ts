@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { callAgent } from "@/lib/agent/client";
-import { getAgentApiKey, getDnsNs1, getDnsNs2, getMailHostname, getServerPublicIp } from "@/lib/paths";
+import { getDnsNs1, getDnsNs2, getMailHostname, getServerPublicIp } from "@/lib/paths";
+import { agentTargetForServerId } from "@/lib/agent/target";
 import {
   buildZoneFile,
   defaultDomainRecords,
@@ -165,7 +166,7 @@ async function refreshAutoManagedRecords(
 
 export async function listDnsZones(
   userId: string,
-  role?: "ADMIN" | "RESELLER" | "USER"
+  role?: "ADMIN" | "USER"
 ) {
   return prisma.dnsZone.findMany({
     where: role === "ADMIN" ? {} : { domain: { userId } },
@@ -182,7 +183,7 @@ export async function listDnsZones(
 /** Create missing zones for hosted domains so DNS is not empty until mail is added. */
 export async function ensureDnsZonesForAccessibleDomains(
   userId: string,
-  role?: "ADMIN" | "RESELLER" | "USER"
+  role?: "ADMIN" | "USER"
 ) {
   const domains = await prisma.domain.findMany({
     where: role === "ADMIN" ? {} : { userId },
@@ -274,7 +275,7 @@ export async function syncDnsZone(domainId: string, userId?: string) {
       })),
       zoneContent,
     },
-    domain.server.agentKey || getAgentApiKey()
+    await agentTargetForServerId(domain.serverId)
   );
 
   return prisma.dnsZone.update({
@@ -449,10 +450,10 @@ export async function removeSubdomainDnsRecord(domainId: string, subdomainName: 
   return syncDnsZone(domainId);
 }
 
-export async function deleteDnsZoneForDomain(domainName: string, agentKey?: string) {
+export async function deleteDnsZoneForDomain(domainName: string, serverId: string) {
   await callAgent(
     { action: "delete_dns_zone", domain: domainName },
-    agentKey || getAgentApiKey()
+    await agentTargetForServerId(serverId)
   );
 }
 

@@ -62,6 +62,7 @@ function stripMeta(message: MailMessage): MailMessage {
       filename: a.filename,
       contentType: a.contentType,
       size: a.size,
+      cid: a.cid,
     }));
   }
   return rest as MailMessage;

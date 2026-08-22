@@ -14,6 +14,7 @@ export const PANEL_PERMISSION_CATALOG = [
   { key: "ssl", label: "SSL", description: "Certificates and renewal" },
   { key: "dns", label: "DNS", description: "DNS zones and records" },
   { key: "files", label: "File Manager", description: "Browse and edit site files" },
+  { key: "cron", label: "Cron jobs", description: "Scheduled commands on the server" },
   { key: "security", label: "Security", description: "Visitors, blocklists, and threat events" },
 ] as const;
 
@@ -26,6 +27,7 @@ const ADMIN_PATH_PREFIXES = [
   "/dashboard/groups",
   "/dashboard/settings",
   "/dashboard/backups",
+  "/dashboard/servers",
   "/dashboard/terminal",
   "/dashboard/speed-test",
   "/dashboard/service-tests",
@@ -43,14 +45,19 @@ export function permissionKeyForPath(pathname: string): PanelPermissionKey | nul
   if (pathname.startsWith("/dashboard/domains")) return "domains";
   if (pathname.startsWith("/dashboard/subdomains")) return "subdomains";
   if (pathname.startsWith("/dashboard/apps")) return "apps";
+  if (pathname.startsWith("/dashboard/docker")) return "apps";
+  if (pathname.startsWith("/dashboard/git")) return "apps";
   if (pathname.startsWith("/dashboard/mail")) return "mail";
   if (pathname.startsWith("/dashboard/ftp")) return "ftp";
-  if (pathname.startsWith("/dashboard/databases")) return "databases";
+  if (pathname.startsWith("/dashboard/databases") || pathname.startsWith("/db-browser")) {
+    return "databases";
+  }
   if (pathname.startsWith("/dashboard/ssl")) return "ssl";
   if (pathname.startsWith("/dashboard/dns")) return "dns";
   if (pathname.startsWith("/dashboard/files") || pathname.startsWith("/file-manager")) {
     return "files";
   }
+  if (pathname.startsWith("/dashboard/cron")) return "cron";
   if (pathname.startsWith("/dashboard/security")) return "security";
   return null;
 }

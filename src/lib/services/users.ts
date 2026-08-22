@@ -1,7 +1,15 @@
 import { prisma } from "@/lib/prisma";
 import { hashPassword } from "@/lib/auth";
 
+export async function coerceResellerRoles() {
+  await prisma.user.updateMany({
+    where: { role: "RESELLER" },
+    data: { role: "USER" },
+  });
+}
+
 export async function listUsers() {
+  await coerceResellerRoles();
   return prisma.user.findMany({
     orderBy: { createdAt: "desc" },
     select: {
@@ -24,7 +32,7 @@ export async function createUser(input: {
   name: string;
   email: string;
   password: string;
-  role?: "ADMIN" | "RESELLER" | "USER";
+  role?: "ADMIN" | "USER";
 }) {
   const existing = await prisma.user.findUnique({
     where: { email: input.email },

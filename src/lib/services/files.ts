@@ -1,5 +1,6 @@
 import path from "node:path";
 import { callAgent } from "@/lib/agent/client";
+import { agentTargetForServerId } from "@/lib/agent/target";
 import {
   isPathUnderRoot,
   resolvePathWithinRoot,
@@ -33,7 +34,7 @@ export async function listFiles(dirPath: string, domainId: string, userId: strin
 
   const result = await callAgent<{ entries: FileEntry[] }>(
     { action: "list_files", path: safePath, root: domain.documentRoot },
-    domain.server.agentKey
+    await agentTargetForServerId(domain.serverId)
   );
 
   if (!result.success) {
@@ -53,7 +54,7 @@ export async function readFile(filePath: string, domainId: string, userId: strin
 
   const result = await callAgent<{ content: string }>(
     { action: "read_file", path: safePath, root: domain.documentRoot },
-    domain.server.agentKey
+    await agentTargetForServerId(domain.serverId)
   );
 
   if (!result.success) {
@@ -78,7 +79,7 @@ export async function writeFile(
 
   const result = await callAgent(
     { action: "write_file", path: safePath, content, root: domain.documentRoot },
-    domain.server.agentKey
+    await agentTargetForServerId(domain.serverId)
   );
 
   if (!result.success) {

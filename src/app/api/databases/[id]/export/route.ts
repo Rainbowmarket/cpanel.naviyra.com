@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { authFailureResponse, requireSessionUser } from "@/lib/auth";
-import { exportPostgresDatabaseDump } from "@/lib/services/databases";
+import { exportPostgresDatabaseDump, formatPostgresClientError } from "@/lib/services/databases";
 
 export const runtime = "nodejs";
 export const maxDuration = 600;
@@ -41,10 +41,9 @@ export async function GET(request: Request, context: RouteContext) {
       return authFailureResponse(error);
     }
     return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Failed to export database",
-      },
+      formatPostgresClientError(
+        error instanceof Error ? error.message : "Failed to export database"
+      ),
       { status: 500 }
     );
   }

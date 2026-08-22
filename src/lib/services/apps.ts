@@ -1,7 +1,7 @@
 import type { AppStatus, AppType } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { callAgent } from "@/lib/agent/client";
-import { getAgentApiKey } from "@/lib/paths";
+import { agentTargetForServerId, type AgentTarget } from "@/lib/agent/target";
 import {
   domainAccessWhere,
   type AccessActor,
@@ -54,7 +54,7 @@ async function loadSite(kind: SiteKind, id: string, user: Actor) {
       upstreamPort: domain.upstreamPort,
       appStatus: domain.appStatus,
       appEnv: domain.appEnv,
-      agentKey: domain.server.agentKey || getAgentApiKey(),
+      serverId: domain.serverId,
     };
   }
 
@@ -74,7 +74,7 @@ async function loadSite(kind: SiteKind, id: string, user: Actor) {
     upstreamPort: subdomain.upstreamPort,
     appStatus: subdomain.appStatus,
     appEnv: subdomain.appEnv,
-    agentKey: subdomain.domain.server.agentKey || getAgentApiKey(),
+    serverId: subdomain.domain.serverId,
   };
 }
 
@@ -113,18 +113,30 @@ export async function listSiteApps(user: Actor) {
       upstreamPort: true,
       appStatus: true,
       appEnv: true,
+      serverId: true,
+      server: { select: { hostname: true, name: true } },
     },
   });
   const subdomains = await prisma.subdomain.findMany({
     where: { domain: access },
     orderBy: [{ domain: { name: "asc" } }, { name: "asc" }],
-    include: { domain: { select: { name: true } } },
+    include: {
+      domain: {
+        select: {
+          name: true,
+          serverId: true,
+          server: { select: { hostname: true, name: true } },
+        },
+      },
+    },
   });
   return [
     ...domains.map((d) => ({
       kind: "domain" as const,
       id: d.id,
       hostname: d.name,
+      serverId: d.serverId,
+      serverHostname: d.server.hostname,
       documentRoot: d.documentRoot,
       appType: d.appType,
       startCommand: d.startCommand,
@@ -140,6 +152,8 @@ export async function listSiteApps(user: Actor) {
       kind: "subdomain" as const,
       id: s.id,
       hostname: `${s.name}.${s.domain.name}`,
+      serverId: s.domain.serverId,
+      serverHostname: s.domain.server.hostname,
       documentRoot: s.documentRoot,
       appType: s.appType,
       startCommand: s.startCommand,
@@ -164,6 +178,129 @@ function assertAppSiteAllowed(kind: SiteKind, siteName: string) {
   }
 }
 
+function posixSitePath(documentRoot: string, relative = "."): string {
+  const root = documentRoot.replace(/\\/g, "/").replace(/\/+$/, "") || "/";
+  const rel = (relative || ".").trim().replace(/\\/g, "/") || ".";
+  if (rel === "." || rel === "./") return root;
+  if (rel.startsWith("/")) {
+    const abs = rel.replace(/\/+$/, "");
+    if (abs === root || abs.startsWith(`${root}/`)) return abs;
+  }
+  return `${root}/${rel.replace(/^\/+/, "").replace(/\/+$/, "")}`;
+}
+
+function parseDotEnvText(text: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const line of text.split(/\r?\n/)) {
+    let t = line.trim();
+    if (!t || t.startsWith("#")) continue;
+    if (/^export\s+/i.test(t)) t = t.replace(/^export\s+/i, "");
+    const eq = t.indexOf("=");
+    if (eq <= 0) continue;
+    const key = t.slice(0, eq).trim();
+    let value = t.slice(eq + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"') && value.length >= 2) ||
+      (value.startsWith("'") && value.endsWith("'") && value.length >= 2)
+    ) {
+      value = value.slice(1, -1);
+    }
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
+    out[key] = value;
+  }
+  return out;
+}
+
+function formatDotEnv(vars: Record<string, string>): string {
+  const skip = new Set(["PORT", "HOST", "PATH"]);
+  const lines = ["# Managed by Naviyra App Deployment", ""];
+  for (const [key, value] of Object.entries(vars)) {
+    if (skip.has(key)) continue;
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
+    const needsQuotes = /[\s#"']/.test(value);
+    const escaped = value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    lines.push(needsQuotes ? `${key}="${escaped}"` : `${key}=${value}`);
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+async function readDotEnvAt(
+  filePath: string,
+  documentRoot: string,
+  target: AgentTarget
+): Promise<string> {
+  const result = await callAgent<{ content: string }>(
+    { action: "read_file", path: filePath, root: documentRoot },
+    target
+  );
+  if (!result.success) return "";
+  return result.data?.content ?? "";
+}
+
+export async function getSiteAppEnv(kind: SiteKind, id: string, user: Actor) {
+  const site = await loadSite(kind, id, user);
+  const workingDir = posixSitePath(site.documentRoot, site.appWorkingDir || ".");
+  const rootEnvPath = `${posixSitePath(site.documentRoot)}/.env`;
+  const workEnvPath = `${workingDir}/.env`;
+
+  const merged: Record<string, string> = {};
+  let exists = false;
+  const target = await agentTargetForServerId(site.serverId);
+  const rootText = await readDotEnvAt(
+    rootEnvPath,
+    site.documentRoot,
+    target
+  );
+  if (rootText.trim()) {
+    exists = true;
+    Object.assign(merged, parseDotEnvText(rootText));
+  }
+  if (workEnvPath !== rootEnvPath) {
+    const workText = await readDotEnvAt(
+        workEnvPath,
+        site.documentRoot,
+        target
+    );
+    if (workText.trim()) {
+      exists = true;
+      Object.assign(merged, parseDotEnvText(workText));
+    }
+  }
+
+  const vars = Object.entries(merged).map(([key, value]) => ({ key, value }));
+  return {
+    path: workEnvPath,
+    exists,
+    vars,
+  };
+}
+
+export async function writeSiteAppEnvFile(
+  kind: SiteKind,
+  id: string,
+  user: Actor,
+  appEnv: string | null | undefined,
+  appWorkingDir?: string | null
+) {
+  const site = await loadSite(kind, id, user);
+  const workingRel = appWorkingDir ?? site.appWorkingDir ?? ".";
+  const envPath = `${posixSitePath(site.documentRoot, workingRel)}/.env`;
+  const content = formatDotEnv(parseDotEnvText(appEnv ?? ""));
+  const result = await callAgent(
+    {
+      action: "write_file",
+      path: envPath,
+      root: site.documentRoot,
+      content,
+    },
+    await agentTargetForServerId(site.serverId)
+  );
+  if (!result.success) {
+    throw new Error(result.error ?? "Failed to write .env in the site directory");
+  }
+  return { path: envPath };
+}
+
 export async function getSiteAppLogs(
   kind: SiteKind,
   id: string,
@@ -172,7 +309,7 @@ export async function getSiteAppLogs(
   const site = await loadSite(kind, id, user);
   const result = await callAgent<{ unitName: string; logs: string }>(
     { action: "app_logs", siteId: site.id, lines: 80 },
-    site.agentKey
+    await agentTargetForServerId(site.serverId)
   );
   return {
     site,
@@ -239,7 +376,7 @@ export async function configureSiteApp(
       upstreamPort: site.upstreamPort,
       isSubdomain: kind === "subdomain",
     },
-    site.agentKey
+    await agentTargetForServerId(site.serverId)
   );
 
   if (!result.success) {
@@ -257,6 +394,10 @@ export async function configureSiteApp(
     appEnv: isProxyAppType(appType) ? appEnv : null,
     appStatus: "STOPPED",
   });
+
+  if (isProxyAppType(appType) && appEnv !== undefined) {
+    await writeSiteAppEnvFile(kind, id, user, appEnv, appWorkingDir);
+  }
 
   if (kind === "domain") {
     await prisma.domain.update({
@@ -282,7 +423,7 @@ export async function controlSiteApp(
   if (op === "status") {
     const result = await callAgent<{ active: boolean; exists: boolean }>(
       { action: "app_status", siteId: site.id },
-      site.agentKey
+      await agentTargetForServerId(site.serverId)
     );
     const active = Boolean(result.data?.active);
     const appStatus: AppStatus = active ? "RUNNING" : "STOPPED";
@@ -304,7 +445,7 @@ export async function controlSiteApp(
     op === "start" ? "app_start" : op === "stop" ? "app_stop" : "app_restart";
   const result = await callAgent<{ active?: boolean }>(
     { action, siteId: site.id },
-    site.agentKey
+    await agentTargetForServerId(site.serverId)
   );
   if (!result.success) {
     await persistSite(kind, id, { appStatus: "ERROR" });
@@ -330,5 +471,8 @@ export async function removeSiteAppUnit(
   user: Actor
 ) {
   const site = await loadSite(kind, id, user);
-  await callAgent({ action: "app_remove", siteId: site.id }, site.agentKey);
+  await callAgent(
+    { action: "app_remove", siteId: site.id },
+    await agentTargetForServerId(site.serverId)
+  );
 }

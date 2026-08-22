@@ -27,14 +27,14 @@ export const DOC_ARTICLES: DocArticle[] = [
       {
         heading: "What this panel does",
         body: [
-          "Naviyra is a self-hosted hosting control panel. From the browser you manage domains, mail, FTP, SSL, DNS, files, databases, security, and app runtimes on the same server.",
-          "The web UI talks to a local Server Agent that applies changes (nginx, certificates, systemd, PostgreSQL, and so on).",
+          "Naviyra is a self-hosted hosting control panel. The web UI is the controller: it stores users and domains in SQLite. A Server Agent on each registered node applies nginx, certificates, PostgreSQL, mail, and files.",
+          "Every domain belongs to one server. Hosting actions always go to that node’s agent URL. A single-machine install is the same path: the first server is registered with a loopback agent URL.",
         ],
       },
       {
         heading: "Roles",
         body: [
-          "USER and RESELLER manage their own domains and related services.",
+          "USER accounts manage their own domains and related services.",
           "ADMIN can manage all users, Settings (upload size), backups, speed test, and Terminal (host shell).",
         ],
         tips: [
@@ -51,7 +51,7 @@ export const DOC_ARTICLES: DocArticle[] = [
           "Upload site files in File Manager (ZIP extracts automatically).",
           "Issue SSL, create mail/FTP/database accounts as needed.",
           "Use Security and Backups to monitor and protect the server.",
-          "Watch live CPU and RAM on Overview (Server load).",
+          "Watch server health, alerts, services, top sites, and security on Overview. Open Monitoring, Security, SSL, or a site page for detail.",
         ],
       },
     ],
@@ -86,7 +86,7 @@ export const DOC_ARTICLES: DocArticle[] = [
         heading: "Tenant file isolation",
         body: [
           "File Manager paths are checked in the panel and again in the agent (sites root allowlist, symlink resolution, optional tenant document root).",
-          "USER/RESELLER accounts are scoped to their own document roots. Do not give those roles admin or agent keys.",
+          "USER accounts are scoped to their own document roots. Do not give those roles admin or agent keys.",
         ],
       },
     ],
@@ -177,9 +177,9 @@ export const DOC_ARTICLES: DocArticle[] = [
         heading: "How to configure",
         steps: [
           "Open Apps (or Runtime on a domain/subdomain).",
-          "Pick Static, PHP, Node.js, Python, or Go.",
-          "For Node/Python/Go: set Application mode (Development/Production), Application root (folder under the site document root), and Application startup file (e.g. server.js). Optionally override the start command under Advanced.",
-          "Click Save, then Start (or Restart) so systemd runs the process.",
+          "Pick Python, Node.js, PHP, Go, or Static.",
+          "Upload code, set the startup file, add env vars if needed, then Start.",
+          "Custom start commands and application root live under Advanced Settings.",
         ],
       },
       {
@@ -308,7 +308,7 @@ export const DOC_ARTICLES: DocArticle[] = [
           "Password reset and lockouts after failed webmail logins are managed in the panel.",
         ],
         tips: [
-          "MAIL_FROM / SPF must allow this server IP for outbound system mail (password reset).",
+          "MAIL_FROM / SPF must allow this server IP for outbound system mail (password reset and admin alerts).",
           "Public DNS for mail.* should point at SERVER_PUBLIC_IP.",
           "Webmail Compose can attach up to 10 files (20 MB total).",
         ],
@@ -354,6 +354,35 @@ export const DOC_ARTICLES: DocArticle[] = [
         body: [
           "Uses vsftpd on Linux installs.",
           "Accounts are scoped per domain home directory.",
+        ],
+      },
+    ],
+  },
+  {
+    slug: "cron",
+    title: "Cron jobs",
+    summary: "Schedule commands on the Linux VPS from the panel.",
+    href: "/dashboard/cron",
+    audience: "all",
+    category: "Tools",
+    sections: [
+      {
+        heading: "How to add a job",
+        steps: [
+          "Open Tools → Cron Jobs.",
+          "Set a name, a schedule (preset or five-field expression), and the command to run.",
+          "Create — the panel writes /etc/cron.d/naviyra-jobs on the server.",
+        ],
+      },
+      {
+        heading: "How to use it",
+        body: [
+          "Pause a job to keep it in the list without running it.",
+          "Edit to change the schedule or command; Delete removes it from crontab.",
+        ],
+        tips: [
+          "Commands cannot contain newlines or % (cron treats % as a newline).",
+          "Jobs run as the panel cron user (root by default; set PANEL_CRON_USER on the agent to change it).",
         ],
       },
     ],
@@ -681,7 +710,7 @@ export const DOC_ARTICLES: DocArticle[] = [
         heading: "How to add a user",
         steps: [
           "Open Admin → Users.",
-          "Create user with name, email, password, and role (USER / RESELLER / ADMIN).",
+          "Create user with name, email, password, and role (USER / ADMIN).",
           "They can log in at /login and manage their own resources.",
         ],
       },
@@ -697,7 +726,7 @@ export const DOC_ARTICLES: DocArticle[] = [
         heading: "Specialties",
         body: [
           "First-time setup can create the initial admin via /login/setup when no users exist.",
-          "Forgot-password flow uses system mail (MAIL_FROM) when configured.",
+          "Forgot-password and admin alerts use system mail (MAIL_FROM + sendmail) on Linux. Alerts: agent unreachable, disk ≥90%, CPU/RAM ≥90%, high load, and domain restore/migration.",
         ],
       },
     ],
@@ -767,6 +796,56 @@ export const DOC_ARTICLES: DocArticle[] = [
         body: [
           "Requires a logged-in session (/api/system/resources).",
           "Polling pauses when the browser tab is hidden.",
+        ],
+      },
+    ],
+  },
+  {
+    slug: "docker-git-fleet",
+    title: "Docker, Git, monitoring, and servers",
+    summary: "Containers, git deploy into a site, live resource history, and extra agent nodes.",
+    href: "/dashboard/docs/docker-git-fleet",
+    audience: "all",
+    category: "Hosting",
+    sections: [
+      {
+        heading: "Docker",
+        body: [
+          "Open Docker to list containers on this host. Start, stop, restart, and view logs through the agent (docker CLI).",
+          "Compose up -d uses docker-compose.yml in the selected site’s document root.",
+        ],
+        tips: ["Docker Engine must be installed on the server. Dry-run/Windows does not start real containers."],
+      },
+      {
+        heading: "Git Deployments",
+        body: [
+          "Pick a domain or subdomain, paste an https/ssh git URL and branch, then Save and deploy.",
+          "First deploy needs an empty site folder. Later deploys fetch and check out FETCH_HEAD. Git hooks are disabled.",
+        ],
+      },
+      {
+        heading: "Resource Monitoring",
+        body: [
+          "Monitoring records CPU and RAM samples while the page is open, and shows disk volumes.",
+          "Overview still has the compact live CPU/RAM widget.",
+        ],
+      },
+      {
+        heading: "Servers (admin)",
+        body: [
+          "The first node is this controller’s agent (loopback URL + key). Additional nodes need Agent URL and that host’s AGENT_API_KEY.",
+          "Ping checks that node. Every domain is assigned to one server; hosting actions use that agent only. Remove a node only after its domains are gone. The last server cannot be deleted.",
+        ],
+        tips: [
+          "Admin → Domains → Migrate runs the nine-step orchestrator (export, transfer via the panel, import, nginx, SSL, health, switch serverId, deprovision source).",
+          "Plugins: Servers → Plugins lists what that agent reports. Add agent/plugins/contrib/<id>.ts and restart the agent — panel core is unchanged.",
+          "Agent unreachable, disk ≥90%, CPU/RAM overload, and high load email admins via MAIL_FROM (Linux sendmail).",
+        ],
+      },
+      {
+        heading: "Automated backups",
+        body: [
+          "Admin → Backups is the automated backups dashboard: schedule, last status, success rate, retention, per-domain runs, restore and delete.",
         ],
       },
     ],

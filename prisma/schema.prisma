@@ -118,6 +118,7 @@ model User {
   passwordResets   PasswordResetToken[]
   backupCodes      BackupCode[]
   groupMemberships PanelGroupMember[]
+  cronJobs         CronJob[]
 }
 
 model PanelGroup {
@@ -178,17 +179,24 @@ model PasswordResetToken {
 }
 
 model Server {
-  id        String   @id @default(cuid())
-  name      String
-  hostname  String   @unique
-  ipAddress String
-  agentKey  String   @unique
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            String    @id @default(cuid())
+  name          String
+  hostname      String    @unique
+  ipAddress     String
+  agentKey      String    @unique
+  agentUrl      String?
+  notes         String?
+  lastSeenAt    DateTime?
+  lastPingError String?
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   domains Domain[]
   jobs    Job[]
+  plugins ServerPlugin[]
+  migrationsFrom DomainMigration[] @relation("MigrationSource")
+  migrationsTo   DomainMigration[] @relation("MigrationDest")
 }
 
 model Domain {
@@ -222,6 +230,7 @@ model Domain {
   visitorLogs  VisitorLog[]
   liveVisitors LiveVisitor[]
   securityEvents SecurityEvent[]
+  migrations DomainMigration[]
 }
 
 model Subdomain {
@@ -301,8 +310,9 @@ model FtpAccount {
 model PostgresDatabase {
   id           String   @id @default(cuid())
   label        String
-  dbName       String   @unique
-  roleName     String   @unique
+  engine       String   @default("postgres")
+  dbName       String
+  roleName     String
   passwordHash String
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
@@ -310,6 +320,9 @@ model PostgresDatabase {
 
   domainId String
   domain   Domain @relation(fields: [domainId], references: [id], onDelete: Cascade)
+
+  @@unique([engine, dbName])
+  @@unique([engine, roleName])
 }
 
 model SslCertificate {
@@ -535,4 +548,101 @@ model BackupRun {
   summary     String?
 
   @@index([startedAt])
+}
+
+model GitDeployment {
+  id           String    @id @default(cuid())
+  kind         String
+  siteId       String
+  hostname     String
+  repoUrl      String
+  branch       String    @default("main")
+  lastCommit   String?
+  lastStatus   String    @default("idle")
+  lastError    String?
+  lastDeployAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([kind, siteId])
+  @@index([hostname])
+}
+
+model ResourceSample {
+  id           String   @id @default(cuid())
+  collectedAt  DateTime @default(now())
+  hostname     String
+  cpuPercent   Float?
+  memPercent   Float?
+  load1        Float?
+  memUsedBytes Float?
+  memTotalBytes Float?
+
+  @@index([collectedAt])
+}
+
+/** Cooldown rows so the same admin alert is not emailed every request. */
+model AdminAlertLog {
+  id          String   @id @default(cuid())
+  kind        String
+  fingerprint String
+  lastSentAt  DateTime @default(now())
+
+  @@unique([kind, fingerprint])
+}
+
+model CronJob {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  schedule  String
+  command   String
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model ServerPlugin {
+  id         String   @id @default(cuid())
+  serverId   String
+  server     Server   @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  pluginId   String
+  name       String
+  kind       String
+  enabled    Boolean  @default(true)
+  installed  Boolean  @default(false)
+  health     String?
+  lastSeenAt DateTime @default(now())
+
+  @@unique([serverId, pluginId])
+  @@index([serverId])
+}
+
+enum DomainMigrationStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+model DomainMigration {
+  id             String                 @id @default(cuid())
+  domainId       String
+  domain         Domain                 @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  sourceServerId String
+  sourceServer   Server                 @relation("MigrationSource", fields: [sourceServerId], references: [id])
+  destServerId   String
+  destServer     Server                 @relation("MigrationDest", fields: [destServerId], references: [id])
+  status         DomainMigrationStatus  @default(PENDING)
+  step           Int                    @default(0)
+  stepLabel      String?
+  archivePath    String?
+  lastError      String?
+  createdAt      DateTime               @default(now())
+  finishedAt     DateTime?
+
+  @@index([domainId])
 }

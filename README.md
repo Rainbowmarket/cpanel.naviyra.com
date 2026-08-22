@@ -426,73 +426,51 @@ Archives default to `/var/backups/naviyra/naviyra-backup-*.tar.gz`.
 
 ---
 
-## Multi-server setup (future)
+## Controller panel + registered nodes
 
-Naviyra supports **one central panel** managing **multiple hosting servers**. This is different from running two separate panels.
+One **controller** (this Next.js panel + SQLite) can manage **one or many** Server Agents. A one-VPS install is the same code path as a fleet: the first Server row is this machine, with `agentUrl` like `http://127.0.0.1:4000` (or `AGENT_URL`) and `agentKey` = `AGENT_API_KEY`.
 
-### Two approaches
-
-| Approach | What it is | Best for |
-|----------|------------|----------|
-| **Secondary server** | One panel, multiple machines with agents | WHM/cPanel-style hosting |
-| **Secondary panel** | Full separate Naviyra install on another PC | Independent clients or regions |
-
-### Option 1: Secondary server (recommended)
-
-**Architecture**
+Every domain has exactly one `serverId`. Hosting actions always go `domain.serverId` → that row’s `agentUrl` + `agentKey` → `POST /execute`. There is no “empty URL means local process” fallback (that would create sites on the wrong node).
 
 ```
-Central Panel (your PC or VPS)
-    ├── Primary Server   → agent on machine A
-    └── Secondary Server → agent on machine B
+Browser → Panel controller → SQLite
+                │
+                ├── serverId A → Node agent (s1)
+                └── serverId B → Node agent (s2)
 ```
 
-Each domain is assigned to one server. The panel stores server name, hostname, IP, and a unique `agentKey`.
+Roles are **ADMIN** and **USER** only.
 
-**Steps to add a secondary server**
+### Add another node
 
-1. **On the second machine**, install Node.js and copy the `agent/` folder (or clone the repo).
-2. Create `.env` on that machine:
-   ```env
-   AGENT_PORT=4000
-   AGENT_API_KEY=your-unique-secret-key-for-server-2
-   AGENT_DRY_RUN=false
-   ```
-3. **Start the agent** on the second machine (Linux: run as root for live mode):
-   ```bash
-   cd agent && npm install && npm run dev
-   ```
-4. **Register the server** in the panel database (Servers UI coming soon; for now use Prisma Studio):
-   ```bash
-   npm run db:studio
-   ```
-   Add a row to **Server**:
-   - `name`: `Secondary Server`
-   - `hostname`: `server2.naviyra.com`
-   - `ipAddress`: IP of the second machine (e.g. `192.168.1.50`)
-   - `agentKey`: same key as step 2
-   - `isActive`: `true`
+1. On the second machine, install Node.js, copy `agent/`, set `AGENT_PORT`, `AGENT_API_KEY`, `AGENT_DRY_RUN=false`.
+2. Start the agent as root on Linux: `cd agent && npm install && npm run dev` (or systemd).
+3. In **Admin → Servers**, add the node with hostname, IP, **Agent URL** (`http://<ip>:4000` or a TLS reverse-proxy URL), and the same agent key.
+4. When creating a domain, pick that server. Ping must succeed before you rely on it.
 
-5. **When adding a domain**, pick **Secondary Server** from the dropdown instead of Primary Server.
+### Move a site between nodes
 
-**Note:** Remote agent routing (`agentUrl` per server) is planned. Today the panel uses a single `AGENT_URL` in `.env` (default `http://127.0.0.1:4000`), so **only the local Primary Server is fully operational**. Multi-server support requires per-server agent URLs in a future update.
+Admin → Domains → **Migrate** (when more than one server is registered). The panel orchestrates:
 
-### Option 2: Secondary panel (separate install)
+1. Export files  
+2. Export databases  
+3. Transfer the archive through the controller (no SSH)  
+4. Import on the destination agent  
+5. Rebuild nginx / app units  
+6. Restore SSL  
+7. Ping the destination agent  
+8. Update `Domain.serverId`  
+9. Remove nginx on the source node  
 
-Run a **complete second Naviyra Panel** on another machine:
+Point public DNS at the destination when you cut over.
 
-1. Copy or clone the project to the second machine.
-2. Run `npm run setup` and `npm run app` there.
-3. It gets its **own database**, users, and domains — not linked to the first panel.
+### Plugins
 
-Use this when you want two independent control panels (e.g. one for you, one for a client).
+Each agent exposes `GET /plugins` and `list_plugins` / `plugin_invoke` on `/execute`. The panel stores the last catalog per server. Built-in PostgreSQL, runtimes, mail/DNS/FTP/Docker, and local backups are registered on the agent. Extra engines (MySQL, Redis, S3, …) appear as available; implement them by dropping `agent/plugins/contrib/<id>.ts` and restarting that agent — **do not fork panel core**.
 
-### Planned features
+### Separate panel install
 
-- **Servers** admin page — add/edit/remove servers from the UI
-- **Per-server agent URL** — panel calls `http://{server-ip}:4000` automatically
-- **Agent health** — online/offline status per server on the dashboard
-- **Auto-hide server dropdown** when only one server exists
+A full second Naviyra install on another machine has its **own** database and is not linked. Use that only when you want independent panels.
 
 ---
 
@@ -517,7 +495,9 @@ Use this when you want two independent control panels (e.g. one for you, one for
 | `BIND_INCLUDE_FILE` | Master include listing those snippets (e.g. `/etc/bind/naviyra-zones.conf`) |
 | `BIND_RELOAD_CMD` | BIND reload command (default `rndc reload`) |
 | `MAIL_HOSTNAME` | Mail server hostname template (default `mail.{domain}`). Deploy provisions `mail.{zone apex}` when public DNS points at `SERVER_PUBLIC_IP`. |
-| `MAIL_FROM` | System From address for password reset (must pass SPF for this server) |
+| `MAIL_FROM` | System From address for password reset and admin alerts (must pass SPF for this server) |
+| `ADMIN_ALERTS_ENABLED` | `false` disables admin alert mail (default on) |
+| `ADMIN_ALERT_COOLDOWN_MS` | Minimum time between identical alerts (default 1800000 = 30 min) |
 | `NAVIYRA_NO_BROWSER` | `true` = don't auto-open browser |
 
 ---

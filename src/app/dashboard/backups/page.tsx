@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertCircle,
@@ -9,12 +9,14 @@ import {
   CalendarClock,
   CheckCircle2,
   Globe,
+  Download,
   Play,
   RefreshCw,
   RotateCcw,
   Save,
   Settings2,
   Trash2,
+  Upload,
 } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { PageHeader } from "@/components/ui/page-header";
@@ -251,6 +253,9 @@ export default function BackupsPage() {
   const [running, setRunning] = useState(false);
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const uploadRef = useRef<HTMLInputElement>(null);
   const [restoreRun, setRestoreRun] = useState<BackupRun | null>(null);
   const [restoreSelection, setRestoreSelection] = useState<RestoreSelection>({
     restorePanelDb: true,
@@ -541,6 +546,65 @@ export default function BackupsPage() {
     load();
   }
 
+  async function handleDownload(run: BackupRun) {
+    if (!run.archivePath) return;
+    setDownloadingId(run.id);
+    setError("");
+    setMessage("");
+    try {
+      const res = await fetch(
+        `/api/backups/download?runId=${encodeURIComponent(run.id)}`
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(
+          typeof data.error === "string" ? data.error : "Download failed"
+        );
+        return;
+      }
+      const blob = await res.blob();
+      const disp = res.headers.get("content-disposition") || "";
+      const named = /filename="([^"]+)"/.exec(disp)?.[1];
+      const fileName =
+        named ||
+        run.archivePath.split(/[/\\]/).pop() ||
+        "backup.tar.gz";
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
+      a.click();
+      URL.revokeObjectURL(url);
+      setMessage(`Downloaded ${fileName}`);
+    } finally {
+      setDownloadingId(null);
+    }
+  }
+
+  async function handleUpload(file: File) {
+    setUploading(true);
+    setError("");
+    setMessage("");
+    try {
+      const body = new FormData();
+      body.append("file", file);
+      const res = await fetch("/api/backups/upload", {
+        method: "POST",
+        body,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(typeof data.error === "string" ? data.error : "Upload failed");
+        return;
+      }
+      setMessage("Backup uploaded. You can restore it from history.");
+      await load();
+    } finally {
+      setUploading(false);
+      if (uploadRef.current) uploadRef.current.value = "";
+    }
+  }
+
 
   if (loading || !config) {
     return <p className="text-slate-400">Loading backup worker...</p>;
@@ -556,7 +620,7 @@ export default function BackupsPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Backups"
+        title="Backup dashboard"
         description="Backup history"
         actionLabel="Backup options"
         onAction={() => setOptionsOpen(true)}
@@ -581,6 +645,53 @@ export default function BackupsPage() {
           {message}
         </p>
       ) : null}
+
+      <div className="grid gap-3 sm:grid-cols-4">
+        <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-3">
+          <p className="text-[11px] uppercase tracking-wide text-slate-500">Schedule</p>
+          <p className="mt-1 text-sm font-semibold text-white">
+            {config.enabled ? scheduleLabel(config.schedule) : "Off"}
+          </p>
+          <p className="mt-0.5 text-[11px] text-slate-500">
+            {config.enabled
+              ? `Next ${nextBackupAt.toLocaleString()}`
+              : "No automatic runs"}
+          </p>
+        </div>
+        <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-3">
+          <p className="text-[11px] uppercase tracking-wide text-slate-500">Last status</p>
+          <p className={`mt-1 text-sm font-semibold ${statusTone(config.lastStatus)}`}>
+            {config.lastStatus || "Never run"}
+          </p>
+          <p className="mt-0.5 text-[11px] text-slate-500">
+            {config.lastRunAt
+              ? new Date(config.lastRunAt).toLocaleString()
+              : "Trigger a run or wait for the timer"}
+          </p>
+        </div>
+        <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-3">
+          <p className="text-[11px] uppercase tracking-wide text-slate-500">Success rate</p>
+          <p className="mt-1 text-sm font-semibold text-white">
+            {runs.length
+              ? `${Math.round(
+                  (runs.filter((r) => r.status === "COMPLETED").length / runs.length) * 100
+                )}%`
+              : "—"}
+          </p>
+          <p className="mt-0.5 text-[11px] text-slate-500">
+            {runs.filter((r) => r.status === "COMPLETED").length} of {runs.length} in history
+          </p>
+        </div>
+        <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-3">
+          <p className="text-[11px] uppercase tracking-wide text-slate-500">Retention</p>
+          <p className="mt-1 text-sm font-semibold text-white">
+            Keep {config.retainCount}
+          </p>
+          <p className="mt-0.5 text-[11px] text-slate-500">
+            {runs.filter((r) => r.status === "RUNNING").length} running now
+          </p>
+        </div>
+      </div>
 
       <div className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-3 sm:px-4">
         <div className="min-w-0">
@@ -644,12 +755,37 @@ export default function BackupsPage() {
             <Archive className="h-4 w-4 text-slate-400" />
             History
           </h2>
-          <span className="text-[11px] text-slate-500">
-            {config.enabled
-              ? scheduleLabel(config.schedule)
-              : "Schedule off"}
-            {config.lastStatus ? ` · ${config.lastStatus}` : ""}
-          </span>
+          <div className="flex items-center gap-2">
+            <input
+              ref={uploadRef}
+              type="file"
+              accept=".tar.gz,.tgz,application/gzip"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void handleUpload(file);
+              }}
+            />
+            <button
+              type="button"
+              disabled={uploading || restoreBusy}
+              onClick={() => uploadRef.current?.click()}
+              className="inline-flex items-center gap-1 rounded-md border border-slate-700 px-2.5 py-1.5 text-[11px] text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+            >
+              {uploading ? (
+                <RefreshCw className="h-3 w-3 animate-spin" />
+              ) : (
+                <Upload className="h-3 w-3" />
+              )}
+              Upload
+            </button>
+            <span className="text-[11px] text-slate-500">
+              {config.enabled
+                ? scheduleLabel(config.schedule)
+                : "Schedule off"}
+              {config.lastStatus ? ` · ${config.lastStatus}` : ""}
+            </span>
+          </div>
         </div>
         {runs.length === 0 ? (
           <p className="rounded-xl border border-dashed border-slate-800 px-5 py-10 text-center text-sm text-slate-500">
@@ -703,15 +839,34 @@ export default function BackupsPage() {
                   </div>
                   <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
                     {run.status === "COMPLETED" && run.archivePath ? (
-                      <button
-                        type="button"
-                        onClick={() => openRestore(run)}
-                        disabled={restoreBusy || deletingId === run.id}
-                        className="inline-flex items-center gap-1 rounded-md border border-slate-700 px-2.5 py-1.5 text-[11px] text-slate-200 hover:bg-slate-800 disabled:opacity-50"
-                      >
-                        <RotateCcw className="h-3 w-3" />
-                        Restore
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => void handleDownload(run)}
+                          disabled={
+                            restoreBusy ||
+                            deletingId === run.id ||
+                            downloadingId === run.id
+                          }
+                          className="inline-flex items-center gap-1 rounded-md border border-slate-700 px-2.5 py-1.5 text-[11px] text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+                        >
+                          {downloadingId === run.id ? (
+                            <RefreshCw className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <Download className="h-3 w-3" />
+                          )}
+                          Download
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openRestore(run)}
+                          disabled={restoreBusy || deletingId === run.id}
+                          className="inline-flex items-center gap-1 rounded-md border border-slate-700 px-2.5 py-1.5 text-[11px] text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+                        >
+                          <RotateCcw className="h-3 w-3" />
+                          Restore
+                        </button>
+                      </>
                     ) : null}
                     <button
                       type="button"

@@ -13,7 +13,7 @@ type PanelUser = {
   id: string;
   name: string;
   email: string;
-  role: "ADMIN" | "RESELLER" | "USER";
+  role: "ADMIN" | "USER";
   createdAt: string;
   _count: { domains: number };
   groupMemberships?: { group: { id: string; name: string } }[];
@@ -21,13 +21,11 @@ type PanelUser = {
 
 const roleOptions = [
   { value: "USER", label: "User" },
-  { value: "RESELLER", label: "Reseller" },
   { value: "ADMIN", label: "Admin" },
 ];
 
 const roleStyles: Record<string, string> = {
   ADMIN: "bg-violet-500/15 text-violet-300 ring-violet-500/30",
-  RESELLER: "bg-blue-500/15 text-blue-300 ring-blue-500/30",
   USER: "bg-slate-500/15 text-slate-300 ring-slate-500/30",
 };
 

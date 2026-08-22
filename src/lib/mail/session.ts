@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { verifyPassword } from "@/lib/auth";
 import { shouldUseSecureCookies } from "@/lib/cookie-secure";
 import { callAgent } from "@/lib/agent/client";
-import { getAgentApiKey } from "@/lib/paths";
+import { agentTargetForServerId } from "@/lib/agent/target";
 import { fromB64url, hmacSign, hmacVerify, b64url } from "@/lib/crypto-hmac";
 import { requireSessionSecret } from "@/lib/secrets";
 
@@ -158,7 +158,7 @@ export async function authenticateMailbox(
           email: account.email,
           isActive: false,
         },
-        account.mailDomain.domain.server.agentKey || getAgentApiKey()
+        await agentTargetForServerId(account.mailDomain.domain.serverId)
       );
     } catch (error) {
       console.error("Failed to disable mailbox on mail server:", error);

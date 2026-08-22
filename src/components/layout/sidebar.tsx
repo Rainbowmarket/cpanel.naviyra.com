@@ -25,10 +25,15 @@ import {
   KeyRound,
   X,
   Cpu,
+  Box,
+  GitBranch,
+  Activity,
+  Clock,
 } from "lucide-react";
 import { BrandLogo } from "@/components/ui/brand-logo";
 import { cn } from "@/lib/utils";
 import { permissionKeyForPath } from "@/lib/panel-permissions";
+import { PANEL_VERSION } from "@/lib/panel-version";
 
 const navGroups = [
   {
@@ -44,7 +49,9 @@ const navGroups = [
     items: [
       { href: "/dashboard/domains", label: "Domains", icon: Globe },
       { href: "/dashboard/subdomains", label: "Subdomains", icon: Server },
-      { href: "/dashboard/apps", label: "Apps", icon: Cpu },
+      { href: "/dashboard/apps", label: "App Deployment", icon: Cpu },
+      { href: "/dashboard/docker", label: "Docker", icon: Box },
+      { href: "/dashboard/git", label: "Git Deployments", icon: GitBranch },
     ],
   },
   {
@@ -61,6 +68,8 @@ const navGroups = [
     label: "Tools",
     items: [
       { href: "/dashboard/files", label: "File Manager", icon: FolderOpen },
+      { href: "/dashboard/cron", label: "Cron Jobs", icon: Clock },
+      { href: "/dashboard/monitoring", label: "Monitoring", icon: Activity },
       { href: "/dashboard/security", label: "Security", icon: Shield },
     ],
   },
@@ -72,6 +81,7 @@ const adminNavGroup = {
     { href: "/dashboard/users", label: "Users", icon: Users },
     { href: "/dashboard/groups", label: "Groups", icon: UsersRound },
     { href: "/dashboard/settings", label: "Settings", icon: Settings2 },
+    { href: "/dashboard/servers", label: "Servers", icon: Server },
     { href: "/dashboard/backups", label: "Backups", icon: Archive },
     { href: "/dashboard/speed-test", label: "Speed Test", icon: Gauge },
     { href: "/dashboard/service-tests", label: "Service tests", icon: HeartPulse },
@@ -200,9 +210,9 @@ export function Sidebar({
       </nav>
 
       <div className="border-t border-slate-800/80 px-5 py-3 sm:py-4">
-        <p className="text-xs text-slate-500">Naviyra Panel v0.1</p>
+        <p className="text-xs text-slate-500">Naviyra Panel</p>
         <p className="mt-0.5 text-[10px] text-slate-600">
-          Windows · Linux · macOS
+          v{PANEL_VERSION} · Linux
         </p>
       </div>
     </aside>

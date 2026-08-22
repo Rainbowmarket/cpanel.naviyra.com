@@ -17,6 +17,10 @@ const bodySchema = z.object({
   op: z.enum(["insert", "update", "delete"]),
   values: z.record(z.string(), z.unknown()).optional().default({}),
   where: z.record(z.string(), z.unknown()).optional().default({}),
+  whereList: z
+    .array(z.record(z.string(), z.unknown()))
+    .max(100)
+    .optional(),
 });
 
 export async function POST(request: Request, context: RouteContext) {
@@ -33,6 +37,7 @@ export async function POST(request: Request, context: RouteContext) {
       op: body.op,
       values: body.values,
       where: body.where,
+      whereList: body.whereList,
     });
     return NextResponse.json(result);
   } catch (error) {

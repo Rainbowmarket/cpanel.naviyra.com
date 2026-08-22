@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/auth";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { canAccessDashboardPath } from "@/lib/panel-permissions";
+import { ensureControllerNode } from "@/lib/agent/target";
 
 export default async function DashboardLayout({
   children,
@@ -12,6 +13,7 @@ export default async function DashboardLayout({
 }) {
   const user = await getSessionUser();
   if (!user) redirect("/login");
+  await ensureControllerNode();
 
   const pathname = (await headers()).get("x-naviyra-pathname") ?? "";
   if (pathname && !canAccessDashboardPath(user, pathname)) {

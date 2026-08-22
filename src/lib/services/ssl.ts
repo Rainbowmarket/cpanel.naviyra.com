@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { callAgent } from "@/lib/agent/client";
-import { getAgentApiKey } from "@/lib/paths";
+import { agentTargetForServerId } from "@/lib/agent/target";
 import { isPanelHostname, isReservedPanelSubdomain } from "@/lib/panel-host";
 import type { SslStatus } from "@/generated/prisma/client";
 
@@ -58,6 +58,7 @@ async function syncOrIssuePanelSsl(opts: {
     phpEnabled: boolean;
     appType: string;
     upstreamPort: number | null;
+    serverId: string;
     server: { agentKey: string | null };
   };
   userId: string;
@@ -67,7 +68,7 @@ async function syncOrIssuePanelSsl(opts: {
   infoOnly?: boolean;
 }) {
   await dedupeSslCertificates(opts.userId);
-  const agentKey = opts.domain.server.agentKey || getAgentApiKey();
+  const target = await agentTargetForServerId(opts.domain.serverId);
   const existing = await prisma.sslCertificate.findFirst({
     where: { domainId: opts.domain.id, subdomainId: null },
     orderBy: { createdAt: "desc" },
@@ -95,7 +96,7 @@ async function syncOrIssuePanelSsl(opts: {
       exists?: boolean;
       issuedAt?: string | null;
       expiresAt?: string | null;
-    }>({ action: "ssl_cert_info", domain: opts.domain.name }, agentKey);
+    }>({ action: "ssl_cert_info", domain: opts.domain.name }, target);
 
     if (info.success && info.data?.exists) {
       return prisma.sslCertificate.update({
@@ -139,7 +140,7 @@ async function syncOrIssuePanelSsl(opts: {
       appType: "STATIC",
       upstreamPort: null,
     },
-    agentKey
+    target
   );
 
   return finalizeSslCertificate(cert.id, agentResult);
@@ -245,7 +246,7 @@ export async function issueSslCertificate(input: {
   });
 
   const subdomains = input.includeWww !== false ? ["www"] : [];
-  const agentKey = domain.server.agentKey || getAgentApiKey();
+  const target = await agentTargetForServerId(domain.serverId);
 
   const cert = existing
     ? await prisma.sslCertificate.update({
@@ -274,7 +275,7 @@ export async function issueSslCertificate(input: {
       appType: domain.appType,
       upstreamPort: domain.upstreamPort,
     },
-    agentKey
+    target
   );
 
   return finalizeSslCertificate(cert.id, agentResult);
@@ -298,7 +299,7 @@ export async function issueSubdomainSslCertificate(input: {
   });
 
   const hostname = `${subdomain.name}.${subdomain.domain.name}`;
-  const agentKey = subdomain.domain.server.agentKey || getAgentApiKey();
+  const target = await agentTargetForServerId(subdomain.domain.serverId);
 
   const cert = existing
     ? await prisma.sslCertificate.update({
@@ -328,7 +329,7 @@ export async function issueSubdomainSslCertificate(input: {
       appType: subdomain.appType,
       upstreamPort: subdomain.upstreamPort,
     },
-    agentKey
+    target
   );
 
   return finalizeSslCertificate(cert.id, agentResult);
@@ -369,7 +370,7 @@ export async function renewSslCertificate(certId: string, userId: string) {
       appType,
       upstreamPort,
     },
-    cert.domain.server.agentKey || getAgentApiKey()
+    await agentTargetForServerId(cert.domain.serverId)
   );
 
   const status: SslStatus = agentResult.success ? "ACTIVE" : "FAILED";

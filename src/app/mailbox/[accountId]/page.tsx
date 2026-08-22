@@ -3,6 +3,8 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import {
+  Download,
+  Eye,
   Archive,
   Forward,
   Inbox,
@@ -28,6 +30,7 @@ type MailAttachment = {
   filename: string;
   contentType: string;
   size: number;
+  cid?: string;
 };
 
 type MailMessage = {
@@ -122,6 +125,117 @@ function formatFileSize(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function isImageAttachment(file: MailAttachment): boolean {
+  const type = (file.contentType || "").toLowerCase();
+  if (type.startsWith("image/")) return true;
+  return /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(file.filename);
+}
+
+function isPdfAttachment(file: MailAttachment): boolean {
+  const type = (file.contentType || "").toLowerCase();
+  return type.includes("pdf") || /\.pdf$/i.test(file.filename);
+}
+
+function canPreviewAttachment(file: MailAttachment): boolean {
+  const type = (file.contentType || "").toLowerCase();
+  return isImageAttachment(file) || isPdfAttachment(file) || type.startsWith("text/");
+}
+
+function findAttachmentIndex(list: MailAttachment[], token: string): number {
+  const t = token.trim().toLowerCase().replace(/^<|>$/g, "");
+  if (!t) return -1;
+  return list.findIndex((a) => {
+    const name = a.filename.toLowerCase();
+    const cid = (a.cid || "").toLowerCase();
+    return name === t || name.endsWith(`/${t}`) || cid === t;
+  });
+}
+
+function mailAttachmentHref(
+  accountId: string,
+  message: Pick<MailMessage, "id" | "folder">,
+  index: number,
+  disposition: "inline" | "attachment"
+): string {
+  const q = new URLSearchParams({
+    accountId,
+    folder: message.folder,
+    index: String(index),
+    disposition,
+  });
+  return `/api/mail/messages/${encodeURIComponent(message.id)}/attachment?${q}`;
+}
+
+function MailMessageBody({
+  body,
+  attachments,
+  accountId,
+  message,
+  onView,
+}: {
+  body: string;
+  attachments: MailAttachment[];
+  accountId: string;
+  message: MailMessage;
+  onView: (index: number) => void;
+}) {
+  const cleaned = cleanBodyForDisplay(body);
+  const parts = cleaned.split(/\[(?:image|cid):\s*([^\]]+)\]/gi);
+  return (
+    <div className="space-y-2">
+      {parts.map((part, i) => {
+        if (i % 2 === 0) {
+          if (!part) return null;
+          return (
+            <pre
+              key={`t-${i}`}
+              className="whitespace-pre-wrap font-sans text-[15px] leading-7 text-slate-100"
+            >
+              {part}
+            </pre>
+          );
+        }
+        const idx = findAttachmentIndex(attachments, part);
+        const file = idx >= 0 ? attachments[idx] : undefined;
+        if (file && isImageAttachment(file)) {
+          return (
+            <button
+              key={`i-${i}`}
+              type="button"
+              onClick={() => onView(idx)}
+              className="block max-w-full text-left"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={mailAttachmentHref(accountId, message, idx, "inline")}
+                alt={file.filename}
+                className="my-2 max-h-[28rem] max-w-full rounded-lg border border-slate-700 bg-slate-950 object-contain"
+              />
+            </button>
+          );
+        }
+        if (idx >= 0) {
+          return (
+            <button
+              key={`f-${i}`}
+              type="button"
+              onClick={() => onView(idx)}
+              className="text-sm text-emerald-400 hover:text-emerald-300"
+            >
+              View {part.trim()}
+            </button>
+          );
+        }
+        return (
+          <span key={`m-${i}`} className="text-sm text-slate-500">
+            [{part.trim()}]
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 const MAX_COMPOSE_ATTACH_BYTES = 20 * 1024 * 1024;
 
 function fileToPayload(file: File): Promise<{
@@ -173,6 +287,7 @@ export default function MailboxPage() {
   const [draftId, setDraftId] = useState<string | undefined>();
   const [sending, setSending] = useState(false);
   const [composeFiles, setComposeFiles] = useState<File[]>([]);
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const attachInputRef = useRef<HTMLInputElement>(null);
 
   const loadOverview = useCallback(async () => {
@@ -201,6 +316,7 @@ export default function MailboxPage() {
       const data = await res.json();
       setSelectedMessage(data.message ?? null);
       setSelectedId(messageId);
+      setPreviewIndex(null);
       await loadFolder();
     },
     [accountId, folder, loadFolder]
@@ -928,62 +1044,160 @@ export default function MailboxPage() {
                 <h3 className="text-lg font-semibold text-white">
                   {selectedMessage.subject || "(no subject)"}
                 </h3>
-                <div className="mt-3 space-y-1 text-sm text-slate-400">
-                  <p>
-                    <span className="text-slate-500">From:</span>{" "}
-                    {formatAddress(selectedMessage.from)}
-                  </p>
-                  <p>
-                    <span className="text-slate-500">To:</span>{" "}
-                    {selectedMessage.to.join(", ") || "—"}
-                  </p>
-                  {selectedMessage.cc.length > 0 && (
-                    <p>
-                      <span className="text-slate-500">Cc:</span>{" "}
-                      {selectedMessage.cc.join(", ")}
-                    </p>
-                  )}
-                  {(selectedMessage.bcc?.length ?? 0) > 0 &&
-                    (folder === "Sent" || folder === "Drafts") && (
-                      <p>
-                        <span className="text-slate-500">Bcc:</span>{" "}
-                        {selectedMessage.bcc!.join(", ")}
-                      </p>
-                    )}
-                  <p>
-                    <span className="text-slate-500">Date:</span>{" "}
-                    {formatDateTime(selectedMessage.date)}
-                  </p>
+                <div className="mt-3 overflow-x-auto rounded-lg border border-slate-800">
+                  <table className="w-full min-w-[28rem] border-collapse text-sm">
+                    <tbody>
+                      <tr className="border-b border-slate-800">
+                        <th className="w-28 bg-slate-900/80 px-3 py-2 text-left align-top font-medium text-slate-500">
+                          Subject
+                        </th>
+                        <td className="px-3 py-2 text-slate-200">
+                          {selectedMessage.subject || "(no subject)"}
+                        </td>
+                      </tr>
+                      <tr className="border-b border-slate-800">
+                        <th className="bg-slate-900/80 px-3 py-2 text-left align-top font-medium text-slate-500">
+                          From
+                        </th>
+                        <td className="px-3 py-2 text-slate-200">
+                          {formatAddress(selectedMessage.from)}
+                        </td>
+                      </tr>
+                      <tr className="border-b border-slate-800">
+                        <th className="bg-slate-900/80 px-3 py-2 text-left align-top font-medium text-slate-500">
+                          To
+                        </th>
+                        <td className="px-3 py-2 text-slate-200">
+                          {selectedMessage.to.join(", ") || "—"}
+                        </td>
+                      </tr>
+                      {selectedMessage.cc.length > 0 ? (
+                        <tr className="border-b border-slate-800">
+                          <th className="bg-slate-900/80 px-3 py-2 text-left align-top font-medium text-slate-500">
+                            Cc
+                          </th>
+                          <td className="px-3 py-2 text-slate-200">
+                            {selectedMessage.cc.join(", ")}
+                          </td>
+                        </tr>
+                      ) : null}
+                      {(selectedMessage.bcc?.length ?? 0) > 0 &&
+                      (folder === "Sent" || folder === "Drafts") ? (
+                        <tr className="border-b border-slate-800">
+                          <th className="bg-slate-900/80 px-3 py-2 text-left align-top font-medium text-slate-500">
+                            Bcc
+                          </th>
+                          <td className="px-3 py-2 text-slate-200">
+                            {selectedMessage.bcc!.join(", ")}
+                          </td>
+                        </tr>
+                      ) : null}
+                      <tr>
+                        <th className="bg-slate-900/80 px-3 py-2 text-left align-top font-medium text-slate-500">
+                          Date
+                        </th>
+                        <td className="px-3 py-2 text-slate-200">
+                          {formatDateTime(selectedMessage.date)}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
                 </div>
                 {(selectedMessage.attachments?.length ?? 0) > 0 ? (
-                  <div className="mt-4 rounded-lg border border-slate-800 bg-slate-900/50 px-3 py-2">
-                    <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
-                      Attachments
-                    </p>
-                    <ul className="space-y-1">
-                      {selectedMessage.attachments!.map((file, index) => (
-                        <li key={`${file.filename}-${index}`}>
-                          <a
-                            href={`/api/mail/messages/${encodeURIComponent(selectedMessage.id)}/attachment?accountId=${encodeURIComponent(accountId)}&folder=${encodeURIComponent(selectedMessage.folder)}&index=${index}`}
-                            className="inline-flex items-center gap-2 text-sm text-emerald-400 hover:text-emerald-300"
-                          >
-                            <Paperclip className="h-3.5 w-3.5 shrink-0" />
-                            <span className="truncate">{file.filename}</span>
-                            {file.size > 0 ? (
-                              <span className="text-xs text-slate-500">
-                                {formatFileSize(file.size)}
-                              </span>
-                            ) : null}
-                          </a>
-                        </li>
-                      ))}
-                    </ul>
+                  <div className="mt-4 overflow-x-auto rounded-lg border border-slate-800">
+                    <table className="w-full min-w-[32rem] border-collapse text-sm">
+                      <thead>
+                        <tr className="border-b border-slate-800 bg-slate-900/80 text-left text-xs uppercase tracking-wide text-slate-500">
+                          <th className="px-3 py-2 font-medium">File</th>
+                          <th className="w-24 px-3 py-2 font-medium">Size</th>
+                          <th className="w-40 px-3 py-2 font-medium">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedMessage.attachments!.map((file, index) => {
+                          const viewUrl = mailAttachmentHref(
+                            accountId,
+                            selectedMessage,
+                            index,
+                            "inline"
+                          );
+                          const downloadUrl = mailAttachmentHref(
+                            accountId,
+                            selectedMessage,
+                            index,
+                            "attachment"
+                          );
+                          const previewable = canPreviewAttachment(file);
+                          return (
+                            <tr
+                              key={`${file.filename}-${index}`}
+                              className="border-b border-slate-800 last:border-b-0"
+                            >
+                              <td className="px-3 py-2">
+                                <div className="flex items-center gap-3">
+                                  {isImageAttachment(file) ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => setPreviewIndex(index)}
+                                      className="h-10 w-10 shrink-0 overflow-hidden rounded border border-slate-700 bg-slate-900"
+                                    >
+                                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                                      <img
+                                        src={viewUrl}
+                                        alt=""
+                                        className="h-full w-full object-cover"
+                                      />
+                                    </button>
+                                  ) : (
+                                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded border border-slate-700 bg-slate-900 text-slate-400">
+                                      <Paperclip className="h-4 w-4" />
+                                    </span>
+                                  )}
+                                  <span className="min-w-0 truncate text-slate-200">
+                                    {file.filename}
+                                  </span>
+                                </div>
+                              </td>
+                              <td className="whitespace-nowrap px-3 py-2 text-slate-400">
+                                {file.size > 0 ? formatFileSize(file.size) : "—"}
+                              </td>
+                              <td className="px-3 py-2">
+                                <div className="flex items-center gap-1">
+                                  {previewable ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => setPreviewIndex(index)}
+                                      className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-emerald-400 hover:bg-slate-800 hover:text-emerald-300"
+                                    >
+                                      <Eye className="h-3.5 w-3.5" />
+                                      View
+                                    </button>
+                                  ) : null}
+                                  <a
+                                    href={downloadUrl}
+                                    download={file.filename}
+                                    className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-slate-300 hover:bg-slate-800 hover:text-white"
+                                  >
+                                    <Download className="h-3.5 w-3.5" />
+                                    Download
+                                  </a>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
                 ) : null}
                 <div className="mt-6 rounded-xl border border-slate-800/80 bg-slate-900/40 px-5 py-5">
-                  <pre className="whitespace-pre-wrap font-sans text-[15px] leading-7 text-slate-100">
-                    {cleanBodyForDisplay(selectedMessage.body)}
-                  </pre>
+                  <MailMessageBody
+                    body={selectedMessage.body}
+                    attachments={selectedMessage.attachments ?? []}
+                    accountId={accountId}
+                    message={selectedMessage}
+                    onView={setPreviewIndex}
+                  />
                 </div>
               </div>
             </>
@@ -994,6 +1208,77 @@ export default function MailboxPage() {
           )}
         </section>
       </div>
+
+      {previewIndex !== null && selectedMessage?.attachments?.[previewIndex] ? (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/75 p-4"
+          onClick={() => setPreviewIndex(null)}
+        >
+          <div
+            className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-slate-800 bg-slate-950 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {(() => {
+              const file = selectedMessage.attachments![previewIndex]!;
+              const viewUrl = mailAttachmentHref(
+                accountId,
+                selectedMessage,
+                previewIndex,
+                "inline"
+              );
+              const downloadUrl = mailAttachmentHref(
+                accountId,
+                selectedMessage,
+                previewIndex,
+                "attachment"
+              );
+              return (
+                <>
+                  <div className="flex items-center justify-between gap-3 border-b border-slate-800 px-4 py-3">
+                    <p className="truncate text-sm font-medium text-white">
+                      {file.filename}
+                    </p>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <a
+                        href={downloadUrl}
+                        download={file.filename}
+                        className="inline-flex items-center gap-1 rounded-md border border-slate-700 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-800"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        Download
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => setPreviewIndex(null)}
+                        className="text-slate-400 hover:text-white"
+                        aria-label="Close preview"
+                      >
+                        <X className="h-5 w-5" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto bg-slate-900/40 p-4">
+                    {isImageAttachment(file) ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={viewUrl}
+                        alt={file.filename}
+                        className="max-h-[80vh] max-w-full object-contain"
+                      />
+                    ) : (
+                      <iframe
+                        title={file.filename}
+                        src={viewUrl}
+                        className="h-[80vh] w-full rounded-md bg-white"
+                      />
+                    )}
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        </div>
+      ) : null}
 
       {composeOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">

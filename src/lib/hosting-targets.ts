@@ -8,13 +8,14 @@ export type HostingTarget = {
   documentRoot: string;
   domainId: string;
   kind: "domain" | "subdomain";
+  serverId?: string;
   ownerEmail?: string | null;
   ownerName?: string | null;
 };
 
 export type AccessActor = {
   id: string;
-  role: "ADMIN" | "RESELLER" | "USER";
+  role: "ADMIN" | "USER";
 };
 
 export function parseHostingTargetId(
@@ -85,6 +86,7 @@ export async function listHostingTargets(
       label: domain.name,
       documentRoot: domain.documentRoot,
       domainId: domain.id,
+      serverId: domain.serverId,
       kind: "domain",
       ownerEmail: asAdmin ? domain.user.email : null,
       ownerName: asAdmin ? domain.user.name : null,
@@ -101,6 +103,7 @@ export async function listHostingTargets(
         label: `${subdomain.name}.${subdomain.domain.name}`,
         documentRoot: subdomain.documentRoot,
         domainId: domain.id,
+        serverId: domain.serverId,
         kind: "subdomain",
         ownerEmail: asAdmin ? subdomain.domain.user.email : null,
         ownerName: asAdmin ? subdomain.domain.user.name : null,

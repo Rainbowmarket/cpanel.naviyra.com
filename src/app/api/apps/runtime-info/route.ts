@@ -1,22 +1,16 @@
 import { NextResponse } from "next/server";
 import { authFailureResponse, requireSessionUser  } from "@/lib/auth";
 import { callAgent } from "@/lib/agent/client";
-import { getAgentApiKey } from "@/lib/paths";
-import { prisma } from "@/lib/prisma";
+import { controllerAgentTarget } from "@/lib/agent/target";
 
 export async function GET() {
   try {
     await requireSessionUser("apps");
-    const server = await prisma.server.findFirst({
-      where: { isActive: true },
-      orderBy: { createdAt: "asc" },
-    });
-    const agentKey = server?.agentKey || getAgentApiKey();
     const result = await callAgent<{
       node: string | null;
       python: string | null;
       go: string | null;
-    }>({ action: "runtime_versions" }, agentKey);
+    }>({ action: "runtime_versions" }, await controllerAgentTarget());
 
     if (!result.success) {
       return NextResponse.json(

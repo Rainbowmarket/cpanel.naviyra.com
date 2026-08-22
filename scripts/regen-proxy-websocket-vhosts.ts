@@ -7,6 +7,7 @@
 import "dotenv/config";
 import { prisma } from "../src/lib/prisma";
 import { callAgent } from "../src/lib/agent/client";
+import { agentTargetForServerId } from "../src/lib/agent/target";
 
 async function main() {
   const domains = await prisma.domain.findMany({
@@ -20,6 +21,7 @@ async function main() {
       appWorkingDir: true,
       appEnv: true,
       upstreamPort: true,
+      serverId: true,
     },
   });
 
@@ -34,7 +36,7 @@ async function main() {
       appWorkingDir: true,
       appEnv: true,
       upstreamPort: true,
-      domain: { select: { name: true } },
+      domain: { select: { name: true, serverId: true } },
     },
   });
 
@@ -43,18 +45,21 @@ async function main() {
 
   for (const d of domains) {
     if (!d.upstreamPort) continue;
-    const result = await callAgent({
-      action: "configure_site_app",
-      siteId: d.id,
-      siteName: d.name,
-      documentRoot: d.documentRoot,
-      appType: d.appType,
-      startCommand: d.startCommand ?? undefined,
-      appWorkingDir: d.appWorkingDir,
-      appEnv: d.appEnv,
-      upstreamPort: d.upstreamPort,
-      isSubdomain: false,
-    });
+    const result = await callAgent(
+      {
+        action: "configure_site_app",
+        siteId: d.id,
+        siteName: d.name,
+        documentRoot: d.documentRoot,
+        appType: d.appType,
+        startCommand: d.startCommand ?? undefined,
+        appWorkingDir: d.appWorkingDir,
+        appEnv: d.appEnv,
+        upstreamPort: d.upstreamPort,
+        isSubdomain: false,
+      },
+      await agentTargetForServerId(d.serverId)
+    );
     if (result.success) {
       ok += 1;
       console.log(`domain ok: ${d.name} :${d.upstreamPort}`);
@@ -67,18 +72,21 @@ async function main() {
   for (const s of subdomains) {
     if (!s.upstreamPort) continue;
     const host = `${s.name}.${s.domain.name}`;
-    const result = await callAgent({
-      action: "configure_site_app",
-      siteId: s.id,
-      siteName: host,
-      documentRoot: s.documentRoot,
-      appType: s.appType,
-      startCommand: s.startCommand ?? undefined,
-      appWorkingDir: s.appWorkingDir,
-      appEnv: s.appEnv,
-      upstreamPort: s.upstreamPort,
-      isSubdomain: true,
-    });
+    const result = await callAgent(
+      {
+        action: "configure_site_app",
+        siteId: s.id,
+        siteName: host,
+        documentRoot: s.documentRoot,
+        appType: s.appType,
+        startCommand: s.startCommand ?? undefined,
+        appWorkingDir: s.appWorkingDir,
+        appEnv: s.appEnv,
+        upstreamPort: s.upstreamPort,
+        isSubdomain: true,
+      },
+      await agentTargetForServerId(s.domain.serverId)
+    );
     if (result.success) {
       ok += 1;
       console.log(`subdomain ok: ${host} :${s.upstreamPort}`);

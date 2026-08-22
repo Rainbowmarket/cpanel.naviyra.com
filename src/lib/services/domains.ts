@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { callAgent } from "@/lib/agent/client";
-import { getAgentApiKey, getDefaultDocumentRoot } from "@/lib/paths";
+import { agentTargetForServerId } from "@/lib/agent/target";
+import { getDefaultDocumentRoot } from "@/lib/paths";
 import { getDnsZoneApex } from "@/lib/base-domain";
 import { isPanelHostname, panelHostnameError } from "@/lib/panel-host";
 import { assertValidHostname } from "@/lib/hostname";
@@ -78,7 +79,7 @@ export async function ensurePanelBaseDomain(userId: string) {
 
 export async function listDomains(
   userId: string,
-  opts?: { ensurePanel?: boolean; role?: "ADMIN" | "RESELLER" | "USER" }
+  opts?: { ensurePanel?: boolean; role?: "ADMIN" | "USER" }
 ) {
   if (opts?.ensurePanel) {
     try {
@@ -99,7 +100,7 @@ export async function listDomains(
   return prisma.domain.findMany({
     where,
     include: {
-      server: { select: { name: true, hostname: true } },
+      server: { select: { id: true, name: true, hostname: true } },
       user: { select: { id: true, name: true, email: true } },
       subdomains: true,
       sslCerts: {
@@ -120,9 +121,9 @@ async function provisionDomain(domain: {
   phpEnabled: boolean;
   appType: AppType;
   upstreamPort: number | null;
-  server: { agentKey: string };
+  server: { id: string; agentKey: string; agentUrl: string | null; hostname: string };
 }) {
-  const agentKey = domain.server.agentKey || getAgentApiKey();
+  const target = await agentTargetForServerId(domain.server.id);
 
   const agentResult = await callAgent(
     {
@@ -133,7 +134,7 @@ async function provisionDomain(domain: {
       appType: domain.appType,
       upstreamPort: domain.upstreamPort,
     },
-    agentKey
+    target
   );
 
   const status: DomainStatus = agentResult.success ? "ACTIVE" : "ERROR";
@@ -157,7 +158,7 @@ async function provisionDomain(domain: {
 
 export async function createDomain(input: {
   userId: string;
-  serverId: string;
+  serverId?: string;
   name: string;
   phpEnabled?: boolean;
   appType?: AppType;
@@ -170,8 +171,19 @@ export async function createDomain(input: {
   // Document roots are never taken from client input — always derived.
   const documentRoot = getDefaultDocumentRoot(name);
 
+  let serverId = input.serverId?.trim() || "";
+  if (!serverId) {
+    const count = await prisma.server.count();
+    if (count === 1) {
+      const only = await prisma.server.findFirstOrThrow();
+      serverId = only.id;
+    } else {
+      throw new Error("Select a server for this domain");
+    }
+  }
+
   await prisma.server.findUniqueOrThrow({
-    where: { id: input.serverId },
+    where: { id: serverId },
   });
 
   const appType: AppType =
@@ -186,7 +198,7 @@ export async function createDomain(input: {
       phpEnabled,
       appType,
       userId: input.userId,
-      serverId: input.serverId,
+      serverId,
       status: "PENDING",
     },
     include: { server: true },
@@ -197,7 +209,7 @@ export async function createDomain(input: {
 
 export async function retryDomain(
   domainId: string,
-  actor: { id: string; role: "ADMIN" | "RESELLER" | "USER" }
+  actor: { id: string; role: "ADMIN" | "USER" }
 ) {
   const domain = await prisma.domain.findFirstOrThrow({
     where: {
@@ -230,7 +242,7 @@ export async function retryDomain(
 
 export async function deleteDomain(
   domainId: string,
-  actor: { id: string; role: "ADMIN" | "RESELLER" | "USER" }
+  actor: { id: string; role: "ADMIN" | "USER" }
 ) {
   const domain = await prisma.domain.findFirstOrThrow({
     where: {
@@ -250,16 +262,11 @@ export async function deleteDomain(
   }
   await removeSiteAppUnit("domain", domain.id, ownerId).catch(() => undefined);
 
-  await callAgent(
-    { action: "delete_domain", domain: domain.name },
-    domain.server.agentKey || getAgentApiKey()
-  );
+  const target = await agentTargetForServerId(domain.serverId);
+  await callAgent({ action: "delete_domain", domain: domain.name }, target);
 
   try {
-    await deleteDnsZoneForDomain(
-      domain.name,
-      domain.server.agentKey || getAgentApiKey()
-    );
+    await deleteDnsZoneForDomain(domain.name, domain.serverId);
   } catch (error) {
     console.error("DNS zone delete failed:", error);
   }

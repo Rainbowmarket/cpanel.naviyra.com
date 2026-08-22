@@ -1,8 +1,18 @@
 import { prisma } from "@/lib/prisma";
-import { callAgent } from "@/lib/agent/client";
-import { getAgentApiKey } from "@/lib/paths";
+import {
+  callAgent,
+  downloadBackupFromAgent,
+  uploadBackupToAgent,
+} from "@/lib/agent/client";
+import {
+  agentTargetForServerId,
+  controllerAgentTarget,
+} from "@/lib/agent/target";
 import { requireAgentApiKey } from "@/lib/secrets";
+import { notifyMigration } from "@/lib/mail/admin-alerts";
 import type { BackupSchedule, JobStatus } from "@/generated/prisma/client";
+import fs from "node:fs/promises";
+import path from "node:path";
 
 const CONFIG_ID = "default";
 
@@ -123,7 +133,7 @@ export async function updateBackupConfig(input: BackupConfigUpdate) {
       panelPort: panelPort(),
       workerToken: workerToken(),
     },
-    getAgentApiKey()
+    await controllerAgentTarget()
   );
 
   if (timer.success) {
@@ -176,7 +186,7 @@ export async function runBackupNow(source: "manual" | "timer" = "manual") {
       includeDatabases: config.includeDatabases,
       databases,
     },
-    getAgentApiKey()
+    await controllerAgentTarget()
   );
 
   if (!agentResult.success) {
@@ -286,7 +296,7 @@ export async function runDomainBackupNow(
       includeDatabases,
       databases,
     },
-    getAgentApiKey()
+    await agentTargetForServerId(domain.serverId)
   );
 
   if (!agentResult.success) {
@@ -429,6 +439,21 @@ function isDomainArchive(
   return null;
 }
 
+async function agentTargetForBackupRun(run: {
+  archivePath: string | null;
+  summary: string | null;
+}) {
+  const meta = isDomainArchive(run.archivePath, run.summary);
+  if (meta?.domain) {
+    const domain = await prisma.domain.findUnique({
+      where: { name: meta.domain },
+      select: { serverId: true },
+    });
+    if (domain) return agentTargetForServerId(domain.serverId);
+  }
+  return controllerAgentTarget();
+}
+
 export async function restoreBackupRun(
   runId: string,
   opts?: {
@@ -469,12 +494,17 @@ export async function restoreBackupRun(
         restoreMail,
         restoreDatabases,
       },
-      getAgentApiKey()
+      await agentTargetForBackupRun(run)
     );
 
     if (!agentResult.success) {
       throw new Error(agentResult.error ?? "Domain restore failed");
     }
+
+    notifyMigration({
+      domain: domainMeta.domain,
+      detail: `A domain backup was restored for ${domainMeta.domain ?? "the site"} from ${run.archivePath}. Verify nginx, SSL, files, and databases on the assigned server, then remove leftover data on the old node if this was a move.`,
+    });
 
     return agentResult.data as {
       restored: string[];
@@ -504,7 +534,7 @@ export async function restoreBackupRun(
       restoreMail,
       restoreDatabases,
     },
-    getAgentApiKey()
+    await controllerAgentTarget()
   );
 
   if (!agentResult.success) {
@@ -532,7 +562,7 @@ export async function deleteBackupRun(runId: string) {
         archivePath: run.archivePath,
         allowedRoot: config.backupRoot,
       },
-      getAgentApiKey()
+      await agentTargetForBackupRun(run)
     );
     if (!agentResult.success) {
       throw new Error(agentResult.error ?? "Failed to delete backup archive");
@@ -549,4 +579,122 @@ export async function deleteBackupRun(runId: string) {
   }
 
   return { ok: true as const, deletedRunId: runId, archivePath: run.archivePath };
+}
+
+function archiveUnderRoot(archivePath: string, backupRoot: string): boolean {
+  const resolved = path.resolve(archivePath);
+  const roots = [
+    path.resolve(backupRoot),
+    path.resolve("data/backups"),
+    path.resolve("/var/backups/naviyra"),
+  ];
+  return roots.some(
+    (root) => resolved === root || resolved.startsWith(root + path.sep)
+  );
+}
+
+export async function downloadBackupRun(runId: string): Promise<{
+  fileName: string;
+  content: Buffer;
+}> {
+  const config = await getOrCreateBackupConfig();
+  const run = await prisma.backupRun.findUnique({ where: { id: runId } });
+  if (!run || run.status !== "COMPLETED" || !run.archivePath) {
+    throw new Error("Completed backup with an archive is required");
+  }
+  if (!archiveUnderRoot(run.archivePath, config.backupRoot)) {
+    throw new Error("Archive is outside the backup root");
+  }
+
+  const remote = await downloadBackupFromAgent({
+    target: await agentTargetForBackupRun(run),
+    archivePath: run.archivePath,
+    allowedRoot: config.backupRoot,
+  });
+  if (remote.success && remote.data?.content) {
+    return {
+      fileName: remote.data.fileName,
+      content: remote.data.content,
+    };
+  }
+
+  try {
+    const resolved = path.resolve(run.archivePath);
+    const content = await fs.readFile(resolved);
+    return {
+      fileName: path.basename(resolved),
+      content,
+    };
+  } catch {
+    throw new Error(remote.error ?? "Failed to download backup archive");
+  }
+}
+
+export async function uploadBackupArchive(input: {
+  fileName: string;
+  content: Buffer;
+}) {
+  const { getMaxUploadMb } = await import("@/lib/services/panel-settings");
+  const maxMb = await getMaxUploadMb();
+  const maxBytes = maxMb * 1024 * 1024;
+  if (input.content.length > maxBytes) {
+    throw new Error(`Backup is larger than the ${maxMb} MB upload limit`);
+  }
+
+  const base = path.basename(input.fileName.replace(/\\/g, "/"));
+  if (!/^[A-Za-z0-9._-]+\.(tar\.gz|tgz)$/.test(base)) {
+    throw new Error("Upload a .tar.gz backup file");
+  }
+
+  const config = await getOrCreateBackupConfig();
+  const domainMatch = /^naviyra-domain-(.+)-(\d{8}T\d{6}Z)\.(tar\.gz|tgz)$/i.exec(
+    base
+  );
+  let uploadTarget = await controllerAgentTarget();
+  if (domainMatch?.[1]) {
+    const domain = await prisma.domain.findUnique({
+      where: { name: domainMatch[1] },
+      select: { serverId: true },
+    });
+    if (domain) {
+      uploadTarget = await agentTargetForServerId(domain.serverId);
+    }
+  }
+  const remote = await uploadBackupToAgent({
+    target: uploadTarget,
+    fileName: base,
+    content: input.content,
+    allowedRoot: config.backupRoot,
+  });
+
+  let archivePath = remote.data?.archivePath;
+  let bytes = remote.data?.bytes ?? input.content.length;
+
+  if (!remote.success || !archivePath || remote.data?.dryRun) {
+    const localRoot = path.resolve(config.backupRoot || "data/backups");
+    await fs.mkdir(localRoot, { recursive: true });
+    archivePath = path.join(localRoot, base);
+    await fs.writeFile(archivePath, input.content);
+    bytes = (await fs.stat(archivePath)).size;
+  }
+
+  const now = new Date();
+  const run = await prisma.backupRun.create({
+    data: {
+      status: "COMPLETED",
+      source: "upload",
+      startedAt: now,
+      finishedAt: now,
+      archivePath,
+      sizeBytes: bytes,
+      summary: JSON.stringify({
+        type: domainMatch ? "domain" : "panel",
+        domain: domainMatch?.[1],
+        uploaded: true,
+        included: [],
+      }),
+    },
+  });
+
+  return { run };
 }

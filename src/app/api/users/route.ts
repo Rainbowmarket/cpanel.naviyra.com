@@ -25,7 +25,7 @@ const createSchema = z.object({
   name: z.string().min(2),
   email: z.string().email(),
   password: z.string().min(8),
-  role: z.enum(["ADMIN", "RESELLER", "USER"]).optional(),
+  role: z.enum(["ADMIN", "USER"]).optional(),
 });
 
 export async function POST(request: Request) {

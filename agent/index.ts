@@ -69,12 +69,14 @@ import {
   getAppLogs,
 } from "./apps";
 import {
+  assertArchiveUnderAllowedRoot,
   configureBackupTimer,
   deleteBackup,
   restoreBackup,
   restoreDomainBackup,
   runBackup,
   runDomainBackup,
+  writeBackupArchiveFile,
   type BackupSchedulePreset,
 } from "./backup";
 import {
@@ -84,6 +86,7 @@ import {
 import {
   exportPostgresDatabaseOnServer,
   importPostgresDatabaseOnServer,
+  reassignPostgresOwnershipOnServer,
   postgresDatabaseExistsOnServer,
   createPostgresDatabaseOnServer,
   createPostgresTableOnServer,
@@ -92,11 +95,26 @@ import {
   deletePostgresTableOnServer,
   inspectPostgresSchemaOnServer,
   previewPostgresTableOnServer,
+  queryPostgresSqlOnServer,
   mutatePostgresTableRowsOnServer,
   resetPostgresPasswordOnServer,
 } from "./postgres";
 import { redactPostgresError } from "./pg-bin";
+import { inspectHostedDatabase, previewHostedTable, queryHostedSql } from "./db-engines";
 import type { VhostOptions } from "./nginx";
+import {
+  listDockerContainers,
+  controlDockerContainer,
+  dockerContainerLogs,
+  dockerComposeUp,
+} from "./docker";
+import { gitDeployOnServer } from "./git";
+import {
+  initPluginRegistry,
+  invokePlugin,
+  listPluginManifests,
+} from "./plugins/registry";
+import type { PluginOp } from "./plugins/contract";
 const exec = promisify(execFile);
 const PORT = Number(process.env.AGENT_PORT ?? 4000);
 const isWindows = process.platform === "win32";
@@ -107,6 +125,37 @@ const DRY_RUN =
 function hasAdminPermission(): boolean {
   if (isWindows) return false;
   return typeof process.getuid === "function" && process.getuid() === 0;
+}
+
+async function browseViaPlugin(
+  engine: string,
+  op: "inspect" | "preview" | "query",
+  params: Record<string, unknown>
+) {
+  const result = await invokePlugin(engine, op, params, DRY_RUN);
+  if (!result.ok) {
+    throw new Error(result.detail ?? `${engine} ${op} failed`);
+  }
+  return result.data;
+}
+
+async function hostedOrPlugin<T>(
+  engine: string,
+  op: "inspect" | "preview" | "query",
+  params: Record<string, unknown>,
+  run: () => Promise<T>
+): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    if (
+      !/not available|Browse is not|Preview is not|SQL editor is not/i.test(msg)
+    ) {
+      throw error;
+    }
+    return (await browseViaPlugin(engine, op, params)) as T;
+  }
 }
 
 type Action = {
@@ -215,6 +264,23 @@ async function handleAction(payload: Action) {
           sitesRoot: SITES_ROOT,
         },
       };
+
+    case "list_plugins": {
+      const plugins = await listPluginManifests(DRY_RUN);
+      return { success: true, data: { plugins } };
+    }
+
+    case "plugin_invoke": {
+      const pluginId = String(payload.pluginId ?? "");
+      const op = String(payload.op ?? "health") as PluginOp;
+      const params =
+        payload.params && typeof payload.params === "object"
+          ? (payload.params as Record<string, unknown>)
+          : {};
+      const result = await invokePlugin(pluginId, op, params, DRY_RUN);
+      // Transport succeeded even when the plugin reports ok:false (e.g. health: not installed).
+      return { success: true, data: result };
+    }
 
     case "runtime_versions": {
       const versions: { node: string | null; python: string | null; go: string | null } = {
@@ -569,6 +635,15 @@ async function handleAction(payload: Action) {
       return { success: true, data };
     }
 
+    case "reassign_postgres_ownership": {
+      const data = await reassignPostgresOwnershipOnServer({
+        dbName: String(payload.dbName),
+        roleName: String(payload.roleName),
+        dryRun: DRY_RUN,
+      });
+      return { success: true, data };
+    }
+
     case "postgres_database_exists": {
       const data = await postgresDatabaseExistsOnServer({
         dbName: String(payload.dbName),
@@ -620,8 +695,73 @@ async function handleAction(payload: Action) {
         table: String(payload.table),
         limit:
           payload.limit !== undefined ? Number(payload.limit) : undefined,
+        search: payload.search ? String(payload.search) : undefined,
+        filterColumn: payload.filterColumn
+          ? String(payload.filterColumn)
+          : undefined,
+        filterOp: payload.filterOp ? String(payload.filterOp) : undefined,
+        filterValue: payload.filterValue
+          ? String(payload.filterValue)
+          : undefined,
         dryRun: DRY_RUN,
       });
+      return { success: true, data };
+    }
+
+    case "inspect_hosted_database": {
+      const engine = String(payload.engine || "");
+      const dbName = String(payload.dbName);
+      const data = await hostedOrPlugin(
+        engine,
+        "inspect",
+        { dbName },
+        () =>
+          inspectHostedDatabase({
+            engine,
+            dbName,
+            dryRun: DRY_RUN,
+          })
+      );
+      return { success: true, data };
+    }
+
+    case "preview_hosted_table": {
+      const engine = String(payload.engine || "");
+      const dbName = String(payload.dbName);
+      const table = String(payload.table);
+      const limit = payload.limit !== undefined ? Number(payload.limit) : undefined;
+      const data = await hostedOrPlugin(
+        engine,
+        "preview",
+        { dbName, table, limit },
+        () =>
+          previewHostedTable({
+            engine,
+            dbName,
+            table,
+            limit,
+            dryRun: DRY_RUN,
+          })
+      );
+      return { success: true, data };
+    }
+
+    case "query_hosted_sql": {
+      const engine = String(payload.engine || "");
+      const dbName = String(payload.dbName);
+      const sql = String(payload.sql ?? "");
+      const data = await hostedOrPlugin(
+        engine,
+        "query",
+        { dbName, sql },
+        () =>
+          queryHostedSql({
+            engine,
+            dbName,
+            sql,
+            dryRun: DRY_RUN,
+          })
+      );
       return { success: true, data };
     }
 
@@ -691,6 +831,9 @@ async function handleAction(payload: Action) {
         payload.where && typeof payload.where === "object"
           ? (payload.where as Record<string, unknown>)
           : {};
+      const whereList = Array.isArray(payload.whereList)
+        ? (payload.whereList as Record<string, unknown>[])
+        : undefined;
       const data = await mutatePostgresTableRowsOnServer({
         dbName: String(payload.dbName),
         schema: payload.schema ? String(payload.schema) : "public",
@@ -698,6 +841,16 @@ async function handleAction(payload: Action) {
         op: String(payload.op) as "insert" | "update" | "delete",
         values,
         where,
+        whereList,
+        dryRun: DRY_RUN,
+      });
+      return { success: true, data };
+    }
+
+    case "query_postgres_sql": {
+      const data = await queryPostgresSqlOnServer({
+        dbName: String(payload.dbName),
+        sql: String(payload.sql || ""),
         dryRun: DRY_RUN,
       });
       return { success: true, data };
@@ -1139,12 +1292,87 @@ async function handleAction(payload: Action) {
       return { success: true, data: result };
     }
 
+    case "docker_ps": {
+      const data = await listDockerContainers({ dryRun: DRY_RUN });
+      return { success: true, data };
+    }
+
+    case "docker_control": {
+      const data = await controlDockerContainer({
+        id: String(payload.id),
+        op: String(payload.op) as "start" | "stop" | "restart",
+        dryRun: DRY_RUN,
+      });
+      return { success: true, data };
+    }
+
+    case "docker_logs": {
+      const data = await dockerContainerLogs({
+        id: String(payload.id),
+        lines: payload.lines !== undefined ? Number(payload.lines) : undefined,
+        dryRun: DRY_RUN,
+      });
+      return { success: true, data };
+    }
+
+    case "docker_compose_up": {
+      const data = await dockerComposeUp({
+        composePath: String(payload.composePath),
+        documentRoot: String(payload.documentRoot),
+        dryRun: DRY_RUN,
+      });
+      return { success: true, data };
+    }
+
+    case "git_deploy": {
+      const data = await gitDeployOnServer({
+        documentRoot: String(payload.documentRoot),
+        repoUrl: String(payload.repoUrl),
+        branch: String(payload.branch || "main"),
+        dryRun: DRY_RUN,
+      });
+      return { success: true, data };
+    }
+
+    case "sync_cron_jobs": {
+      const jobs = Array.isArray(payload.jobs)
+        ? (payload.jobs as Array<{
+            id: string;
+            schedule: string;
+            command: string;
+            enabled?: boolean;
+          }>)
+        : [];
+      const data = await syncCronJobsOnServer({ jobs, dryRun: DRY_RUN });
+      return { success: true, data };
+    }
+
     default:
       return { success: false, error: `Unknown action: ${payload.action}` };
   }
 }
 
 const server = http.createServer(async (req, res) => {
+  if (req.method === "GET" && (req.url === "/plugins" || req.url?.startsWith("/plugins?"))) {
+    if (!bearerTokenMatches(req.headers.authorization, API_KEY)) {
+      return unauthorized(res);
+    }
+    try {
+      const plugins = await listPluginManifests(DRY_RUN);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, data: { plugins } }));
+    } catch (error) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          success: false,
+          error: error instanceof Error ? error.message : "Plugin list failed",
+        })
+      );
+    }
+    return;
+  }
+
   if (req.method === "POST" && req.url === "/execute") {
     if (!bearerTokenMatches(req.headers.authorization, API_KEY)) {
       return unauthorized(res);
@@ -1211,6 +1439,77 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === "GET" && (req.url === "/download-backup" || req.url?.startsWith("/download-backup?"))) {
+    if (!bearerTokenMatches(req.headers.authorization, API_KEY)) {
+      return unauthorized(res);
+    }
+    const filePath = headerString(req.headers["x-naviyra-path"]);
+    const allowedRoot = headerString(req.headers["x-naviyra-backup-root"]);
+    if (!filePath) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Missing X-Naviyra-Path" }));
+      return;
+    }
+    try {
+      const resolved = assertArchiveUnderAllowedRoot(
+        filePath,
+        allowedRoot || undefined
+      );
+      const stat = await fs.stat(resolved);
+      res.writeHead(200, {
+        "Content-Type": "application/gzip",
+        "Content-Disposition": `attachment; filename="${path.basename(resolved)}"`,
+        "Content-Length": String(stat.size),
+      });
+      fsSync.createReadStream(resolved).pipe(res);
+    } catch (error) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          success: false,
+          error: error instanceof Error ? error.message : "Download error",
+        })
+      );
+    }
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/upload-backup") {
+    if (!bearerTokenMatches(req.headers.authorization, API_KEY)) {
+      return unauthorized(res);
+    }
+    const fileName = headerString(req.headers["x-naviyra-name"]);
+    const allowedRoot = headerString(req.headers["x-naviyra-backup-root"]);
+    if (!fileName) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: false, error: "Missing X-Naviyra-Name" }));
+      return;
+    }
+    try {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+      const result = await writeBackupArchiveFile({
+        fileName,
+        content: Buffer.concat(chunks),
+        allowedRoot: allowedRoot || undefined,
+        dryRun: DRY_RUN,
+      });
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, data: result }));
+    } catch (error) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          success: false,
+          error: error instanceof Error ? error.message : "Upload error",
+        })
+      );
+    }
+    return;
+  }
+
   res.writeHead(404);
   res.end("Not found");
 });
@@ -1219,6 +1518,7 @@ attachTerminalWs(server, { dryRun: DRY_RUN });
 
 const BIND_HOST = getAgentBindHost();
 server.listen(PORT, BIND_HOST, async () => {
+  await initPluginRegistry();
   await fs.mkdir(SITES_ROOT, { recursive: true });
   const admin = hasAdminPermission();
   console.log(

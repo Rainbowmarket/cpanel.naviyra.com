@@ -1,547 +1,382 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { getSessionUser } from "@/lib/auth";
-import { pingAgent } from "@/lib/agent/client";
-import {
-  getPermissionLabel,
-  getPlatformName,
-  hasAdminPermission,
-} from "@/lib/permissions";
-import { getSecurityOverview } from "@/lib/services/security";
-import { collectDiskReport, formatDiskBytes } from "@/lib/system/disk";
-import { ServerResourcesWatch } from "@/components/system/ServerResourcesWatch";
+import { getDashboardOverview } from "@/lib/services/overview";
 import { canAccessDashboardPath } from "@/lib/panel-permissions";
-import { formatDate } from "@/lib/utils";
 import {
   Activity,
+  AlertTriangle,
   ArrowRight,
-  Ban,
-  Eye,
   Globe,
   HardDrive,
   Lock,
-  Mail,
+  MemoryStick,
+  Server,
   Shield,
   ShieldAlert,
-  Upload,
 } from "lucide-react";
-
-function isLiveMode(): boolean {
-  if (process.env.AGENT_DRY_RUN === "true") return false;
-  if (process.env.AGENT_DRY_RUN === "false") return true;
-  return process.platform !== "win32";
-}
-
-function severityClass(severity: string) {
-  if (severity === "CRITICAL" || severity === "HIGH") {
-    return "bg-red-500/15 text-red-300";
-  }
-  if (severity === "MEDIUM") {
-    return "bg-amber-500/15 text-amber-300";
-  }
-  return "bg-slate-800 text-slate-400";
-}
 
 function usedTone(pct: number | null) {
   if (pct == null) return "text-slate-400";
   if (pct >= 90) return "text-red-300";
-  if (pct >= 75) return "text-amber-300";
+  if (pct >= 80) return "text-amber-300";
   return "text-emerald-300";
 }
 
 function usedBar(pct: number | null) {
   if (pct == null) return "bg-slate-600";
   if (pct >= 90) return "bg-red-500";
-  if (pct >= 75) return "bg-amber-500";
+  if (pct >= 80) return "bg-amber-500";
   return "bg-emerald-500";
+}
+
+function Metric({
+  label,
+  value,
+  hint,
+  pct,
+  href,
+  icon: Icon,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  pct: number | null;
+  href: string;
+  icon: typeof Activity;
+}) {
+  return (
+    <Link
+      href={href}
+      className="rounded-xl border border-slate-800 bg-slate-950/80 p-3 transition hover:border-slate-700"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+          <Icon className="h-3.5 w-3.5 text-slate-500" />
+          {label}
+        </p>
+        <span className={`text-sm font-semibold tabular-nums ${usedTone(pct)}`}>
+          {value}
+        </span>
+      </div>
+      {pct != null ? (
+        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-800">
+          <div
+            className={`h-full rounded-full ${usedBar(pct)}`}
+            style={{ width: `${Math.min(100, pct)}%` }}
+          />
+        </div>
+      ) : (
+        <p className="mt-2 text-[11px] text-slate-500">{hint}</p>
+      )}
+      {pct != null && hint ? (
+        <p className="mt-1.5 text-[11px] text-slate-500">{hint}</p>
+      ) : null}
+    </Link>
+  );
 }
 
 export default async function DashboardPage() {
   const user = await getSessionUser();
   if (!user) return null;
 
-  const isAdmin = hasAdminPermission();
-  const liveMode = isLiveMode();
-  const canManage = !liveMode || isAdmin;
-
-  const [
-    domainCount,
-    mailCount,
-    ftpCount,
-    sslCount,
-    agentOnline,
-    security,
-    recentThreats,
-    recentBlocked,
-    recentDomains,
-    domainsForDisk,
-    backupConfig,
-  ] = await Promise.all([
-    prisma.domain.count({ where: { userId: user.id } }),
-    prisma.mailAccount.count({
-      where: { mailDomain: { domain: { userId: user.id } } },
-    }),
-    prisma.ftpAccount.count({ where: { domain: { userId: user.id } } }),
-    prisma.sslCertificate.count({
-      where: { domain: { userId: user.id }, status: "ACTIVE" },
-    }),
-    pingAgent(),
-    getSecurityOverview(user.id),
-    prisma.securityEvent.findMany({
-      where: { domain: { userId: user.id } },
-      include: { domain: { select: { name: true } } },
-      orderBy: { detectedAt: "desc" },
-      take: 4,
-    }),
-    prisma.blockedIp.findMany({
-      where: { isActive: true },
-      orderBy: { blockedAt: "desc" },
-      take: 4,
-    }),
-    prisma.domain.findMany({
-      where: { userId: user.id },
-      orderBy: { createdAt: "desc" },
-      take: 6,
-      select: {
-        id: true,
-        name: true,
-        status: true,
-        createdAt: true,
-        documentRoot: true,
-        _count: {
-          select: {
-            subdomains: true,
-            sslCerts: true,
-          },
-        },
-      },
-    }),
-    prisma.domain.findMany({
-      where: { userId: user.id },
-      orderBy: { name: "asc" },
-      select: { id: true, name: true, documentRoot: true },
-    }),
-    prisma.backupWorkerConfig.findFirst({
-      select: { backupRoot: true },
-    }),
-  ]);
-
-  const disk = await collectDiskReport({
-    backupRoot: backupConfig?.backupRoot,
-    websiteRoots: domainsForDisk.map((d) => ({
-      id: d.id,
-      label: d.name,
-      path: d.documentRoot,
-    })),
+  const overview = await getDashboardOverview({
+    id: user.id,
+    role: user.role,
   });
 
-  const volume = disk.volumes[0] ?? null;
-  const usedPct =
-    volume && volume.totalBytes > 0
-      ? Math.min(100, Math.round((volume.usedBytes / volume.totalBytes) * 100))
-      : null;
-  const categoryPaths = disk.paths.filter((p) => !p.id.startsWith("domain:"));
-  const domainSizeById = new Map(
-    disk.paths
-      .filter((p) => p.id.startsWith("domain:"))
-      .map((p) => [p.id.replace(/^domain:/, ""), p.bytes] as const)
-  );
-  const categoryMax = Math.max(1, ...categoryPaths.map((p) => p.bytes ?? 0));
+  const domainCount = await prisma.domain.count({
+    where: user.role === "ADMIN" ? {} : { userId: user.id },
+  });
 
-  const resourceStats = [
-    { label: "Domains", value: domainCount, icon: Globe, href: "/dashboard/domains" },
-    { label: "Mail", value: mailCount, icon: Mail, href: "/dashboard/mail" },
-    { label: "FTP", value: ftpCount, icon: Upload, href: "/dashboard/ftp" },
-    { label: "SSL", value: sslCount, icon: Lock, href: "/dashboard/ssl" },
-  ].filter((item) => canAccessDashboardPath(user, item.href));
-
-  const securityStats = [
-    {
-      label: "Visitors",
-      value: security.visitorsToday,
-      icon: Eye,
-      href: "/dashboard/security?tab=visitors",
-    },
-    {
-      label: "Live",
-      value: security.liveNow,
-      icon: Activity,
-      href: "/dashboard/security?tab=visitors",
-    },
-    {
-      label: "Threats",
-      value: security.threatsToday,
-      icon: ShieldAlert,
-      href: "/dashboard/security?tab=threats",
-      alert: security.threatsToday > 0,
-    },
-    {
-      label: "Blocked",
-      value: security.blockedIps,
-      icon: Ban,
-      href: "/dashboard/security?tab=blocked",
-      alert: security.blockedIps > 0,
-    },
-  ].filter((item) => canAccessDashboardPath(user, item.href));
-
-  const shortcuts = [
+  const drilldowns = [
     { label: "Domains", href: "/dashboard/domains" },
-    { label: "DNS", href: "/dashboard/dns" },
-    { label: "Mail", href: "/dashboard/mail" },
-    { label: "SSL", href: "/dashboard/ssl" },
-    { label: "Files", href: "/dashboard/files" },
-    { label: "Backups", href: "/dashboard/backups" },
     { label: "Security", href: "/dashboard/security" },
-    { label: "Docs", href: "/dashboard/docs" },
-    ...(user.role === "ADMIN"
-      ? [{ label: "Speed Test", href: "/dashboard/speed-test" }]
-      : []),
+    { label: "Monitoring", href: "/dashboard/monitoring" },
+    { label: "SSL", href: "/dashboard/ssl" },
+    { label: "Backups", href: "/dashboard/backups" },
   ].filter((item) => canAccessDashboardPath(user, item.href));
+
+  const healthHref = canAccessDashboardPath(user, "/dashboard/monitoring")
+    ? "/dashboard/monitoring"
+    : "/dashboard";
 
   return (
-    <div className="space-y-4 sm:space-y-5">
-      <div className="flex flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between sm:gap-3">
-        <div className="min-w-0">
-          <h2 className="text-lg font-bold text-white sm:text-2xl">Dashboard</h2>
-          <p className="mt-0.5 text-xs text-slate-400 sm:mt-1 sm:text-sm">
-            Live CPU/RAM, storage, and security.
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h2 className="text-lg font-bold text-white sm:text-xl">Overview</h2>
+          <p className="mt-0.5 text-xs text-slate-500">
+            {overview.health.hostname}
+            {domainCount ? ` · ${domainCount} site${domainCount === 1 ? "" : "s"}` : ""}
           </p>
         </div>
-        <div className="flex flex-wrap gap-1.5">
-          <div
-            className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[10px] sm:gap-2 sm:rounded-lg sm:px-2.5 sm:py-1 sm:text-[11px] ${
-              agentOnline
-                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-                : "border-amber-500/30 bg-amber-500/10 text-amber-300"
+        <div
+          className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] ${
+            overview.agentOnline
+              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+              : "border-red-500/30 bg-red-500/10 text-red-300"
+          }`}
+        >
+          <span
+            className={`h-1.5 w-1.5 rounded-full ${
+              overview.agentOnline ? "bg-emerald-400" : "bg-red-400"
             }`}
-          >
-            <span
-              className={`h-1.5 w-1.5 rounded-full ${
-                agentOnline ? "bg-emerald-400" : "bg-amber-400"
-              }`}
-            />
-            Agent {agentOnline ? "online" : "offline"}
-          </div>
-          <div
-            className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[10px] sm:gap-2 sm:rounded-lg sm:px-2.5 sm:py-1 sm:text-[11px] ${
-              canManage
-                ? "border-slate-800 bg-slate-950/80 text-slate-300"
-                : "border-red-500/30 bg-red-500/10 text-red-300"
-            }`}
-          >
-            <Shield className="h-3 w-3 text-emerald-400" />
-            {getPlatformName()} · {getPermissionLabel()}
-          </div>
-          {!liveMode ? (
-            <div className="inline-flex items-center rounded-md border border-slate-800 bg-slate-950/80 px-2 py-0.5 text-[10px] text-slate-400 sm:rounded-lg sm:px-2.5 sm:py-1 sm:text-[11px]">
-              Dry-run
-            </div>
-          ) : null}
+          />
+          Agent {overview.agentOnline ? "online" : "offline"}
         </div>
       </div>
 
-      {/* Horizontal scroll on narrow screens — no awkward wrap */}
-      <div className="-mx-4 overflow-x-auto overscroll-x-contain px-4 [scrollbar-width:none] sm:mx-0 sm:overflow-visible sm:px-0 [&::-webkit-scrollbar]:hidden">
-        <div className="flex w-max gap-1.5 sm:w-auto sm:flex-wrap">
-          {shortcuts.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="shrink-0 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-1.5 text-[11px] text-slate-400 transition hover:border-slate-700 hover:text-slate-200 active:bg-slate-900"
-            >
-              {item.label}
-            </Link>
-          ))}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
-        {resourceStats.map((stat) => {
-          const Icon = stat.icon;
-          return (
-            <Link
-              key={stat.label}
-              href={stat.href}
-              className="rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-2.5 transition hover:border-emerald-500/30 hover:bg-slate-900/70 active:bg-slate-900 sm:px-3.5 sm:py-3 xl:col-span-1"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
-                  {stat.label}
-                </p>
-                <Icon className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
-              </div>
-              <p className="mt-1 text-lg font-semibold tabular-nums text-white sm:text-xl">
-                {stat.value}
-              </p>
-            </Link>
-          );
-        })}
-        {securityStats.map((stat) => {
-          const Icon = stat.icon;
-          return (
-            <Link
-              key={stat.label}
-              href={stat.href}
-              className="rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-2.5 transition hover:bg-slate-900/70 active:bg-slate-900 sm:px-3.5 sm:py-3 xl:col-span-1"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-[10px] font-medium uppercase tracking-wider text-slate-500">
-                  {stat.label}
-                </p>
-                <Icon
-                  className={`h-3.5 w-3.5 shrink-0 ${
-                    stat.alert ? "text-amber-400" : "text-emerald-400"
-                  }`}
-                />
-              </div>
-              <p
-                className={`mt-1 text-lg font-semibold tabular-nums sm:text-xl ${
-                  stat.alert ? "text-amber-200" : "text-white"
-                }`}
-              >
-                {stat.value.toLocaleString()}
-              </p>
-            </Link>
-          );
-        })}
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-        <div className="space-y-4">
-          <ServerResourcesWatch />
-
-        <section className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/80">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 px-4 py-2.5">
-            <div className="flex items-center gap-2">
-              <HardDrive className="h-4 w-4 text-emerald-400" />
-              <div>
-                <h3 className="text-sm font-semibold text-white">Storage</h3>
-                <p className="text-[11px] text-slate-500">
-                  {volume
-                    ? `${formatDiskBytes(volume.availableBytes)} free on ${volume.mount}`
-                    : "Disk usage"}
-                </p>
-              </div>
-            </div>
-            {usedPct != null ? (
-              <span className={`text-sm font-semibold tabular-nums ${usedTone(usedPct)}`}>
-                {usedPct}%
-              </span>
-            ) : null}
+      {overview.alerts.length > 0 ? (
+        <section className="rounded-xl border border-amber-500/25 bg-amber-500/5">
+          <div className="flex items-center justify-between border-b border-amber-500/15 px-3 py-2">
+            <h3 className="flex items-center gap-1.5 text-sm font-semibold text-white">
+              <AlertTriangle className="h-4 w-4 text-amber-400" />
+              Alerts
+            </h3>
+            <span className="text-[11px] text-slate-500">{overview.alerts.length}</span>
           </div>
-
-          <div className="space-y-4 p-4">
-            {volume ? (
-              <div>
-                <div className="mb-2 flex items-baseline justify-between gap-2">
-                  <p className="text-lg font-semibold tabular-nums text-white">
-                    {formatDiskBytes(volume.usedBytes)}
-                    <span className="ml-1 text-sm font-normal text-slate-500">
-                      / {formatDiskBytes(volume.totalBytes)}
-                    </span>
-                  </p>
-                </div>
-                <div className="h-2 overflow-hidden rounded-full bg-slate-800">
-                  <div
-                    className={`h-full rounded-full ${usedBar(usedPct)}`}
-                    style={{ width: `${usedPct ?? 0}%` }}
-                  />
-                </div>
-              </div>
-            ) : (
-              <p className="text-sm text-slate-500">Disk usage unavailable.</p>
-            )}
-
-            <ul className="grid gap-2 sm:grid-cols-2">
-              {categoryPaths.map((p) => {
-                const pct = Math.round(((p.bytes ?? 0) / categoryMax) * 100);
-                return (
-                  <li
-                    key={p.id}
-                    className="rounded-lg border border-slate-800/80 bg-slate-900/40 px-3 py-2"
-                  >
-                    <div className="flex items-center justify-between gap-2 text-xs">
-                      <span className="text-slate-300">{p.label}</span>
-                      <span className="tabular-nums text-slate-400">
-                        {p.missing ? "—" : formatDiskBytes(p.bytes)}
-                      </span>
-                    </div>
-                    <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-slate-800">
-                      <div
-                        className="h-full rounded-full bg-emerald-500/70"
-                        style={{ width: `${p.bytes ? Math.max(6, pct) : 0}%` }}
-                      />
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        </section>
-        </div>
-
-        <section className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/80">
-          <div className="flex items-center justify-between border-b border-slate-800 px-4 py-2.5">
-            <div>
-              <h3 className="text-sm font-semibold text-white">Your domains</h3>
-              <p className="text-[11px] text-slate-500">
-                Status, SSL, and folder size.
-              </p>
-            </div>
-            <Link
-              href="/dashboard/domains"
-              className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-400 hover:text-emerald-300"
-            >
-              Manage
-              <ArrowRight className="h-3 w-3" />
-            </Link>
-          </div>
-
-          {recentDomains.length === 0 ? (
-            <p className="px-4 py-10 text-center text-sm text-slate-500">
-              No domains yet.
-            </p>
-          ) : (
-            <ul>
-              {recentDomains.map((domain) => (
-                <li
-                  key={domain.id}
-                  className="flex items-center justify-between gap-2 border-t border-slate-800/70 px-3 py-2.5 first:border-t-0 sm:gap-3 sm:px-4"
+          <ul>
+            {overview.alerts.map((alert) => (
+              <li key={alert.id} className="border-t border-slate-800/60 first:border-t-0">
+                <Link
+                  href={alert.href}
+                  className="flex items-center justify-between gap-3 px-3 py-2 text-sm hover:bg-slate-900/50"
                 >
-                  <div className="min-w-0 flex-1">
-                    <div className="flex min-w-0 items-center gap-1.5">
-                      <p className="truncate text-sm font-medium text-white">
-                        {domain.name}
-                      </p>
-                      <span
-                        className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium uppercase ${
-                          domain.status === "ACTIVE"
-                            ? "bg-emerald-500/15 text-emerald-300"
-                            : "bg-slate-800 text-slate-400"
-                        }`}
-                      >
-                        {domain.status === "ACTIVE" ? "OK" : domain.status}
-                      </span>
-                    </div>
-                    <p className="mt-0.5 truncate text-[11px] text-slate-500">
-                      {domain._count.sslCerts} SSL
-                      <span className="mx-1 text-slate-700">·</span>
-                      {formatDiskBytes(domainSizeById.get(domain.id) ?? null)}
-                      <span className="mx-1 hidden text-slate-700 sm:inline">·</span>
-                      <span className="hidden sm:inline">
-                        {formatDate(domain.createdAt)}
-                      </span>
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 gap-1">
-                    <Link
-                      href="/dashboard/dns"
-                      className="rounded-md border border-slate-700 px-2 py-1.5 text-[11px] text-slate-300 hover:bg-slate-800"
-                    >
-                      DNS
-                    </Link>
-                    <Link
-                      href="/dashboard/files"
-                      className="rounded-md border border-slate-700 px-2 py-1.5 text-[11px] text-slate-300 hover:bg-slate-800"
-                    >
-                      Files
-                    </Link>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
+                  <span
+                    className={
+                      alert.tone === "critical" ? "text-red-300" : "text-amber-200"
+                    }
+                  >
+                    {alert.title}
+                  </span>
+                  <ArrowRight className="h-3.5 w-3.5 shrink-0 text-slate-600" />
+                </Link>
+              </li>
+            ))}
+          </ul>
         </section>
-      </div>
+      ) : (
+        <p className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-sm text-emerald-300">
+          No critical alerts.
+        </p>
+      )}
 
-      <section className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/80">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 px-4 py-2.5">
-          <div>
-            <h3 className="text-sm font-semibold text-white">Security feed</h3>
-            <p className="text-[11px] text-slate-500">
-              Latest threats and active IP blocks.
-            </p>
-          </div>
+      <section>
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-white">Server health</h3>
           <Link
-            href="/dashboard/security"
-            className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-400 hover:text-emerald-300"
+            href={healthHref}
+            className="inline-flex items-center gap-1 text-[11px] text-sky-400 hover:text-sky-300"
           >
-            Open security
+            Details
             <ArrowRight className="h-3 w-3" />
           </Link>
         </div>
-
-        <div className="grid lg:grid-cols-2">
-          <div className="border-b border-slate-800 lg:border-r lg:border-b-0">
-            <div className="flex items-center justify-between px-4 py-2">
-              <p className="text-xs font-medium text-slate-300">Threats</p>
-              <ShieldAlert className="h-3.5 w-3.5 text-slate-600" />
-            </div>
-            {recentThreats.length === 0 ? (
-              <p className="px-4 py-8 text-center text-sm text-slate-500">
-                No threats logged yet.
-              </p>
-            ) : (
-              <ul>
-                {recentThreats.map((t) => (
-                  <li
-                    key={t.id}
-                    className="flex items-start justify-between gap-3 border-t border-slate-800/70 px-4 py-2.5"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate font-mono text-sm text-slate-200">
-                        {t.ipAddress}
-                      </p>
-                      <p className="mt-0.5 truncate text-[11px] text-slate-500">
-                        {t.threatType.replaceAll("_", " ")}
-                        {t.domain?.name ? ` · ${t.domain.name}` : ""}
-                      </p>
-                    </div>
-                    <span
-                      className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-medium uppercase ${severityClass(t.severity)}`}
-                    >
-                      {t.severity}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          <div>
-            <div className="flex items-center justify-between px-4 py-2">
-              <p className="text-xs font-medium text-slate-300">Blocks</p>
-              <Ban className="h-3.5 w-3.5 text-slate-600" />
-            </div>
-            {recentBlocked.length === 0 ? (
-              <p className="px-4 py-8 text-center text-sm text-slate-500">
-                No IPs currently blocked.
-              </p>
-            ) : (
-              <ul>
-                {recentBlocked.map((b) => (
-                  <li
-                    key={b.id}
-                    className="flex items-start justify-between gap-3 border-t border-slate-800/70 px-4 py-2.5"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate font-mono text-sm text-slate-200">
-                        {b.ipAddress}
-                      </p>
-                      <p className="mt-0.5 truncate text-[11px] text-slate-500">
-                        {b.reason}
-                      </p>
-                    </div>
-                    <span className="shrink-0 rounded-md bg-slate-800 px-1.5 py-0.5 text-[10px] font-medium uppercase text-slate-400">
-                      {b.source}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+        <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+          <Metric
+            label="CPU"
+            value={
+              overview.health.cpuPercent == null
+                ? "—"
+                : `${overview.health.cpuPercent}%`
+            }
+            pct={overview.health.cpuPercent}
+            href={healthHref}
+            icon={Activity}
+          />
+          <Metric
+            label="RAM"
+            value={
+              overview.health.memPercent == null
+                ? "—"
+                : `${overview.health.memPercent}%`
+            }
+            hint={overview.health.memLabel}
+            pct={overview.health.memPercent}
+            href={healthHref}
+            icon={MemoryStick}
+          />
+          <Metric
+            label="Disk"
+            value={
+              overview.health.diskPercent == null
+                ? "—"
+                : `${overview.health.diskPercent}%`
+            }
+            hint={overview.health.diskLabel}
+            pct={overview.health.diskPercent}
+            href={healthHref}
+            icon={HardDrive}
+          />
+          <Metric
+            label="Uptime"
+            value={overview.health.uptime}
+            hint={overview.health.hostname}
+            pct={null}
+            href={healthHref}
+            icon={Server}
+          />
         </div>
       </section>
+
+      <section>
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-white">Services</h3>
+          {canAccessDashboardPath(user, "/dashboard/service-tests") ? (
+            <Link
+              href="/dashboard/service-tests"
+              className="inline-flex items-center gap-1 text-[11px] text-sky-400 hover:text-sky-300"
+            >
+              Tests
+              <ArrowRight className="h-3 w-3" />
+            </Link>
+          ) : null}
+        </div>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {overview.services.map((svc) => (
+            <Link
+              key={svc.id}
+              href={
+                canAccessDashboardPath(user, svc.href) ? svc.href : "/dashboard"
+              }
+              className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-2.5 hover:border-slate-700"
+            >
+              <span
+                className={`h-2.5 w-2.5 shrink-0 rounded-full ${
+                  svc.ok ? "bg-emerald-400" : "bg-red-500"
+                }`}
+              />
+              <span className="text-sm text-slate-200">{svc.label}</span>
+              <span className="ml-auto text-[11px] text-slate-500">
+                {svc.ok ? "Up" : "Down"}
+              </span>
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <section className="rounded-xl border border-slate-800 bg-slate-950/80">
+          <div className="flex items-center justify-between border-b border-slate-800 px-3 py-2.5">
+            <h3 className="flex items-center gap-1.5 text-sm font-semibold text-white">
+              <Globe className="h-4 w-4 text-slate-500" />
+              Top sites
+            </h3>
+            <Link
+              href="/dashboard/domains"
+              className="inline-flex items-center gap-1 text-[11px] text-sky-400 hover:text-sky-300"
+            >
+              All sites
+              <ArrowRight className="h-3 w-3" />
+            </Link>
+          </div>
+          {overview.topSites.length === 0 ? (
+            <p className="px-3 py-8 text-center text-sm text-slate-500">
+              No traffic in the last 24 hours.
+            </p>
+          ) : (
+            <ol>
+              {overview.topSites.map((site, i) => (
+                <li
+                  key={site.id}
+                  className="flex items-center justify-between gap-3 border-t border-slate-800/70 px-3 py-2 first:border-t-0"
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="w-4 text-[11px] tabular-nums text-slate-600">
+                      {i + 1}
+                    </span>
+                    <span className="truncate text-sm text-white">{site.name}</span>
+                  </span>
+                  <span className="shrink-0 text-[11px] tabular-nums text-slate-400">
+                    {site.hits.toLocaleString()} hits
+                  </span>
+                </li>
+              ))}
+            </ol>
+          )}
+        </section>
+
+        <section className="rounded-xl border border-slate-800 bg-slate-950/80">
+          <div className="flex items-center justify-between border-b border-slate-800 px-3 py-2.5">
+            <h3 className="flex items-center gap-1.5 text-sm font-semibold text-white">
+              <Shield className="h-4 w-4 text-slate-500" />
+              Security
+            </h3>
+            <Link
+              href="/dashboard/security"
+              className="inline-flex items-center gap-1 text-[11px] text-sky-400 hover:text-sky-300"
+            >
+              Details
+              <ArrowRight className="h-3 w-3" />
+            </Link>
+          </div>
+          <div className="grid grid-cols-2 gap-px bg-slate-800">
+            <div className="bg-slate-950/80 p-3">
+              <p className="text-[11px] uppercase tracking-wide text-slate-500">
+                Firewall
+              </p>
+              <p
+                className={`mt-1 text-sm font-semibold ${
+                  overview.security.firewallActive === false
+                    ? "text-red-300"
+                    : "text-emerald-300"
+                }`}
+              >
+                {overview.security.firewallActive === null
+                  ? "Host n/a"
+                  : overview.security.firewallActive
+                    ? "Active"
+                    : "Inactive"}
+              </p>
+            </div>
+            <div className="bg-slate-950/80 p-3">
+              <p className="flex items-center gap-1 text-[11px] uppercase tracking-wide text-slate-500">
+                <Lock className="h-3 w-3" />
+                Failed logins
+              </p>
+              <p className="mt-1 text-sm font-semibold text-white">
+                {overview.security.failedLogins24h}
+                <span className="ml-1 text-[11px] font-normal text-slate-500">
+                  / 24h
+                </span>
+              </p>
+            </div>
+            <div className="bg-slate-950/80 p-3">
+              <p className="flex items-center gap-1 text-[11px] uppercase tracking-wide text-slate-500">
+                <ShieldAlert className="h-3 w-3" />
+                Threats
+              </p>
+              <p className="mt-1 text-sm font-semibold text-white">
+                {overview.security.threats24h}
+                <span className="ml-1 text-[11px] font-normal text-slate-500">
+                  / 24h
+                </span>
+              </p>
+            </div>
+            <div className="bg-slate-950/80 p-3">
+              <p className="text-[11px] uppercase tracking-wide text-slate-500">
+                Blocked IPs
+              </p>
+              <p className="mt-1 text-sm font-semibold text-white">
+                {overview.security.blockedIps}
+              </p>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <p className="flex flex-wrap gap-2 text-[11px] text-slate-500">
+        {drilldowns.map((item) => (
+          <Link
+            key={item.href}
+            href={item.href}
+            className="rounded-md border border-slate-800 px-2 py-1 text-slate-400 hover:border-slate-700 hover:text-slate-200"
+          >
+            {item.label}
+          </Link>
+        ))}
+      </p>
     </div>
   );
 }

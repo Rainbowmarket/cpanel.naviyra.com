@@ -4,11 +4,11 @@ import { getDnsZoneApex } from "@/lib/base-domain";
 import { assertAllowedPanelSubdomainLabel, isReservedPanelSubdomain } from "@/lib/panel-host";
 import { mailHostLabel } from "@/lib/dns/zone";
 import {
-  getAgentApiKey,
   getDefaultSubdomainRoot,
   getMailHostname,
   resolveAllowedDocumentRoot,
 } from "@/lib/paths";
+import { agentTargetForServerId } from "@/lib/agent/target";
 import { assertValidSubdomainLabels } from "@/lib/hostname";
 import { ensurePanelBaseDomain } from "@/lib/services/domains";
 import { addSubdomainDnsRecord, removeSubdomainDnsRecord } from "@/lib/services/dns";
@@ -72,7 +72,7 @@ export function parseCustomSubdomainFqdn(
 export async function resolveCustomSubdomainFqdn(
   fqdnRaw: string,
   userId: string,
-  role: "ADMIN" | "RESELLER" | "USER"
+  role: "ADMIN" | "USER"
 ): Promise<{ domainId: string; name: string; domainName: string }> {
   const fqdn = normalizeSubdomainName(fqdnRaw);
   const panelBase = getDnsZoneApex();
@@ -134,7 +134,7 @@ async function ensureMissingMailSubdomains() {
 export async function listSubdomains(
   domainId: string,
   userId: string,
-  opts?: { role?: "ADMIN" | "RESELLER" | "USER" }
+  opts?: { role?: "ADMIN" | "USER" }
 ) {
   if (opts?.role === "ADMIN") {
     await ensureMissingMailSubdomains().catch(() => undefined);
@@ -164,7 +164,7 @@ export async function listSubdomains(
 /** All subdomains for the user (admins see every domain, including reserved mail hosts). */
 export async function listAllSubdomains(
   userId: string,
-  opts?: { role?: "ADMIN" | "RESELLER" | "USER" }
+  opts?: { role?: "ADMIN" | "USER" }
 ) {
   if (opts?.role === "ADMIN") {
     await ensureMissingMailSubdomains().catch(() => undefined);
@@ -195,7 +195,7 @@ async function provisionSubdomain(subdomain: {
   documentRoot: string;
   appType: AppType;
   upstreamPort: number | null;
-  domain: { name: string; phpEnabled: boolean; server: { agentKey: string } };
+  domain: { name: string; phpEnabled: boolean; serverId: string };
 }) {
   const agentResult = await callAgent(
     {
@@ -207,7 +207,7 @@ async function provisionSubdomain(subdomain: {
       appType: subdomain.appType,
       upstreamPort: subdomain.upstreamPort,
     },
-    subdomain.domain.server.agentKey || getAgentApiKey()
+    await agentTargetForServerId(subdomain.domain.serverId)
   );
 
   const status: DomainStatus = agentResult.success ? "ACTIVE" : "ERROR";
@@ -311,7 +311,7 @@ export async function createSubdomain(input: {
     domain: {
       name: domain.name,
       phpEnabled: domain.phpEnabled,
-      server: domain.server,
+      serverId: domain.serverId,
     },
   });
 }
@@ -341,7 +341,7 @@ export async function retrySubdomain(subdomainId: string, userId: string) {
     domain: {
       name: subdomain.domain.name,
       phpEnabled: subdomain.domain.phpEnabled,
-      server: subdomain.domain.server,
+      serverId: subdomain.domain.serverId,
     },
   });
 }
@@ -374,7 +374,7 @@ export async function updateSubdomainPath(
       action: "create_directory",
       path: safeRoot,
     },
-    subdomain.domain.server.agentKey || getAgentApiKey()
+    await agentTargetForServerId(subdomain.domain.serverId)
   );
 
   const status: DomainStatus = agentResult.success ? "ACTIVE" : "ERROR";
@@ -418,7 +418,7 @@ export async function deleteSubdomain(
       documentRoot: subdomain.documentRoot,
       deleteFiles,
     },
-    subdomain.domain.server.agentKey || getAgentApiKey()
+    await agentTargetForServerId(subdomain.domain.serverId)
   );
 
   // Delete DB row before DNS sync — syncDnsZone re-upserts A records for

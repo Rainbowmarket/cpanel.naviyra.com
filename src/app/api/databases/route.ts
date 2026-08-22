@@ -5,34 +5,29 @@ import {
   createPostgresDatabase,
   deletePostgresDatabase,
   listPostgresDatabases,
+  listInstalledDbEngines,
   postgresConnectionInfo,
   resetPostgresDatabasePassword,
-  buildConnectionUri,
+  connectionForEngine,
 } from "@/lib/services/databases";
 
-function connectionForList(db: { dbName: string; roleName: string }) {
-  const base = postgresConnectionInfo();
-  return {
-    ...base,
-    database: db.dbName,
-    user: db.roleName,
-    uri: buildConnectionUri({
-      ...base,
-      database: db.dbName,
-      user: db.roleName,
-    }),
-  };
+function connectionForList(db: { dbName: string; roleName: string; engine?: string }) {
+  return connectionForEngine(db.engine || "postgres", db);
 }
 
 export async function GET() {
   try {
     const user = await requireSessionUser("databases");
-    const databases = await listPostgresDatabases(user.id, user.role);
+    const [databases, engines] = await Promise.all([
+      listPostgresDatabases(user.id, user.role),
+      listInstalledDbEngines(user.id, user.role),
+    ]);
     return NextResponse.json({
       databases: databases.map(({ passwordHash: _, ...db }) => ({
         ...db,
         connection: connectionForList(db),
       })),
+      engines,
       connectionDefaults: postgresConnectionInfo(),
     });
   } catch (error) {
@@ -42,6 +37,7 @@ export async function GET() {
 
 const createSchema = z.object({
   target: z.string().min(1),
+  engine: z.string().min(1).optional(),
   label: z
     .string()
     .min(1)

@@ -46,8 +46,8 @@ export function DatabaseDumpActions(props: {
 
   async function importFile(file: File) {
     const ok = await confirm(
-      `Import ${file.name} into this database? Existing tables with the same names may be replaced.`,
-      { title: "Import dump", confirmLabel: "Import", danger: true }
+      `Import ${file.name} into this database? Existing public tables, functions, and rows will be replaced (same IDs are overwritten).`,
+      { title: "Import dump", confirmLabel: "Import and replace", danger: true }
     );
     if (!ok) return;
 
@@ -63,7 +63,11 @@ export function DatabaseDumpActions(props: {
       if (!res.ok) {
         await alert(
           typeof data.error === "string" ? data.error : "Import failed",
-          { title: "Import failed", tone: "danger" }
+          {
+            title: "Import failed",
+            tone: "danger",
+            detail: typeof data.detail === "string" ? data.detail : undefined,
+          }
         );
         return;
       }
