@@ -532,7 +532,13 @@ export function run(cmd, args, opts = {}) {
     env: { ...process.env, ...opts.env },
     windowsHide: true,
   });
-  if (result.error) throw result.error;
+  if (result.error) {
+    if (opts.ignoreExit) {
+      log(`${cmd} ${args.join(" ")} skipped (${result.error.code || result.error.message})`);
+      return result;
+    }
+    throw result.error;
+  }
   if (result.status !== 0 && !opts.ignoreExit) {
     throw new Error(`${cmd} ${args.join(" ")} failed (exit ${result.status})`);
   }

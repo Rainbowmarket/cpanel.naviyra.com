@@ -30,9 +30,126 @@ grep -q '^AGENT_URL=' .env || echo 'AGENT_URL=http://127.0.0.1:4100' >> .env
 sed -i 's|^AGENT_DRY_RUN=.*|AGENT_DRY_RUN=false|' .env
 grep -q '^AGENT_DRY_RUN=' .env || echo 'AGENT_DRY_RUN=false' >> .env
 grep -q '^NAVIYRA_NO_BROWSER=' .env || echo 'NAVIYRA_NO_BROWSER=true' >> .env
-grep -q '^COOKIE_SECURE=' .env || echo 'COOKIE_SECURE=true' >> .env
+# HTTP://IP:3100 cannot keep a Secure cookie — do not force COOKIE_SECURE=true
+if grep -q '^COOKIE_SECURE=' .env; then
+  sed -i 's|^COOKIE_SECURE=true|COOKIE_SECURE=false|' .env
+else
+  echo 'COOKIE_SECURE=false' >> .env
+fi
 grep -q '^AGENT_BIND_HOST=' .env || echo 'AGENT_BIND_HOST=127.0.0.1' >> .env
 sed -i 's|^AGENT_BIND_HOST=.*|AGENT_BIND_HOST=127.0.0.1|' .env
+
+# Docs example hpanel.yourdomain.com is not a real host.
+# Live .env can contain DUPLICATE keys; Node/bash use the LAST assignment.
+python3 - <<'PY'
+from pathlib import Path
+import re
+
+p = Path(".env")
+text = p.read_text() if p.exists() else ""
+
+def is_placeholder(h):
+    h = (h or "").lower()
+    return (not h) or any(x in h for x in ("yourdomain.com", "example.com", "example.org")) or h == "localhost"
+
+def host_only(v):
+    v = (v or "").replace("https://", "").replace("http://", "").split("/")[0].split(":")[0]
+    return v[4:] if v.startswith("www.") else v
+
+def strip_val(raw):
+    return raw.strip().strip('"').strip("'")
+
+# Last assignment wins, but skip docs-example panel hosts when a real one exists.
+raw_vals = {}
+for m in re.finditer(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$", text, re.M):
+    raw_vals.setdefault(m.group(1), []).append(strip_val(m.group(2)))
+
+def all_vals(key):
+    return raw_vals.get(key, [])
+
+def last_real_host(*keys):
+    found = None
+    for key in keys:
+        for v in all_vals(key):
+            h = host_only(v)
+            if h and not is_placeholder(h):
+                found = h
+    return found or ""
+
+def last_any(key):
+    vals = all_vals(key)
+    return vals[-1] if vals else ""
+
+panel = last_real_host("PANEL_HOSTNAME", "PANEL_PUBLIC_URL")
+if not panel:
+    panel = host_only(last_any("PANEL_HOSTNAME") or last_any("PANEL_PUBLIC_URL"))
+
+ns1 = host_only(last_real_host("DNS_NS1") or last_any("DNS_NS1"))
+if ns1.startswith("ns1."):
+    ns1 = ns1[4:]
+elif ns1.startswith("ns2."):
+    ns1 = ns1[4:]
+server = host_only(last_real_host("DEFAULT_SERVER_HOSTNAME") or last_any("DEFAULT_SERVER_HOSTNAME"))
+for prefix in ("s1.", "server1."):
+    if server.startswith(prefix):
+        server = server[len(prefix):]
+        break
+apex = ""
+if ns1 and "." in ns1 and not is_placeholder(ns1):
+    apex = ns1
+elif server and "." in server and not is_placeholder(server):
+    apex = server
+if not apex:
+    nginx = Path("/etc/nginx/sites-available")
+    if nginx.is_dir():
+        for f in nginx.iterdir():
+            n = f.name.lower()
+            if n.startswith("hpanel.") and not is_placeholder(n):
+                rest = n.split(".", 1)[1]
+                if "." in rest:
+                    apex = rest
+                    break
+
+if is_placeholder(panel) or (apex and panel == apex) or (not panel and apex):
+    if not apex:
+        print(f"panel_host={panel or 'unset'}")
+        raise SystemExit(0)
+    panel = f"hpanel.{apex}"
+
+# Drop duplicate keys; keep first occurrence, rewrite panel keys.
+secondary = last_real_host("SECONDARY_SERVER_HOSTNAME") or last_any("SECONDARY_SERVER_HOSTNAME")
+if (not secondary or is_placeholder(secondary)) and apex:
+    secondary = f"s2.{apex}"
+wanted = {
+    "PANEL_HOSTNAME": panel,
+    "PANEL_PUBLIC_URL": f"https://{panel}" if panel and not is_placeholder(panel) else "",
+    "NEXT_PUBLIC_TERMINAL_WS_URL": (
+        f"wss://{panel}/terminal-ws/terminal" if panel and not is_placeholder(panel) else ""
+    ),
+    "SECONDARY_SERVER_HOSTNAME": secondary if secondary and not is_placeholder(secondary) else "",
+}
+seen = set()
+out = []
+for line in text.splitlines():
+    m = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)=", line)
+    if not m:
+        out.append(line)
+        continue
+    key = m.group(1)
+    if key in seen:
+        continue
+    seen.add(key)
+    if key in wanted and wanted[key]:
+        out.append(f"{key}={wanted[key]}")
+    else:
+        out.append(line)
+for key, value in wanted.items():
+    if value and key not in seen:
+        out.append(f"{key}={value}")
+        seen.add(key)
+p.write_text("\n".join(out).rstrip() + "\n")
+print(f"panel_host={panel or 'unset'}")
+PY
 
 # Rotate weak published agent key / ensure SESSION_SECRET
 python3 - <<'PY'
@@ -166,7 +283,39 @@ if [ -d /tmp/naviyra-data-bak ] && [ "$(ls -A /tmp/naviyra-data-bak 2>/dev/null 
   rsync -a /tmp/naviyra-data-bak/ data/ || true
 fi
 
+echo "== node =="
+# Non-interactive PATH is Ubuntu node 18. Prefer nvm (already on this host).
+if [ -d "${NVM_DIR:-/root/.nvm}/versions/node" ]; then
+  NODE_BIN_DIR="$(ls -d "${NVM_DIR:-/root/.nvm}"/versions/node/v*/bin 2>/dev/null | sort -V | tail -1 || true)"
+  if [ -n "${NODE_BIN_DIR:-}" ] && [ -x "$NODE_BIN_DIR/node" ]; then
+    export PATH="$NODE_BIN_DIR:$PATH"
+  fi
+fi
+NODE_MAJOR="$(node -v 2>/dev/null | sed -E 's/^v([0-9]+).*/\1/' || echo 0)"
+if [ "${NODE_MAJOR:-0}" -lt 20 ]; then
+  chmod +x scripts/ensure-node.sh scripts/panel-node.sh 2>/dev/null || true
+  set +u
+  # shellcheck disable=SC1091
+  source scripts/ensure-node.sh
+  ensure_node
+  set -u
+fi
+echo "using_node=$(command -v node) $(node -v)"
+
 echo "== npm install =="
+# npm 11+ rejects file: path overrides ("Invalid comparator: file:…")
+python3 - <<'PY'
+import json
+from pathlib import Path
+p = Path("package.json")
+data = json.loads(p.read_text())
+ov = data.get("overrides") or {}
+if isinstance(ov.get("zeptomatch"), str) and ov["zeptomatch"].startswith("file:"):
+    del ov["zeptomatch"]
+    data["overrides"] = ov
+    p.write_text(json.dumps(data, indent=2) + "\n")
+    print("stripped_zeptomatch_file_override=1")
+PY
 npm install
 (cd agent && npm install)
 
@@ -192,6 +341,8 @@ chmod +x scripts/install-runtimes.sh scripts/ensure-node.sh 2>/dev/null || true
 echo "== backup worker units =="
 chmod +x scripts/install-backup-worker.sh scripts/backup-worker.sh
 ./scripts/install-backup-worker.sh "$PANEL"
+systemctl enable --now naviyra-backup.timer 2>/dev/null || \
+  systemctl enable --now naviyra-backup.timer 2>/dev/null || true
 
 echo "== expire auto-blocks timer =="
 chmod +x scripts/install-expire-auto-blocks.sh scripts/expire-auto-blocks.sh
@@ -201,9 +352,48 @@ echo "== mail.* webmail proxies =="
 chmod +x scripts/refresh-mail-proxies.sh scripts/provision-panel-mail.sh
 ./scripts/refresh-mail-proxies.sh "$PANEL" || true
 
+echo "== mail (Postfix + Dovecot) =="
+chmod +x scripts/install-mail.sh 2>/dev/null || true
+./scripts/install-mail.sh || echo "install-mail=warn"
+
 echo "== FTP (vsftpd) =="
-chmod +x scripts/install-ftp.sh
-./scripts/install-ftp.sh || true
+chmod +x scripts/install-ftp.sh 2>/dev/null || true
+./scripts/install-ftp.sh || echo "install-ftp=warn"
+
+echo "== BIND DNS =="
+chmod +x scripts/install-bind.sh 2>/dev/null || true
+set -a
+# shellcheck disable=SC1091
+source .env
+set +a
+BIND_APEX="${BASE_DOMAIN:-}"
+if [ -z "$BIND_APEX" ] && [ -n "${PANEL_HOSTNAME:-}" ]; then
+  BIND_APEX="$(python3 -c "h='${PANEL_HOSTNAME}'.split('://')[-1].split('/')[0].split(':')[0]; p=h.split('.'); print('.'.join(p[1:] if len(p)>=3 else p))" 2>/dev/null || true)"
+fi
+if [ -n "${SERVER_PUBLIC_IP:-}" ] && [ -n "$BIND_APEX" ]; then
+  ./scripts/install-bind.sh "$SERVER_PUBLIC_IP" "$BIND_APEX" || echo "install-bind=warn"
+else
+  echo "install-bind=skip (need SERVER_PUBLIC_IP and PANEL_HOSTNAME in .env)"
+fi
+
+echo "== certbot (Let's Encrypt) =="
+if ! command -v certbot >/dev/null 2>&1; then
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -qq
+  apt-get install -y -qq certbot || echo "install-certbot=warn"
+fi
+command -v certbot && certbot --version || echo "certbot=missing"
+
+echo "== nginx SSL snippets (options-ssl-nginx.conf fallback) =="
+chmod +x scripts/install-nginx-snippets.sh 2>/dev/null || true
+./scripts/install-nginx-snippets.sh "$PANEL" || true
+if [ ! -f /etc/letsencrypt/ssl-dhparams.pem ]; then
+  for conf in /etc/nginx/sites-available/*; do
+    [ -f "$conf" ] || continue
+    sed -i '/ssl_dhparam /d' "$conf" || true
+  done
+fi
+nginx -t && systemctl reload nginx || true
 
 echo "== PostgreSQL (customer DBs) =="
 chmod +x scripts/install-postgres.sh
@@ -231,6 +421,10 @@ if [ -f /etc/nginx/sites-enabled/naviyra.uk ] || [ -f /etc/nginx/sites-available
   done
   nginx -t && systemctl reload nginx || true
 fi
+
+echo "== panel nginx vhost (PANEL_HOSTNAME) =="
+chmod +x scripts/setup-panel-https.sh 2>/dev/null || true
+./scripts/setup-panel-https.sh || echo "setup-panel-https=warn"
 
 systemctl daemon-reload
 systemctl restart naviyra-panel

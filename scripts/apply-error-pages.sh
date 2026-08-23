@@ -63,7 +63,12 @@ nginx -t
 systemctl reload nginx
 
 echo "=== verify 404 page ==="
-body=$(curl -sk --resolve kongunattugounder.com:443:127.0.0.1 https://kongunattugounder.com/this-page-does-not-exist-xyz || true)
-echo "$body" | head -n 5
-echo "$body" | grep -q "Page Not Found\|Naviyra Hosting" && echo CUSTOM_404_OK || echo CUSTOM_404_CHECK
+CHECK_HOST="${1:-}"
+if [[ -z "$CHECK_HOST" ]]; then
+  echo "Pass a hostname to verify: $0 example.com"
+else
+  body=$(curl -sk --resolve "${CHECK_HOST}:443:127.0.0.1" "https://${CHECK_HOST}/this-page-does-not-exist-xyz" || true)
+  echo "$body" | head -n 5
+  echo "$body" | grep -q "Page Not Found\|Naviyra Hosting" && echo CUSTOM_404_OK || echo CUSTOM_404_CHECK
+fi
 echo DONE

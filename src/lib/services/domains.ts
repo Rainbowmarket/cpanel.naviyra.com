@@ -84,6 +84,10 @@ export async function listDomains(
   if (opts?.ensurePanel) {
     try {
       await ensurePanelBaseDomain(userId);
+      const { ensureInfraSslHostnames } = await import(
+        "@/lib/services/subdomains"
+      );
+      await ensureInfraSslHostnames(userId);
     } catch (error) {
       console.error("ensurePanelBaseDomain failed:", error);
     }

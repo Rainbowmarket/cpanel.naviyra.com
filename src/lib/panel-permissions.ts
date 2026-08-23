@@ -30,6 +30,7 @@ const ADMIN_PATH_PREFIXES = [
   "/dashboard/servers",
   "/dashboard/terminal",
   "/dashboard/speed-test",
+  "/dashboard/services",
   "/dashboard/service-tests",
 ];
 

@@ -9,6 +9,18 @@ import { promisify } from "node:util";
 import { buildPhpDenyBlock, buildPhpLocationBlock, resolvePhpFpmPass } from "./php-fpm";
 import { sanitizeHostnameForPath } from "./hostname";
 import { PROJECT_ROOT } from "./paths";
+import { installPackages, whichBin } from "./pkg-install";
+import { applyMailDaemonTls } from "./mail";
+
+const SSL_SNIPPET = "/etc/nginx/snippets/naviyra-ssl-params.conf";
+const CERTBOT_SSL_OPTIONS = "/etc/letsencrypt/options-ssl-nginx.conf";
+
+const SSL_PARAMS_BODY = `ssl_session_timeout 1d;
+ssl_session_cache shared:NaviyraSSL:10m;
+ssl_session_tickets off;
+ssl_protocols TLSv1.2 TLSv1.3;
+ssl_prefer_server_ciphers off;
+`;
 
 const exec = promisify(execFile);
 
@@ -94,6 +106,61 @@ export function isMailHostname(hostname: string): boolean {
   return false;
 }
 
+function sslOptionsInclude(): string {
+  return `    include ${SSL_SNIPPET};`;
+}
+
+async function sslParamsBody(): Promise<string> {
+  const fromRepo = path.join(PROJECT_ROOT, "scripts", "nginx-ssl-params.conf");
+  if (await fileExists(fromRepo)) {
+    return fs.readFile(fromRepo, "utf8");
+  }
+  return SSL_PARAMS_BODY;
+}
+
+async function ensureSslOptionsFiles(): Promise<void> {
+  await fs.mkdir("/etc/nginx/snippets", { recursive: true });
+  await fs.mkdir("/etc/letsencrypt", { recursive: true });
+  const body = await sslParamsBody();
+  if (!(await fileExists(SSL_SNIPPET))) {
+    await fs.writeFile(SSL_SNIPPET, body, "utf8");
+  }
+  if (!(await fileExists(CERTBOT_SSL_OPTIONS))) {
+    await fs.writeFile(CERTBOT_SSL_OPTIONS, body, "utf8");
+  }
+}
+
+function sslDhparamLine(): string {
+  if (fsSync.existsSync("/etc/letsencrypt/ssl-dhparams.pem")) {
+    return `    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;\n`;
+  }
+  return "";
+}
+
+async function stripMissingDhparamFromNginx(): Promise<void> {
+  if (await fileExists("/etc/letsencrypt/ssl-dhparams.pem")) return;
+  for (const dir of [SITES_AVAILABLE, SITES_ENABLED]) {
+    let names: string[];
+    try {
+      names = await fs.readdir(dir);
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      const target = path.join(dir, name);
+      try {
+        const st = await fs.lstat(target);
+        if (!st.isFile()) continue;
+      } catch {
+        continue;
+      }
+      const text = await fs.readFile(target, "utf8");
+      const next = text.replace(/^[ \t]*ssl_dhparam\s+\S+;[ \t]*\n?/gm, "");
+      if (next !== text) await fs.writeFile(target, next, "utf8");
+    }
+  }
+}
+
 function proxyPassBlock(): string {
   const upstream = panelUpstream();
   return `    location / {
@@ -135,7 +202,6 @@ export function buildMailProxyHttpsVhost(
   certDir: string
 ): string {
   const serverName = hosts.join(" ");
-  const dhParam = `/etc/letsencrypt/ssl-dhparams.pem`;
   return `server {
     listen 80;
     listen [::]:80;
@@ -157,9 +223,8 @@ server {
     server_name ${serverName};
 ${visitorAccessLogLine()}    ssl_certificate     ${certDir}/fullchain.pem;
     ssl_certificate_key ${certDir}/privkey.pem;
-    include /etc/letsencrypt/options-ssl-nginx.conf;
-    ssl_dhparam ${dhParam};
-
+${sslOptionsInclude()}
+${sslDhparamLine()}
     client_max_body_size 64M;
 
 ${proxyPassBlock()}}
@@ -336,10 +401,8 @@ server {
     server_name ${serverName};
 ${visitorAccessLogLine()}    ssl_certificate     ${certDir}/fullchain.pem;
     ssl_certificate_key ${certDir}/privkey.pem;
-    include /etc/letsencrypt/options-ssl-nginx.conf;
-    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
-
-    root ${documentRoot};
+${sslOptionsInclude()}
+${sslDhparamLine()}    root ${documentRoot};
     ${indexDirective(phpEnabled)}
     client_max_body_size 64M;
 
@@ -405,8 +468,18 @@ function panelHostnames(): Set<string> {
     h = h.split(":")[0] ?? h;
     h = h.replace(/^www\./, "");
     if (!h) return;
-    hosts.add(h);
-    hosts.add(`www.${h}`);
+    if (
+      h.includes("yourdomain.com") ||
+      h.includes("example.com") ||
+      h.includes("example.org") ||
+      h === "localhost"
+    ) {
+      return;
+    }
+    const labels = h.split(".").filter(Boolean);
+    const panel = labels.length === 2 ? `hpanel.${h}` : h;
+    hosts.add(panel);
+    hosts.add(`www.${panel}`);
   };
 
   add(process.env.PANEL_HOSTNAME);
@@ -417,6 +490,19 @@ function panelHostnames(): Set<string> {
   } catch {
     /* ignore */
   }
+  const ns1 = process.env.DNS_NS1?.trim();
+  if (ns1) {
+    const apex = ns1
+      .replace(/^https?:\/\//, "")
+      .split("/")[0]
+      ?.split(":")[0]
+      ?.replace(/^www\./, "")
+      .replace(/^ns\d+\./, "")
+      .toLowerCase();
+    if (apex && apex.includes(".") && !apex.includes("yourdomain.com") && !apex.includes("example.com")) {
+      add(`hpanel.${apex}`);
+    }
+  }
   return hosts;
 }
 
@@ -425,6 +511,54 @@ export function isPanelHostname(hostname: string): boolean {
   if (!h) return false;
   const hosts = panelHostnames();
   return hosts.has(h) || hosts.has(h.replace(/^www\./, ""));
+}
+
+/** Point an existing nginx site (panel vhost) at a live Let's Encrypt cert. */
+export async function applyLetsEncryptCertToExistingSite(
+  hostname: string,
+  certDir: string
+): Promise<void> {
+  const fullchain = path.join(certDir, "fullchain.pem");
+  const privkey = path.join(certDir, "privkey.pem");
+  if (!(await fileExists(fullchain)) || !(await fileExists(privkey))) {
+    throw new Error(`Let's Encrypt files missing under ${certDir}`);
+  }
+  await ensureSslOptionsFiles();
+  const available = path.join(SITES_AVAILABLE, sanitizeHostnameForPath(hostname));
+  if (!(await fileExists(available))) {
+    console.warn(`[nginx] no site file to attach cert: ${available}`);
+    return;
+  }
+  let text = await fs.readFile(available, "utf8");
+  if (!/listen\s+443/.test(text)) {
+    console.warn(`[nginx] ${available} has no SSL server block`);
+    return;
+  }
+  if (/ssl_certificate\s+/.test(text)) {
+    text = text.replace(
+      /^[ \t]*ssl_certificate\s+\S+;/gm,
+      `    ssl_certificate     ${fullchain};`
+    );
+    text = text.replace(
+      /^[ \t]*ssl_certificate_key\s+\S+;/gm,
+      `    ssl_certificate_key ${privkey};`
+    );
+  } else {
+    text = text.replace(
+      /(listen\s+\[::\]:443[^\n]*;\n)/,
+      `$1    ssl_certificate     ${fullchain};\n    ssl_certificate_key ${privkey};\n`
+    );
+  }
+  if (
+    !text.includes("naviyra-ssl-params.conf") &&
+    !text.includes("options-ssl-nginx.conf")
+  ) {
+    text = text.replace(
+      /ssl_certificate_key[^\n]*;\n/,
+      `$&${sslOptionsInclude()}\n${sslDhparamLine()}`
+    );
+  }
+  await fs.writeFile(available, text, "utf8");
 }
 
 export async function writeAndEnableNginxSite(
@@ -443,7 +577,14 @@ export async function writeAndEnableNginxSite(
       skipped: true as const,
     };
   }
+  return writeNginxSiteForced(safeName, content, dryRun);
+}
 
+async function writeNginxSiteForced(
+  safeName: string,
+  content: string,
+  dryRun: boolean
+) {
   const available = path.join(SITES_AVAILABLE, safeName);
   const enabled = path.join(SITES_ENABLED, safeName);
 
@@ -470,6 +611,8 @@ export async function writeAndEnableNginxSite(
 
 async function nginxTestAndReload() {
   await ensureNaviyraVisitorLog();
+  await ensureSslOptionsFiles();
+  await stripMissingDhparamFromNginx();
   try {
     await exec("nginx", ["-t"]);
   } catch (err) {
@@ -706,6 +849,31 @@ export async function issueLetsEncrypt(
   }
 
   await fs.mkdir(ACME_WEBROOT, { recursive: true });
+  try {
+    await nginxTestAndReload();
+  } catch (error) {
+    console.error("nginx test before certbot:", error);
+  }
+
+  if (!(await whichBin("certbot"))) {
+    try {
+      await installPackages({
+        dryRun: false,
+        name: "certbot",
+        packageSets: [["certbot"]],
+      });
+    } catch (error) {
+      const extra = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `certbot is not installed (spawn ENOENT). On the server run: apt-get install -y certbot. ${extra}`
+      );
+    }
+    if (!(await whichBin("certbot"))) {
+      throw new Error(
+        "certbot is not installed. On the server run: apt-get install -y certbot"
+      );
+    }
+  }
 
   // Control-panel host (e.g. hpanel.naviyra.uk) already has a reverse-proxy vhost.
   // Never replace that nginx config with a site document-root.
@@ -736,13 +904,30 @@ export async function issueLetsEncrypt(
     ...hosts.flatMap((h) => ["-d", h]),
   ];
 
-  await exec("certbot", args);
+  try {
+    await exec("certbot", args);
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err?.code === "ENOENT") {
+      throw new Error(
+        "certbot is not installed. On the server run: apt-get install -y certbot"
+      );
+    }
+    throw error;
+  }
 
   if (!panelHost) {
     const httpsConf = isMailHostname(safeDomain)
       ? buildMailProxyHttpsVhost(hosts, certDir)
       : buildHttpsVhost(hosts, documentRoot, certDir, vhostOpts);
     await writeAndEnableNginxSite(siteName, httpsConf, false);
+  } else {
+    const proxyConf = buildMailProxyHttpsVhost([safeDomain], certDir);
+    await writeNginxSiteForced(siteName, proxyConf, false);
+  }
+
+  if (isMailHostname(safeDomain)) {
+    await applyMailDaemonTls(safeDomain);
   }
 
   return readCertDates(certDir);
@@ -816,8 +1001,7 @@ export async function applyNginxUploadLimit(options: {
   const vhostBackups = await syncVhostBodySize(maxMb);
 
   try {
-    await exec("nginx", ["-t"]);
-    await exec("systemctl", ["reload", "nginx"]);
+    await nginxTestAndReload();
   } catch (error) {
     await fs.writeFile(NGINX_UPLOAD_HTTP_CONF, previousHttp, "utf8");
     await fs.writeFile(NGINX_UPLOAD_SNIPPET, previousSnippet, "utf8");

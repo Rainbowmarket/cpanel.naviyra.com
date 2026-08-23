@@ -31,10 +31,13 @@ naviyra_resolve_node() {
     nvm_dir="$(naviyra_nvm_dir || true)"
     if [ -n "$nvm_dir" ]; then
       export NVM_DIR="$nvm_dir"
+      # nvm.sh is not `set -u` safe (PROVIDED_VERSION unbound).
+      set +u
       # shellcheck disable=SC1091
       . "$NVM_DIR/nvm.sh"
       nvm install --lts
       nvm use --lts
+      set -u
       PANEL_NODE="$(command -v node)"
     else
       PANEL_NODE="$(command -v node || true)"

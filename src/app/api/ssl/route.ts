@@ -7,12 +7,22 @@ import {
   listSslCertificates,
   renewSslCertificate,
 } from "@/lib/services/ssl";
+import { ensureInfraSslHostnames } from "@/lib/services/subdomains";
+import { getPanelHostname } from "@/lib/base-domain";
 
 export async function GET() {
   try {
     const user = await requireSessionUser("ssl");
+    try {
+      await ensureInfraSslHostnames(user.id);
+    } catch (error) {
+      console.error("ensureInfraSslHostnames failed:", error);
+    }
     const certificates = await listSslCertificates(user.id, user.role);
-    return NextResponse.json({ certificates });
+    return NextResponse.json({
+      certificates,
+      panelHostname: getPanelHostname(),
+    });
   } catch (error) {
     return authFailureResponse(error);
   }

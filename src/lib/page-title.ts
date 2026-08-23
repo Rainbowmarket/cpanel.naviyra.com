@@ -24,6 +24,7 @@ const ROUTES: { prefix: string; title: string }[] = [
   { prefix: "/dashboard/servers", title: "Servers" },
   { prefix: "/dashboard/backups", title: "Backups" },
   { prefix: "/dashboard/speed-test", title: "Speed Test" },
+  { prefix: "/dashboard/services", title: "Services" },
   { prefix: "/dashboard/service-tests", title: "Service tests" },
   { prefix: "/dashboard/terminal", title: "Terminal" },
   { prefix: "/dashboard", title: "Dashboard" },

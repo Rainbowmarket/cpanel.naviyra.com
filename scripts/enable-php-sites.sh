@@ -2,7 +2,14 @@
 # Install PHP-FPM and enable PHP on existing Naviyra nginx sites.
 set -euo pipefail
 
-PHP_VER="${1:-8.3}"
+# Usage: $0 [phpVersion] [hostname ...]
+# phpVersion looks like 8.3; if the first arg contains a dot and is not N.N, it is a hostname.
+if [[ "${1:-}" =~ ^[0-9]+\.[0-9]+$ ]]; then
+  PHP_VER="$1"
+  shift
+else
+  PHP_VER="8.3"
+fi
 SOCK="/run/php/php${PHP_VER}-fpm.sock"
 
 echo "==> Installing php${PHP_VER}-fpm"
@@ -105,32 +112,31 @@ else:
 PY
 }
 
-for conf in /etc/nginx/sites-available/test.kongunattugounder.com \
-            /etc/nginx/sites-available/kongunattugounder.com; do
+# Remaining args are hostnames (nginx site file names). If none, patch every customer vhost.
+SKIP_SITES='^(default|default-ssl|naviyra-panel|hpanel)$'
+
+list_site_confs() {
+  if (($# > 0)); then
+    local host
+    for host in "$@"; do
+      echo "/etc/nginx/sites-available/${host}"
+    done
+    return
+  fi
+  local conf
+  for conf in /etc/nginx/sites-available/*; do
+    [[ -f "$conf" ]] || continue
+    local name
+    name="$(basename "$conf")"
+    [[ "$name" =~ $SKIP_SITES ]] && continue
+    [[ "$name" == *.bak ]] && continue
+    echo "$conf"
+  done
+}
+
+while IFS= read -r conf; do
   enable_php_in_conf "$conf"
-done
-
-# Sample index.php on test subdomain for verification
-TEST_ROOT=/var/www/kongunattugounder.com/subdomains/test/public_html
-mkdir -p "$TEST_ROOT"
-if [[ ! -f "$TEST_ROOT/index.php" ]]; then
-  cat > "$TEST_ROOT/index.php" <<'EOF'
-<?php
-header('Content-Type: text/html; charset=utf-8');
-echo '<!doctype html><html><head><meta charset="utf-8"><title>PHP OK</title></head>';
-echo '<body style="font-family:system-ui;padding:2rem;background:#0f172a;color:#e2e8f0">';
-echo '<h1>PHP is running</h1>';
-echo '<p>PHP ' . htmlspecialchars(PHP_VERSION) . ' on ' . htmlspecialchars($_SERVER['HTTP_HOST'] ?? '') . '</p>';
-echo '<p><a href="/" style="color:#34d399">Home</a></p>';
-echo '</body></html>';
-EOF
-fi
-
-# Prefer index.php for a quick test? Keep html first so existing html still works.
-# User wants index.php to run when they use it — requesting /index.php or putting php first.
-# Use: index index.php index.html index.htm for test site only
-sed -i 's/index index.html index.htm index.php;/index index.php index.html index.htm;/' \
-  /etc/nginx/sites-available/test.kongunattugounder.com || true
+done < <(list_site_confs "$@")
 
 nginx -t
 systemctl reload nginx
@@ -139,7 +145,5 @@ systemctl restart naviyra-panel 2>/dev/null || true
 echo ""
 echo "PHP-FPM: $(systemctl is-active php${PHP_VER}-fpm)"
 echo "Socket : ${SOCK}"
-echo "Test   : curl -sI https://test.kongunattugounder.com/index.php"
-curl -sI https://test.kongunattugounder.com/index.php | head -n 12
-echo "--- body ---"
-curl -s https://test.kongunattugounder.com/index.php | head -n 8
+echo "Usage  : $0 ${PHP_VER} [hostname ...]"
+echo "         omit hostnames to patch all customer sites-available files"

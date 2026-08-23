@@ -67,18 +67,45 @@ PY
   fi
 }
 
-fix_site /etc/nginx/sites-available/test.kongunattugounder.com \
-  /var/www/kongunattugounder.com/subdomains/test/public_html \
-  test.kongunattugounder.com
+# Args: hostname [hostname ...]  (nginx sites-available file names).
+# If none, patch every customer vhost and read document root from each file.
+SKIP_SITES='^(default|default-ssl|naviyra-panel|hpanel)$'
 
-fix_site /etc/nginx/sites-available/kongunattugounder.com \
-  /var/www/kongunattugounder.com/public_html \
-  kongunattugounder.com
+root_from_conf() {
+  awk '/^[[:space:]]*root[[:space:]]+/ { gsub(/;/, "", $2); print $2; exit }' "$1"
+}
+
+patch_one() {
+  local host="$1"
+  local conf="/etc/nginx/sites-available/${host}"
+  local root
+  root="$(root_from_conf "$conf" 2>/dev/null || true)"
+  if [[ -z "$root" ]]; then
+    echo "skip ${host}: no nginx site or root"
+    return 0
+  fi
+  fix_site "$conf" "$root" "$host"
+}
+
+if (($# > 0)); then
+  for host in "$@"; do
+    patch_one "$host"
+  done
+else
+  for conf in /etc/nginx/sites-available/*; do
+    [[ -f "$conf" ]] || continue
+    name="$(basename "$conf")"
+    [[ "$name" =~ $SKIP_SITES ]] && continue
+    [[ "$name" == *.bak ]] && continue
+    patch_one "$name"
+  done
+fi
 
 nginx -t
 systemctl reload nginx
 
-echo "=== verify ==="
-curl -sI https://test.kongunattugounder.com/ | head -n 10
-curl -sI https://kongunattugounder.com/ | head -n 10
-curl -sI https://test.kongunattugounder.com/index.php | head -n 8 || true
+echo "=== verify (pass hostnames as args to check specific sites) ==="
+for host in "$@"; do
+  echo "--- ${host} ---"
+  curl -sI "https://${host}/" | head -n 10 || true
+done

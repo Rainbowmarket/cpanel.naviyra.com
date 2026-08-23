@@ -43,10 +43,13 @@ install_node_linux() {
   if [ ! -s "$NVM_DIR/nvm.sh" ]; then
     curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
   fi
+  # nvm.sh is not `set -u` safe (PROVIDED_VERSION unbound).
+  set +u
   # shellcheck disable=SC1091
   . "$NVM_DIR/nvm.sh"
   nvm install --lts
   nvm use --lts
+  set -u
 }
 
 install_node_macos() {

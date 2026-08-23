@@ -1,7 +1,7 @@
 import type { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { fromB64url, hmacSign, hmacVerify, b64url } from "@/lib/crypto-hmac";
-import { shouldUseSecureCookies } from "@/lib/cookie-secure";
+import { sessionCookieShouldBeSecure } from "@/lib/cookie-secure";
 import { requireSessionSecret } from "@/lib/secrets";
 import { prisma } from "@/lib/prisma";
 
@@ -14,8 +14,8 @@ type PendingClaims = {
   exp: number;
 };
 
-function cookieSecure(): boolean {
-  return shouldUseSecureCookies();
+async function cookieSecure(): Promise<boolean> {
+  return sessionCookieShouldBeSecure();
 }
 
 function encodePending(claims: PendingClaims): string {
@@ -43,16 +43,16 @@ function decodePending(token: string): PendingClaims | null {
   }
 }
 
-export function applyPending2faCookie(
+export async function applyPending2faCookie(
   response: NextResponse,
   userId: string,
   sessionVersion: number
-): NextResponse {
+): Promise<NextResponse> {
   const exp = Math.floor(Date.now() / 1000) + PENDING_MAX_AGE;
   const value = encodePending({ uid: userId, sv: sessionVersion, exp });
   response.cookies.set(PENDING_COOKIE, value, {
     httpOnly: true,
-    secure: cookieSecure(),
+    secure: await cookieSecure(),
     sameSite: "lax",
     maxAge: PENDING_MAX_AGE,
     path: "/",
@@ -60,10 +60,10 @@ export function applyPending2faCookie(
   return response;
 }
 
-export function clearPending2faCookie(response: NextResponse): NextResponse {
+export async function clearPending2faCookie(response: NextResponse): Promise<NextResponse> {
   response.cookies.set(PENDING_COOKIE, "", {
     httpOnly: true,
-    secure: cookieSecure(),
+    secure: await cookieSecure(),
     sameSite: "lax",
     maxAge: 0,
     path: "/",

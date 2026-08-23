@@ -137,7 +137,7 @@ export default function GitDeployPage() {
               className={modalInputClass}
               value={repoUrl}
               onChange={(e) => setRepoUrl(e.target.value)}
-              placeholder="https://github.com/org/app.git"
+              placeholder="https://x-access-token:TOKEN@github.com/org/app.git"
               required
             />
           </label>
@@ -166,7 +166,9 @@ export default function GitDeployPage() {
           </button>
           <p className="flex items-center gap-1 text-[11px] text-slate-500">
             <GitBranch className="h-3 w-3" />
-            Uses git clone --depth 1 or fetch + checkout FETCH_HEAD.
+            Uses git clone --depth 1 or fetch + checkout FETCH_HEAD. Private GitHub
+            repos: Contents permission on the token, and one slash after github.com
+            (github.com/org/repo.git, not github.com//org/…).
           </p>
         </form>
       ) : (

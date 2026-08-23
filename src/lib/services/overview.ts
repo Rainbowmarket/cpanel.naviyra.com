@@ -173,10 +173,10 @@ export async function getDashboardOverview(actor: AccessActor) {
   }));
 
   const services: OverviewService[] = [
-    { id: "nginx", label: "Nginx", ok: nginxOk, href: "/dashboard/service-tests" },
+    { id: "nginx", label: "Nginx", ok: nginxOk, href: "/dashboard/services" },
     { id: "database", label: "Database", ok: dbOk, href: "/dashboard/databases" },
-    { id: "mail", label: "Mail", ok: mailOk, href: "/dashboard/mail" },
-    { id: "ftp", label: "FTP", ok: ftpOk, href: "/dashboard/ftp" },
+    { id: "mail", label: "Mail", ok: mailOk, href: "/dashboard/services" },
+    { id: "ftp", label: "FTP", ok: ftpOk, href: "/dashboard/services" },
   ];
 
   const alerts: OverviewAlert[] = [];

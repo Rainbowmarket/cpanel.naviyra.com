@@ -43,6 +43,15 @@ try {
   /* dotenv optional during first install */
 }
 
+if (!process.env.AGENT_PORT && process.env.AGENT_URL) {
+  try {
+    const parsed = new URL(process.env.AGENT_URL);
+    if (parsed.port) process.env.AGENT_PORT = parsed.port;
+  } catch {
+    /* ignore invalid AGENT_URL */
+  }
+}
+
 const DATA_DIR = path.join(ROOT, "data");
 const ENV_FILE = path.join(ROOT, ".env");
 const ENV_EXAMPLE = path.join(ROOT, ".env.example");
@@ -53,7 +62,9 @@ const command = args[0] === "start" || args[0] === "stop" ? args.shift() : "star
 const noBrowser = args.includes("--no-browser");
 
 const PANEL_PORT = Number(process.env.PANEL_PORT || 3000);
-const AGENT_PORT = Number(process.env.AGENT_PORT || 4000);
+const AGENT_PORT = Number(
+  process.env.AGENT_PORT || (process.platform === "linux" ? 4100 : 4000)
+);
 const PANEL_URL = `http://localhost:${PANEL_PORT}`;
 
 const isWindows = process.platform === "win32";
@@ -454,6 +465,8 @@ async function startApp() {
   spawnService("Panel", npmCmd, panelArgs, {
     env: {
       PORT: String(PANEL_PORT),
+      // next start binds to process.env.HOSTNAME (systemd sets the machine name).
+      HOSTNAME: "0.0.0.0",
       AGENT_PORT: String(AGENT_PORT),
       AGENT_URL: agentUrl,
     },

@@ -1,6 +1,7 @@
 import { requireAgentApiKey } from "@/lib/secrets";
 import type { AgentTarget } from "./target";
 import { notifyIfAgentUnreachable } from "@/lib/mail/admin-alerts";
+import { executeLocalAgent, isAgentUnreachable } from "./local";
 
 export type { AgentTarget } from "./target";
 
@@ -252,7 +253,7 @@ export type AgentAction =
       repoUrl: string;
       branch?: string;
     }
-  | {
+      | {
       action: "sync_cron_jobs";
       jobs: Array<{
         id: string;
@@ -261,6 +262,13 @@ export type AgentAction =
         enabled?: boolean;
       }>;
     }
+  | { action: "list_host_services" }
+  | {
+      action: "control_host_service";
+      id: string;
+      op: "start" | "stop" | "restart";
+    }
+  | { action: "install_host_service"; id: string }
   | { action: "list_plugins" }
   | {
       action: "plugin_invoke";
@@ -297,6 +305,56 @@ function failUnreachable<T = unknown>(
   return { success: false, error };
 }
 
+function agentActionTimeoutMs(
+  action: string,
+  postgresAction: boolean,
+  longRunning: boolean
+): number {
+  if (action === "plugin_invoke" || action === "install_host_service") return 900000;
+  if (action === "issue_ssl" || action === "renew_ssl") return 180000;
+  if (action === "ssl_cert_info" || action === "ensure_mail_proxy") return 60000;
+  if (action === "list_plugins") return 120000;
+  if (
+    action === "inspect_hosted_database" ||
+    action === "preview_hosted_table" ||
+    action === "query_hosted_sql"
+  ) {
+    return 120000;
+  }
+  if (
+    action === "configure_site_app" ||
+    action === "app_start" ||
+    action === "app_restart"
+  ) {
+    return 360000;
+  }
+  if (
+    action === "run_backup" ||
+    action === "run_domain_backup" ||
+    action === "restore_backup" ||
+    action === "restore_domain_backup" ||
+    action === "export_postgres_database" ||
+    action === "import_postgres_database" ||
+    action === "git_deploy" ||
+    action === "docker_compose_up"
+  ) {
+    return 600000;
+  }
+  if (action.startsWith("docker_")) return 90000;
+  if (postgresAction) return 300000;
+  if (longRunning) return 120000;
+  return 10000;
+}
+
+function isLoopbackAgentUrl(agentUrl: string): boolean {
+  try {
+    const host = new URL(agentUrl).hostname;
+    return host === "127.0.0.1" || host === "localhost" || host === "::1";
+  } catch {
+    return false;
+  }
+}
+
 async function callAgentAt<T = unknown>(
   agentUrl: string,
   payload: AgentAction,
@@ -320,36 +378,7 @@ async function callAgentAt<T = unknown>(
       },
       body: JSON.stringify(payload),
       cache: "no-store",
-      signal: AbortSignal.timeout(
-        payload.action === "plugin_invoke"
-          ? 900000
-          : payload.action === "list_plugins"
-            ? 120000
-            : payload.action === "inspect_hosted_database" ||
-                payload.action === "preview_hosted_table" ||
-                payload.action === "query_hosted_sql"
-              ? 120000
-            : payload.action === "configure_site_app" ||
-                payload.action === "app_start" ||
-                payload.action === "app_restart"
-              ? 360000
-              : payload.action === "run_backup" ||
-                  payload.action === "run_domain_backup" ||
-                  payload.action === "restore_backup" ||
-                  payload.action === "restore_domain_backup" ||
-                  payload.action === "export_postgres_database" ||
-                  payload.action === "import_postgres_database" ||
-                  payload.action === "git_deploy" ||
-                  payload.action === "docker_compose_up"
-                ? 600000
-                : payload.action.startsWith("docker_")
-                  ? 90000
-                  : postgresAction
-                    ? 300000
-                    : longRunning
-                      ? 120000
-                      : 10000
-      ),
+      signal: AbortSignal.timeout(agentActionTimeoutMs(payload.action, postgresAction, longRunning)),
     });
 
     if (!response.ok) {
@@ -390,6 +419,25 @@ export async function callAgent<T = unknown>(
     return { success: false, error: "Agent key is missing" };
   }
   const result = await callAgentAt<T>(url, payload, target.agentKey);
+  if (
+    !result.success &&
+    process.platform === "linux" &&
+    isLoopbackAgentUrl(url) &&
+    isAgentUnreachable(result.error) &&
+    (payload.action === "issue_ssl" ||
+      payload.action === "renew_ssl" ||
+      payload.action === "ssl_cert_info" ||
+      payload.action === "ensure_mail_proxy")
+  ) {
+    const local = await executeLocalAgent<T>(payload);
+    if (local.success) return { ...local, via: "local" };
+    notifyIfAgentUnreachable(result.error);
+    return {
+      success: false,
+      error: local.error || result.error,
+      via: "local",
+    };
+  }
   if (!result.success) notifyIfAgentUnreachable(result.error);
   return result;
 }

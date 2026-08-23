@@ -9,7 +9,9 @@ export type AgentTarget = {
 export function defaultControllerAgentUrl(): string {
   const fromEnv = process.env.AGENT_URL?.trim();
   if (fromEnv) return fromEnv.replace(/\/$/, "");
-  const port = process.env.AGENT_PORT?.trim() || "4000";
+  const port =
+    process.env.AGENT_PORT?.trim() ||
+    (process.platform === "linux" ? "4100" : "4000");
   return `http://127.0.0.1:${port}`;
 }
 

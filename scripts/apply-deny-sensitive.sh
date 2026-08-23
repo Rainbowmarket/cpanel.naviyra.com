@@ -50,9 +50,14 @@ PY
 nginx -t
 systemctl reload nginx
 
-echo "=== sample checks (kongunattugounder.com) ==="
-for path in /env /.env /.htaccess /.git/HEAD /wp-config.php /uploads/shell.php; do
-  code=$(curl -sk -o /dev/null -w '%{http_code}' --resolve kongunattugounder.com:443:127.0.0.1 "https://kongunattugounder.com${path}" || echo err)
-  echo "$path -> HTTP $code"
-done
+echo "=== sample checks ==="
+CHECK_HOST="${1:-}"
+if [[ -z "$CHECK_HOST" ]]; then
+  echo "Pass a hostname to verify: $0 example.com"
+else
+  for path in /env /.env /.htaccess /.git/HEAD /wp-config.php /uploads/shell.php; do
+    code=$(curl -sk -o /dev/null -w '%{http_code}' --resolve "${CHECK_HOST}:443:127.0.0.1" "https://${CHECK_HOST}${path}" || echo err)
+    echo "$path -> HTTP $code"
+  done
+fi
 echo DONE

@@ -79,7 +79,8 @@ export function buildTerminalWsUrl(): string {
   if (process.env.NEXT_PUBLIC_TERMINAL_WS_URL) {
     return process.env.NEXT_PUBLIC_TERMINAL_WS_URL.replace(/\/$/, "");
   }
-  const agentUrl = process.env.AGENT_URL ?? "http://127.0.0.1:4000";
+  const fallbackPort = process.platform === "linux" ? "4100" : "4000";
+  const agentUrl = process.env.AGENT_URL ?? `http://127.0.0.1:${fallbackPort}`;
   try {
     const u = new URL(agentUrl);
     u.protocol = u.protocol === "https:" ? "wss:" : "ws:";
@@ -88,6 +89,6 @@ export function buildTerminalWsUrl(): string {
     u.hash = "";
     return u.toString().replace(/\/$/, "");
   } catch {
-    return "ws://127.0.0.1:4000/terminal";
+    return `ws://127.0.0.1:${fallbackPort}/terminal`;
   }
 }

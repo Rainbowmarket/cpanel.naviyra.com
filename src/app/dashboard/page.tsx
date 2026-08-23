@@ -223,7 +223,15 @@ export default async function DashboardPage() {
       <section>
         <div className="mb-2 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-white">Services</h3>
-          {canAccessDashboardPath(user, "/dashboard/service-tests") ? (
+          {canAccessDashboardPath(user, "/dashboard/services") ? (
+            <Link
+              href="/dashboard/services"
+              className="inline-flex items-center gap-1 text-[11px] text-sky-400 hover:text-sky-300"
+            >
+              Start / stop
+              <ArrowRight className="h-3 w-3" />
+            </Link>
+          ) : canAccessDashboardPath(user, "/dashboard/service-tests") ? (
             <Link
               href="/dashboard/service-tests"
               className="inline-flex items-center gap-1 text-[11px] text-sky-400 hover:text-sky-300"

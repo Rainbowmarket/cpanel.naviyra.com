@@ -80,6 +80,7 @@ import {
   writeBackupArchiveFile,
   type BackupSchedulePreset,
 } from "./backup";
+import { controlHostService, installHostService, listHostServices } from "./host-services";
 import {
   createFtpAccountOnServer,
   deleteFtpAccountOnServer,
@@ -125,7 +126,7 @@ import {
   tooMany,
 } from "./http-guard";
 const exec = promisify(execFile);
-const PORT = Number(process.env.AGENT_PORT ?? 4000);
+const PORT = Number(process.env.AGENT_PORT ?? (process.platform === "linux" ? 4100 : 4000));
 const isWindows = process.platform === "win32";
 const DRY_RUN =
   process.env.AGENT_DRY_RUN === "true" ||
@@ -1355,6 +1356,28 @@ async function handleAction(payload: Action) {
           }>)
         : [];
       const data = await syncCronJobsOnServer({ jobs, dryRun: DRY_RUN });
+      return { success: true, data };
+    }
+
+    case "list_host_services": {
+      const data = await listHostServices({ dryRun: DRY_RUN });
+      return { success: true, data };
+    }
+
+    case "control_host_service": {
+      const data = await controlHostService({
+        id: String(payload.id ?? ""),
+        op: String(payload.op ?? "") as "start" | "stop" | "restart",
+        dryRun: DRY_RUN,
+      });
+      return { success: true, data };
+    }
+
+    case "install_host_service": {
+      const data = await installHostService({
+        id: String(payload.id ?? ""),
+        dryRun: DRY_RUN,
+      });
       return { success: true, data };
     }
 

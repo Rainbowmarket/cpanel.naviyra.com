@@ -61,6 +61,12 @@ if [ -f "$DEST/scripts/install-postgres.sh" ]; then
   bash "$DEST/scripts/install-postgres.sh" "$DEST"
 fi
 
+if [ -f "$DEST/scripts/install-nginx.sh" ]; then
+  echo "Ensuring nginx…"
+  chmod +x "$DEST/scripts/install-nginx.sh"
+  bash "$DEST/scripts/install-nginx.sh" || true
+fi
+
 if [ -f "$DEST/scripts/install-websocket-map.sh" ]; then
   echo "Installing nginx WebSocket map…"
   chmod +x "$DEST/scripts/install-websocket-map.sh"

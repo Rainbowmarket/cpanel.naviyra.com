@@ -45,6 +45,7 @@ export default function SslPage() {
   const [subdomains, setSubdomains] = useState<Subdomain[]>([]);
   const [target, setTarget] = useState("domain");
   const [certificates, setCertificates] = useState<Certificate[]>([]);
+  const [panelHostname, setPanelHostname] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [renewingId, setRenewingId] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -57,6 +58,9 @@ export default function SslPage() {
     const res = await fetch("/api/ssl");
     const data = await res.json();
     setCertificates(data.certificates ?? []);
+    setPanelHostname(
+      typeof data.panelHostname === "string" ? data.panelHostname : null
+    );
   }
 
   async function loadSubdomains(id: string) {
@@ -231,6 +235,21 @@ export default function SslPage() {
         <p className="flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
           <AlertCircle className="h-4 w-4" />
           {error}
+        </p>
+      ) : null}
+
+      {panelHostname &&
+      !certificates.some(
+        (c) =>
+          getHostname(c).toLowerCase() === panelHostname.toLowerCase() &&
+          c.status === "ACTIVE"
+      ) ? (
+        <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+          Control panel host <span className="font-mono">{panelHostname}</span>{" "}
+          is using HTTPS without a trusted certificate (browser shows Not
+          secure). Open Issue SSL, choose the parent domain, then select{" "}
+          <span className="font-mono">{panelHostname}</span> as the host. DNS A
+          for that name must point at this server and port 80 must be open.
         </p>
       ) : null}
 

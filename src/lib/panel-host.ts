@@ -1,9 +1,15 @@
 import {
   getDnsZoneApex,
   getPanelHostname,
+  isDocsExampleHostname,
   normalizeApexDomain,
 } from "@/lib/base-domain";
-import { getMailHostname } from "@/lib/paths";
+import {
+  getDefaultServerHostname,
+  getDnsNs1,
+  getDnsNs2,
+  getMailHostname,
+} from "@/lib/paths";
 import { mailHostLabel } from "@/lib/dns/zone";
 
 /**
@@ -20,25 +26,56 @@ export function getPanelHostnames(): Set<string> {
   return hosts;
 }
 
-/** First-level labels that must not be created under the DNS/marketing apex. */
-export const RESERVED_PANEL_SUBDOMAIN_LABELS = new Set([
+/**
+ * Baseline infra labels. Prefer {@link getReservedInfraLabels} which merges
+ * first labels from PANEL_HOSTNAME, DEFAULT_SERVER_HOSTNAME, DNS_NS*, etc.
+ */
+const BASE_RESERVED_LABELS = new Set([
   "www",
   "mail",
   "webmail",
   "cpanel",
   "panel",
-  "hpanel",
-  "ns1",
-  "ns2",
   "ftp",
   "sftp",
   "smtp",
   "imap",
   "pop",
   "pop3",
-  "server1",
-  "s1",
 ]);
+
+function firstLabelOfFqdn(fqdn: string, apex: string): string | null {
+  const host = normalizeApexDomain(fqdn);
+  if (!host || isDocsExampleHostname(host)) return null;
+  if (host === apex) return null;
+  if (!host.endsWith(`.${apex}`)) return null;
+  const label = host.slice(0, -(apex.length + 1));
+  const first = label.split(".")[0]?.toLowerCase();
+  return first || null;
+}
+
+/** Labels reserved on the DNS apex, derived from env hostnames + a small baseline. */
+export function getReservedInfraLabels(apex?: string | null): Set<string> {
+  const zone = (apex || getDnsZoneApex() || "").toLowerCase();
+  const labels = new Set(BASE_RESERVED_LABELS);
+  if (!zone) return labels;
+
+  const candidates = [
+    getPanelHostname(),
+    getDefaultServerHostname(),
+    getDnsNs1(),
+    getDnsNs2(),
+    process.env.SECONDARY_SERVER_HOSTNAME?.trim(),
+  ];
+  for (const host of candidates) {
+    const first = host ? firstLabelOfFqdn(host, zone) : null;
+    if (first) labels.add(first);
+  }
+  return labels;
+}
+
+/** @deprecated Prefer getReservedInfraLabels — kept for callers expecting a Set constant. */
+export const RESERVED_PANEL_SUBDOMAIN_LABELS = getReservedInfraLabels();
 
 /** Labels allowed when provisioning the panel mail host (from MAIL_HOSTNAME). */
 export function getMailHostProvisionLabels(panelDomain: string): Set<string> {
@@ -69,14 +106,41 @@ export function panelHostnameError(hostname: string): string {
 }
 
 /**
+ * FQDNs that should appear on the SSL page (panel, primary server, NS, secondary).
+ * All values come from env / helpers — never hardcoded customer domains.
+ */
+export function getInfraSslHostnames(): string[] {
+  const apex = getDnsZoneApex();
+  if (!apex) return [];
+  const out = new Set<string>();
+  const add = (raw?: string | null) => {
+    if (!raw?.trim()) return;
+    const h = normalizeApexDomain(raw);
+    if (!h || isDocsExampleHostname(h)) return;
+    if (h === apex || h.endsWith(`.${apex}`)) out.add(h);
+  };
+  add(getPanelHostname());
+  add(getDefaultServerHostname());
+  add(getDnsNs1());
+  add(getDnsNs2());
+  add(process.env.SECONDARY_SERVER_HOSTNAME?.trim());
+  return [...out];
+}
+
+/**
  * Block creating subdomains that would collide with panel / infra hosts
- * (e.g. www.{PANEL_HOSTNAME}, ns1.{PANEL_HOSTNAME}).
+ * (e.g. www.{PANEL_HOSTNAME}, ns1.{zone}).
  * Mail host setup may pass allowMailHost to provision MAIL_HOSTNAME.
  */
 export function assertAllowedPanelSubdomainLabel(
   label: string,
   parentDomain: string,
-  opts?: { allowMailHost?: boolean }
+  opts?: {
+    allowMailHost?: boolean;
+    allowPanelHost?: boolean;
+    /** Allow any reserved infra label (from env) so SSL can register hpanel/s1/ns*. */
+    allowInfraHost?: boolean;
+  }
 ) {
   const apex = getDnsZoneApex();
   if (!apex || parentDomain.toLowerCase() !== apex) return;
@@ -90,13 +154,15 @@ export function assertAllowedPanelSubdomainLabel(
   if (panelHost && panelHost.endsWith(`.${apex}`)) {
     const panelLabel = panelHost.slice(0, -(apex.length + 1)).split(".")[0]?.toLowerCase();
     if (panelLabel && first === panelLabel) {
+      if (opts?.allowPanelHost || opts?.allowInfraHost) return;
       throw new Error(
-        `"${first}.${apex}" is reserved for the control panel. Choose a different name.`
+        `"${first}.${apex}" is reserved for the control panel. Issue SSL for it on the SSL page.`
       );
     }
   }
 
-  if (RESERVED_PANEL_SUBDOMAIN_LABELS.has(first)) {
+  if (getReservedInfraLabels(apex).has(first)) {
+    if (opts?.allowInfraHost) return;
     throw new Error(
       `"${first}.${apex}" is reserved for panel infrastructure. Choose a different name.`
     );
@@ -117,5 +183,5 @@ export function isReservedPanelSubdomain(
   if (first === "mail" || first === "webmail") return true;
 
   const apex = getDnsZoneApex();
-  return Boolean(apex && parent === apex && RESERVED_PANEL_SUBDOMAIN_LABELS.has(first));
+  return Boolean(apex && parent === apex && getReservedInfraLabels(apex).has(first));
 }

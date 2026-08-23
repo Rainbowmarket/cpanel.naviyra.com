@@ -9,7 +9,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 MAIL_HOSTNAME="${1:-$(hostname -f 2>/dev/null || hostname)}"
-PUBLIC_IP="${2:-136.243.196.166}"
+PUBLIC_IP="${2:-${SERVER_PUBLIC_IP:-}}"
 VMAIL_UID=5000
 VMAIL_GID=5000
 
@@ -123,9 +123,6 @@ EOF
 if [ -f "/etc/letsencrypt/live/${MAIL_HOSTNAME}/fullchain.pem" ]; then
   postconf -e "smtpd_tls_cert_file = /etc/letsencrypt/live/${MAIL_HOSTNAME}/fullchain.pem"
   postconf -e "smtpd_tls_key_file = /etc/letsencrypt/live/${MAIL_HOSTNAME}/privkey.pem"
-elif [ -f /etc/letsencrypt/live/mail.kongunattugounder.com/fullchain.pem ]; then
-  postconf -e "smtpd_tls_cert_file = /etc/letsencrypt/live/mail.kongunattugounder.com/fullchain.pem"
-  postconf -e "smtpd_tls_key_file = /etc/letsencrypt/live/mail.kongunattugounder.com/privkey.pem"
 fi
 
 # --- Dovecot ---
@@ -224,13 +221,6 @@ if [ -f "/etc/letsencrypt/live/${MAIL_HOSTNAME}/fullchain.pem" ]; then
 ssl = required
 ssl_cert = </etc/letsencrypt/live/${MAIL_HOSTNAME}/fullchain.pem
 ssl_key = </etc/letsencrypt/live/${MAIL_HOSTNAME}/privkey.pem
-ssl_min_protocol = TLSv1.2
-EOF
-elif [ -f /etc/letsencrypt/live/mail.kongunattugounder.com/fullchain.pem ]; then
-  cat > /etc/dovecot/conf.d/10-ssl.conf <<EOF
-ssl = required
-ssl_cert = </etc/letsencrypt/live/mail.kongunattugounder.com/fullchain.pem
-ssl_key = </etc/letsencrypt/live/mail.kongunattugounder.com/privkey.pem
 ssl_min_protocol = TLSv1.2
 EOF
 fi

@@ -72,6 +72,9 @@ export const AGENT_ACTIONS = [
   "docker_compose_up",
   "git_deploy",
   "sync_cron_jobs",
+  "list_host_services",
+  "control_host_service",
+  "install_host_service",
 ] as const;
 
 export type AgentActionName = (typeof AGENT_ACTIONS)[number];

@@ -137,9 +137,7 @@ async function promptInstallValues(rl, { yes, existing = {} }) {
     DEPLOY_PORT: existing.DEPLOY_PORT || "22",
     DEPLOY_PASSWORD: existing.DEPLOY_PASSWORD || "",
     LETSENCRYPT_EMAIL: existing.LETSENCRYPT_EMAIL || derived.LETSENCRYPT_EMAIL,
-    COOKIE_SECURE: (existing.PANEL_PUBLIC_URL || derived.PANEL_PUBLIC_URL || "").startsWith("https://")
-      ? "true"
-      : existing.COOKIE_SECURE,
+    COOKIE_SECURE: existing.COOKIE_SECURE || "false",
   };
   values.AGENT_URL = defaultAgentUrl(values.AGENT_PORT);
   values.NEXT_PUBLIC_TERMINAL_WS_URL =
@@ -329,6 +327,22 @@ async function finishLinuxPostgres(dest) {
   run("bash", [script, dest], { cwd: dest });
 }
 
+async function finishLinuxNginx(dest) {
+  if (process.platform !== "linux") return;
+  if (typeof process.getuid === "function" && process.getuid() !== 0) {
+    log("Skipping nginx (run the installer as root to install it if missing).");
+    return;
+  }
+  const script = path.join(dest, "scripts", "install-nginx.sh");
+  if (!fs.existsSync(script)) {
+    log("install-nginx.sh missing — skipping nginx.");
+    return;
+  }
+  log("Ensuring nginx (needed for sites, SSL, and visitor ingest)…");
+  fs.chmodSync(script, 0o755);
+  run("bash", [script], { cwd: dest, ignoreExit: true });
+}
+
 async function finishLinuxWebsocketMap(dest) {
   if (process.platform !== "linux") return;
   if (typeof process.getuid === "function" && process.getuid() !== 0) {
@@ -382,11 +396,11 @@ async function finishLinuxService(dest, rl, flags) {
     fs.chmodSync(expireBlocks, 0o755);
     run("bash", [expireBlocks, dest], { cwd: dest, ignoreExit: true });
   }
-  const nginxFix = path.join(dest, "scripts", "fix-naviyra-uk-https.sh");
-  if (fs.existsSync(nginxFix)) {
-    log("Pointing nginx HTTPS vhost at this PANEL_PORT…");
-    fs.chmodSync(nginxFix, 0o755);
-    run("bash", [nginxFix], { cwd: dest, ignoreExit: true });
+  const panelHttps = path.join(dest, "scripts", "setup-panel-https.sh");
+  if (fs.existsSync(panelHttps)) {
+    log("Writing nginx vhost for PANEL_HOSTNAME from .env…");
+    fs.chmodSync(panelHttps, 0o755);
+    run("bash", [panelHttps], { cwd: dest, ignoreExit: true });
   }
 }
 
@@ -440,14 +454,19 @@ async function cmdInstall(rl, flags) {
 
   normalizeUnixTextFiles(path.join(dest, "scripts"));
   await finishLinuxPostgres(dest);
+  await finishLinuxNginx(dest);
   await finishLinuxWebsocketMap(dest);
   await finishLinuxVisitorIngest(dest);
   await finishLinuxService(dest, rl, flags);
 
-  const url = values.PANEL_PUBLIC_URL || `http://127.0.0.1:${values.PANEL_PORT || 3000}`;
+  const port = values.PANEL_PORT || "3100";
+  const ip = values.SERVER_PUBLIC_IP || "SERVER_IP";
+  const url = values.PANEL_PUBLIC_URL || `http://${ip}:${port}`;
   console.log("");
   log("Install complete.");
-  console.log(`  Open:  ${url}`);
+  console.log(`  Open now:  http://${ip}:${port}`);
+  console.log(`  Or nginx:  http://${ip}/`);
+  if (values.PANEL_PUBLIC_URL) console.log(`  Hostname:  ${url}  (needs DNS A record → ${ip})`);
   console.log(`  Files: ${dest}`);
   console.log("  First visit: create the admin account on the Initial setup screen.");
   if (process.platform === "win32") {
@@ -521,6 +540,7 @@ async function cmdUpgrade(rl, flags) {
   runBuild(dest);
   normalizeUnixTextFiles(path.join(dest, "scripts"));
   await finishLinuxPostgres(dest);
+  await finishLinuxNginx(dest);
   await finishLinuxWebsocketMap(dest);
   await finishLinuxVisitorIngest(dest);
   await finishLinuxService(dest, rl, flags);
@@ -630,33 +650,39 @@ async function cmdUninstall(rl, flags) {
     return;
   }
 
-  if (hasPanel && fs.existsSync(path.join(dest, "launcher", "stop.mjs"))) {
-    run(process.execPath, [path.join(dest, "launcher", "stop.mjs")], {
-      cwd: dest,
-      ignoreExit: true,
-    });
-  }
-
-  cleanupLinuxPanelArtifacts({ dest, env, removeSites });
-
-  if (hasPanel) removePanelDatabase(dest, env);
-  if (removePostgres) dropHostedPostgresDatabases();
-
-  if (removeSites) removeHostedWebsites(wwwRoot, dest);
-  if (removeMail) removeTree(mailRoot, "mailboxes");
-  if (removeDns) {
-    removeTree(bindZones, "DNS zone files");
-    removeTree(bindNamed, "BIND zone snippets");
-    if (fs.existsSync(bindInclude)) {
-      fs.writeFileSync(bindInclude, "// naviyra zones removed\n");
-      log(`Cleared ${bindInclude}`);
+  try {
+    if (hasPanel && fs.existsSync(path.join(dest, "launcher", "stop.mjs"))) {
+      run(process.execPath, [path.join(dest, "launcher", "stop.mjs")], {
+        cwd: dest,
+        ignoreExit: true,
+      });
     }
-    run("rndc", ["reload"], { ignoreExit: true });
-  }
 
-  if (hasPanel && fs.existsSync(dest)) {
-    log(`Removing ${dest}…`);
-    fs.rmSync(dest, { recursive: true, force: true });
+    cleanupLinuxPanelArtifacts({ dest, env, removeSites });
+
+    if (hasPanel) removePanelDatabase(dest, env);
+    if (removePostgres) dropHostedPostgresDatabases();
+
+    if (removeSites) removeHostedWebsites(wwwRoot, dest);
+    if (removeMail) removeTree(mailRoot, "mailboxes");
+    if (removeDns) {
+      removeTree(bindZones, "DNS zone files");
+      removeTree(bindNamed, "BIND zone snippets");
+      if (fs.existsSync(bindInclude)) {
+        fs.writeFileSync(bindInclude, "// naviyra zones removed\n");
+        log(`Cleared ${bindInclude}`);
+      }
+      run("rndc", ["reload"], { ignoreExit: true });
+    }
+  } finally {
+    if (hasPanel && fs.existsSync(dest)) {
+      log(`Removing ${dest}…`);
+      try {
+        fs.rmSync(dest, { recursive: true, force: true });
+      } catch (err) {
+        log(`Could not remove ${dest}: ${err.message || err}`);
+      }
+    }
   }
 
   const kept = [];

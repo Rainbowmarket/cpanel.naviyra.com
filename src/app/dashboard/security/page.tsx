@@ -15,6 +15,9 @@ import {
   Trash2,
   Unlock,
   Users,
+  Loader2,
+  Play,
+  Square,
 } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { PageHeader } from "@/components/ui/page-header";
@@ -239,6 +242,7 @@ function SecurityPageInner() {
   const [whiteIp, setWhiteIp] = useState("");
   const [whiteLabel, setWhiteLabel] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
+  const [ingestBusy, setIngestBusy] = useState("");
 
   const domainQuery = domainId ? `?domainId=${domainId}` : "";
 
@@ -273,6 +277,28 @@ function SecurityPageInner() {
     setIngest(s.ingest ?? null);
     setLive(l.live ?? []);
   }, [domainId, domainQuery]);
+
+  async function controlVisitorIngest(op: "start" | "stop" | "restart") {
+    setIngestBusy(op);
+    try {
+      const res = await fetch("/api/system/services", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: "visitor-ingest", op }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data.error === "string" ? data.error : `HTTP ${res.status}`);
+      }
+      await loadOverview();
+    } catch (error) {
+      await confirm(
+        error instanceof Error ? error.message : "Could not change visitor ingest"
+      );
+    } finally {
+      setIngestBusy("");
+    }
+  }
 
   const loadVisitors = useCallback(async () => {
     const data = await fetch(`/api/security/visitors?${buildVisitorQuery()}`).then(
@@ -545,9 +571,41 @@ function SecurityPageInner() {
           </div>
 
           <section className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/80">
-            <div className="flex items-center justify-between border-b border-slate-800 px-4 py-2.5 sm:px-5">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 px-4 py-2.5 sm:px-5">
               <h2 className="text-sm font-semibold text-white">Live visitors</h2>
-              <span className="text-[11px] text-slate-500">Updates every 15s</span>
+              <div className="flex flex-wrap items-center gap-2">
+                {isAdmin && ingest && ingest.timer !== "n/a" ? (
+                  <>
+                    <button
+                      type="button"
+                      disabled={Boolean(ingestBusy) || ingest.timer === "active"}
+                      onClick={() => void controlVisitorIngest("start")}
+                      className="inline-flex items-center gap-1 rounded-md border border-slate-700 px-2 py-0.5 text-[11px] text-emerald-300 hover:bg-slate-800 disabled:opacity-40"
+                    >
+                      {ingestBusy === "start" ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Play className="h-3 w-3" />
+                      )}
+                      Start ingest
+                    </button>
+                    <button
+                      type="button"
+                      disabled={Boolean(ingestBusy) || ingest.timer !== "active"}
+                      onClick={() => void controlVisitorIngest("stop")}
+                      className="inline-flex items-center gap-1 rounded-md border border-slate-700 px-2 py-0.5 text-[11px] text-amber-300 hover:bg-slate-800 disabled:opacity-40"
+                    >
+                      {ingestBusy === "stop" ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Square className="h-3 w-3" />
+                      )}
+                      Stop ingest
+                    </button>
+                  </>
+                ) : null}
+                <span className="text-[11px] text-slate-500">Updates every 15s</span>
+              </div>
             </div>
             {live.length === 0 ? (
               <div className="space-y-1 px-5 py-10 text-center text-sm text-slate-500">

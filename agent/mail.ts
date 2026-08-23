@@ -225,3 +225,44 @@ export async function provisionMailboxShell(email: string, dryRun: boolean) {
   if (!dryRun) await reloadMail();
   return { email, home: mailboxAbsPath(email), locked: true };
 }
+
+/** Point Postfix + Dovecot at a Let's Encrypt cert (IMAP/SMTP TLS). */
+export async function applyMailDaemonTls(
+  hostname: string
+): Promise<{ applied: boolean; hostname: string }> {
+  const safe = hostname.trim().toLowerCase();
+  const cert = `/etc/letsencrypt/live/${safe}/fullchain.pem`;
+  const key = `/etc/letsencrypt/live/${safe}/privkey.pem`;
+  try {
+    await fs.access(cert);
+    await fs.access(key);
+  } catch {
+    return { applied: false, hostname: safe };
+  }
+
+  try {
+    await exec("postconf", ["-e", `smtpd_tls_cert_file=${cert}`]);
+    await exec("postconf", ["-e", `smtpd_tls_key_file=${key}`]);
+    await exec("postfix", ["reload"]);
+  } catch (error) {
+    console.error("postfix TLS apply skipped:", error);
+  }
+
+  try {
+    await fs.mkdir("/etc/dovecot/conf.d", { recursive: true });
+    await fs.writeFile(
+      "/etc/dovecot/conf.d/10-ssl.conf",
+      `ssl = required
+ssl_cert = <${cert}
+ssl_key = <${key}
+ssl_min_protocol = TLSv1.2
+`,
+      "utf8"
+    );
+    await exec("systemctl", ["reload", "dovecot"]);
+  } catch (error) {
+    console.error("dovecot TLS apply skipped:", error);
+  }
+
+  return { applied: true, hostname: safe };
+}

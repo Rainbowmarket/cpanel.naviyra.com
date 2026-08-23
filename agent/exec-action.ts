@@ -27,6 +27,7 @@ import {
 } from "./docker";
 import { gitDeployOnServer } from "./git";
 import { syncCronJobsOnServer } from "./cron";
+import { controlHostService, installHostService, listHostServices } from "./host-services";
 
 const DRY_RUN =
   process.env.AGENT_DRY_RUN === "true" ||
@@ -226,6 +227,79 @@ async function run(payload: Payload) {
           : [],
         dryRun: DRY_RUN,
       });
+    case "list_host_services":
+      return listHostServices({ dryRun: DRY_RUN });
+    case "control_host_service":
+      return controlHostService({
+        id: String(payload.id ?? ""),
+        op: String(payload.op ?? "") as "start" | "stop" | "restart",
+        dryRun: DRY_RUN,
+      });
+    case "install_host_service":
+      return installHostService({
+        id: String(payload.id ?? ""),
+        dryRun: DRY_RUN,
+      });
+    case "issue_ssl":
+    case "renew_ssl": {
+      const { issueLetsEncrypt } = await import("./nginx");
+      const { sanitizeHostnameForPath } = await import("./hostname");
+      const domain = sanitizeHostnameForPath(String(payload.domain ?? ""));
+      const extra = Array.isArray(payload.subdomains)
+        ? payload.subdomains.map(String)
+        : [];
+      const documentRoot =
+        typeof payload.documentRoot === "string" && payload.documentRoot
+          ? payload.documentRoot
+          : `/var/www/${domain}/public_html`;
+      return issueLetsEncrypt(
+        domain,
+        documentRoot,
+        DRY_RUN,
+        extra,
+        payload.phpEnabled !== false && String(payload.appType ?? "PHP") === "PHP",
+        {
+          appType: payload.appType ? String(payload.appType) : undefined,
+          upstreamPort: payload.upstreamPort ? Number(payload.upstreamPort) : null,
+        }
+      );
+    }
+    case "ssl_cert_info": {
+      const { readCertDates } = await import("./nginx");
+      const domain = String(payload.domain ?? "").trim().toLowerCase();
+      const certDir = `/etc/letsencrypt/live/${domain}`;
+      try {
+        const dates = await readCertDates(certDir);
+        return { exists: true, ...dates };
+      } catch {
+        return { exists: false, issuedAt: null, expiresAt: null, certDir };
+      }
+    }
+    case "ensure_mail_proxy": {
+      const { sanitizeHostnameForPath } = await import("./hostname");
+      const {
+        isMailHostname,
+        buildMailProxyHttpVhost,
+        buildMailProxyHttpsVhost,
+        writeAndEnableNginxSite,
+      } = await import("./nginx");
+      const hostname = sanitizeHostnameForPath(
+        String(payload.hostname ?? "").trim().toLowerCase()
+      );
+      if (!isMailHostname(hostname)) {
+        throw new Error("hostname must be a mail.* host");
+      }
+      const certDir = `/etc/letsencrypt/live/${hostname}`;
+      const fsSync = await import("node:fs");
+      const hasCert =
+        fsSync.existsSync(`${certDir}/fullchain.pem`) &&
+        fsSync.existsSync(`${certDir}/privkey.pem`);
+      const conf = hasCert
+        ? buildMailProxyHttpsVhost([hostname], certDir)
+        : buildMailProxyHttpVhost([hostname]);
+      await writeAndEnableNginxSite(hostname, conf, DRY_RUN);
+      return { hostname };
+    }
     default:
       throw new Error(`Unsupported one-shot action: ${payload.action}`);
   }

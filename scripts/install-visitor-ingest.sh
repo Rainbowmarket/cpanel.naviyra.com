@@ -87,6 +87,9 @@ target = confd / "naviyra-visitors.conf"
 target.write_text(body_full)
 
 def nginx_err() -> tuple[bool, str]:
+    import shutil
+    if not shutil.which("nginx"):
+        return True, "nginx not installed — skip nginx -t"
     r = subprocess.run(["nginx", "-t"], capture_output=True, text=True)
     err = ((r.stderr or "") + (r.stdout or "")).strip()
     return r.returncode == 0, err
@@ -103,8 +106,9 @@ if not ok and "duplicate" in err.lower() and "naviyra_visitors" in err:
     ok, err = nginx_err()
 if not ok:
     print(err)
-    raise SystemExit("nginx -t failed after visitor-log install")
-print("nginx visitor log config ok")
+    print("nginx -t failed after visitor-log install — continuing; timer will still be enabled")
+else:
+    print("nginx visitor log config ok")
 PY
 
 python3 - <<'PY'

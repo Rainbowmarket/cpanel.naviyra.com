@@ -24,7 +24,8 @@ export function isAgentUnreachable(error?: string): boolean {
     msg.includes("socket") ||
     msg.includes("timeout") ||
     msg.includes("aborted") ||
-    msg.includes("und_err")
+    msg.includes("und_err") ||
+    msg.includes("could not reach agent")
   );
 }
 
@@ -144,23 +145,10 @@ export async function executeLocalAgent<T = unknown>(
     }
 
       case "issue_ssl":
-      case "renew_ssl": {
-        const now = new Date();
-        const expires = new Date(now);
-        expires.setDate(expires.getDate() + 90);
-        await fs.writeFile(
-          path.join(CONFIG_ROOT, `ssl-${payload.domain}.txt`),
-          `issued ${now.toISOString()}`,
-          "utf8"
-        );
-        return {
-          success: true,
-          data: {
-            issuedAt: now.toISOString(),
-            expiresAt: expires.toISOString(),
-          } as T,
-        };
-      }
+      case "renew_ssl":
+      case "ssl_cert_info":
+      case "ensure_mail_proxy":
+        return runPostgresOneShot<T>(payload);
 
       case "create_mail_account":
         await fs.appendFile(
@@ -498,6 +486,9 @@ export async function executeLocalAgent<T = unknown>(
       case "docker_compose_up":
       case "git_deploy":
       case "sync_cron_jobs":
+      case "list_host_services":
+      case "control_host_service":
+      case "install_host_service":
         return runPostgresOneShot<T>(payload);
 
       case "restore_backup":

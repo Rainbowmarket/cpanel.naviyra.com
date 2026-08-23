@@ -10,7 +10,17 @@ if [ ! -d /etc/nginx ]; then
   exit 0
 fi
 
-mkdir -p /etc/nginx/snippets
+mkdir -p /etc/nginx/snippets /etc/letsencrypt
+
+if [ -f "$ROOT/scripts/nginx-ssl-params.conf" ]; then
+  install -m 0644 "$ROOT/scripts/nginx-ssl-params.conf" \
+    /etc/nginx/snippets/naviyra-ssl-params.conf
+  if [ ! -f /etc/letsencrypt/options-ssl-nginx.conf ]; then
+    install -m 0644 "$ROOT/scripts/nginx-ssl-params.conf" \
+      /etc/letsencrypt/options-ssl-nginx.conf
+  fi
+  echo "install-nginx-snippets: wrote SSL params (and certbot options file if missing)"
+fi
 
 if [ -f "$ROOT/scripts/nginx-deny-sensitive.conf" ]; then
   install -m 0644 "$ROOT/scripts/nginx-deny-sensitive.conf" \

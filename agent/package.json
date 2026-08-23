@@ -6,9 +6,10 @@
   "scripts": {
     "start": "tsx index.ts",
     "dev": "tsx watch index.ts",
-    "test": "tsx --test hostname.test.ts"
+    "test": "tsx --test hostname.test.ts host-services.test.ts nginx.test.ts"
   },
   "devDependencies": {
+    "@types/node": "^20",
     "@types/ws": "^8.18.1",
     "tsx": "^4.19.0",
     "typescript": "^5"

@@ -23,23 +23,66 @@ export function zoneApexFromHostname(host: string): string {
   return h;
 }
 
-/**
- * Control-panel hostname only (e.g. hpanel.naviyra.uk).
- * Sources: PANEL_HOSTNAME → PANEL_PUBLIC_URL.
- */
-export function getPanelHostname(): string | null {
-  const explicit = process.env.PANEL_HOSTNAME?.trim();
-  if (explicit) return normalizeApexDomain(explicit);
+/** Docs/examples copied into .env — never treat these as a live hostname. */
+export function isDocsExampleHostname(host: string): boolean {
+  const h = normalizeApexDomain(host);
+  if (!h) return true;
+  return (
+    h.includes("yourdomain.com") ||
+    h.includes("example.com") ||
+    h.includes("example.org") ||
+    h === "localhost"
+  );
+}
 
+function hostnameFromPanelEnv(): string | null {
+  const explicit = process.env.PANEL_HOSTNAME?.trim();
+  if (explicit) {
+    const host = normalizeApexDomain(explicit);
+    if (host && !isDocsExampleHostname(host)) return host;
+  }
   const publicUrl = process.env.PANEL_PUBLIC_URL?.trim();
   if (publicUrl) {
     try {
-      return normalizeApexDomain(new URL(publicUrl).hostname);
+      const host = normalizeApexDomain(new URL(publicUrl).hostname);
+      if (host && !isDocsExampleHostname(host)) return host;
     } catch {
       /* ignore */
     }
   }
+  return null;
+}
 
+function apexFromInfraEnv(): string | null {
+  const ns1 = process.env.DNS_NS1?.trim();
+  if (ns1) {
+    const apex = normalizeApexDomain(ns1).replace(/^ns\d+\./, "");
+    if (apex.includes(".") && !isDocsExampleHostname(apex)) return apex;
+  }
+  const serverHost = process.env.DEFAULT_SERVER_HOSTNAME?.trim();
+  if (serverHost) {
+    const apex = normalizeApexDomain(serverHost).replace(/^(server\d+|s\d+)\./, "");
+    if (apex.includes(".") && !isDocsExampleHostname(apex)) return apex;
+  }
+  return null;
+}
+
+/**
+ * Control-panel hostname only (e.g. hpanel.naviyra.uk).
+ * Sources: PANEL_HOSTNAME → PANEL_PUBLIC_URL → hpanel.{DNS apex}.
+ * Docs examples like hpanel.yourdomain.com are ignored.
+ * A 2-label PANEL_HOSTNAME is the marketing apex, not the panel vhost.
+ */
+export function getPanelHostname(): string | null {
+  const apex = apexFromInfraEnv();
+  const fromEnv = hostnameFromPanelEnv();
+  if (fromEnv) {
+    if (apex && fromEnv === apex) return `hpanel.${apex}`;
+    const labels = fromEnv.split(".").filter(Boolean);
+    if (labels.length === 2) return `hpanel.${fromEnv}`;
+    return fromEnv;
+  }
+  if (apex) return `hpanel.${apex}`;
   return null;
 }
 
@@ -48,19 +91,9 @@ export function getPanelHostname(): string | null {
  * Sources: DNS_NS1 → DEFAULT_SERVER_HOSTNAME → parent of panel hostname.
  */
 export function getDnsZoneApex(): string | null {
-  const ns1 = process.env.DNS_NS1?.trim();
-  if (ns1) {
-    const apex = normalizeApexDomain(ns1).replace(/^ns\d+\./, "");
-    if (apex.includes(".")) return apex;
-  }
-
-  const serverHost = process.env.DEFAULT_SERVER_HOSTNAME?.trim();
-  if (serverHost) {
-    const apex = normalizeApexDomain(serverHost).replace(/^(server\d+|s\d+)\./, "");
-    if (apex.includes(".")) return apex;
-  }
-
-  const panel = getPanelHostname();
+  const infra = apexFromInfraEnv();
+  if (infra) return infra;
+  const panel = hostnameFromPanelEnv();
   if (panel) return zoneApexFromHostname(panel);
   return null;
 }
@@ -107,11 +140,13 @@ export function upsertEnvKeys(updates: Record<string, string>): void {
       continue;
     }
     const key = line.split("=", 1)[0]!.trim();
+    if (seen.has(key)) continue;
     if (key in updates) {
       out.push(`${key}=${updates[key]}`);
       seen.add(key);
     } else {
       out.push(line);
+      seen.add(key);
     }
   }
 
@@ -127,24 +162,26 @@ export function upsertEnvKeys(updates: Record<string, string>): void {
 export function persistPanelBaseDomainFromLogin(domainInput: string): string {
   const domain = normalizeApexDomain(domainInput);
   const apex = zoneApexFromHostname(domain);
+  const panelHost =
+    domain.split(".").filter(Boolean).length >= 3 ? domain : `hpanel.${apex}`;
   const panelPort = process.env.PANEL_PORT?.trim() || "3100";
   const useHttps = shouldUseSecureCookies() || /^https:\/\//i.test(
     process.env.PANEL_PUBLIC_URL?.trim() || ""
   );
   const cleanPublicUrl = useHttps
-    ? `https://${domain}`
-    : `http://${domain}:${panelPort}`;
+    ? `https://${panelHost}`
+    : `http://${panelHost}:${panelPort}`;
 
   const existingServerHost = process.env.DEFAULT_SERVER_HOSTNAME?.trim();
   upsertEnvKeys({
-    PANEL_HOSTNAME: domain,
+    PANEL_HOSTNAME: panelHost,
     PANEL_PUBLIC_URL: cleanPublicUrl,
     DNS_NS1: process.env.DNS_NS1?.trim() || `ns1.${apex}`,
     DNS_NS2: process.env.DNS_NS2?.trim() || `ns2.${apex}`,
     DEFAULT_SERVER_HOSTNAME: existingServerHost || `s1.${apex}`,
     LETSENCRYPT_EMAIL: process.env.LETSENCRYPT_EMAIL?.trim() || `admin@${apex}`,
-    NEXT_PUBLIC_TERMINAL_WS_URL: `wss://${domain}/terminal-ws/terminal`,
+    NEXT_PUBLIC_TERMINAL_WS_URL: `wss://${panelHost}/terminal-ws/terminal`,
   });
 
-  return domain;
+  return panelHost;
 }

@@ -1,7 +1,12 @@
 import { prisma } from "@/lib/prisma";
 import { callAgent } from "@/lib/agent/client";
-import { getDnsZoneApex } from "@/lib/base-domain";
-import { assertAllowedPanelSubdomainLabel, isReservedPanelSubdomain } from "@/lib/panel-host";
+import { getDnsZoneApex, getPanelHostname, normalizeApexDomain } from "@/lib/base-domain";
+import {
+  assertAllowedPanelSubdomainLabel,
+  getInfraSslHostnames,
+  isPanelHostname,
+  isReservedPanelSubdomain,
+} from "@/lib/panel-host";
 import { mailHostLabel } from "@/lib/dns/zone";
 import {
   getDefaultSubdomainRoot,
@@ -138,6 +143,7 @@ export async function listSubdomains(
 ) {
   if (opts?.role === "ADMIN") {
     await ensureMissingMailSubdomains().catch(() => undefined);
+    await ensureInfraSslHostnames(userId).catch(() => undefined);
     return prisma.subdomain.findMany({
       where: { domainId },
       include: subdomainListInclude,
@@ -168,6 +174,7 @@ export async function listAllSubdomains(
 ) {
   if (opts?.role === "ADMIN") {
     await ensureMissingMailSubdomains().catch(() => undefined);
+    await ensureInfraSslHostnames(userId).catch(() => undefined);
     return prisma.subdomain.findMany({
       include: subdomainListInclude,
       orderBy: { createdAt: "desc" },
@@ -245,6 +252,12 @@ export async function createSubdomain(input: {
   allowPanelDomain?: boolean;
   /** When true, allow reserved mail/webmail label on the panel apex (mail host setup). */
   allowMailHost?: boolean;
+  /** When true, allow the PANEL_HOSTNAME label so SSL can be issued for the panel. */
+  allowPanelHost?: boolean;
+  /** When true, allow reserved infra labels from env (s1/ns1/hpanel). */
+  allowInfraHost?: boolean;
+  /** Skip nginx site create (panel already has the control-panel vhost). */
+  skipAgent?: boolean;
 }) {
   const panelBase = getDnsZoneApex();
   const domain = await prisma.domain.findFirst({
@@ -275,6 +288,8 @@ export async function createSubdomain(input: {
   assertValidSubdomainLabel(label);
   assertAllowedPanelSubdomainLabel(label, domain.name, {
     allowMailHost: input.allowMailHost,
+    allowPanelHost: input.allowPanelHost,
+    allowInfraHost: input.allowInfraHost,
   });
 
   const existing = await prisma.subdomain.findFirst({
@@ -298,9 +313,21 @@ export async function createSubdomain(input: {
       documentRoot,
       domainId: domain.id,
       appType,
-      status: "PENDING",
+      status: input.skipAgent ? "ACTIVE" : "PENDING",
     },
   });
+
+  if (input.skipAgent) {
+    try {
+      await addSubdomainDnsRecord(domain.id, label);
+    } catch (error) {
+      console.error("Panel host DNS record sync failed:", error);
+    }
+    return prisma.subdomain.findFirstOrThrow({
+      where: { id: subdomain.id },
+      include: { domain: { select: { name: true, id: true } } },
+    });
+  }
 
   return provisionSubdomain({
     id: subdomain.id,
@@ -314,6 +341,81 @@ export async function createSubdomain(input: {
       serverId: domain.serverId,
     },
   });
+}
+
+/**
+ * Register env-derived infra hosts (PANEL_HOSTNAME, DEFAULT_SERVER_HOSTNAME,
+ * DNS_NS1/NS2, SECONDARY_SERVER_HOSTNAME) plus Server.hostname rows under the
+ * DNS apex as reserved subdomains so they appear on SSL / Subdomains.
+ * Panel hostname skips agent website create; other hosts get a normal site for ACME.
+ */
+export async function ensureInfraSslHostnames(userId: string) {
+  const apex = getDnsZoneApex();
+  if (!apex) return [];
+
+  await ensurePanelBaseDomain(userId);
+  const domain = await prisma.domain.findUnique({ where: { name: apex } });
+  if (!domain) return [];
+
+  const hosts = new Set(getInfraSslHostnames());
+  const servers = await prisma.server.findMany({ select: { hostname: true } });
+  for (const s of servers) {
+    const h = normalizeApexDomain(s.hostname);
+    if (h && (h === apex || h.endsWith(`.${apex}`))) hosts.add(h);
+  }
+
+  const created = [];
+  for (const fqdn of hosts) {
+    if (fqdn === apex) continue;
+    if (!fqdn.endsWith(`.${apex}`)) continue;
+    const label = fqdn.slice(0, -(apex.length + 1));
+    if (!label) continue;
+
+    const existing = await prisma.subdomain.findUnique({
+      where: { domainId_name: { domainId: domain.id, name: label } },
+    });
+    if (existing) {
+      if (existing.status !== "ACTIVE") {
+        created.push(
+          await prisma.subdomain.update({
+            where: { id: existing.id },
+            data: { status: "ACTIVE", lastError: null },
+          })
+        );
+      } else {
+        created.push(existing);
+      }
+      continue;
+    }
+
+    try {
+      const isPanel = isPanelHostname(fqdn);
+      created.push(
+        await createSubdomain({
+          domainId: domain.id,
+          userId: domain.userId || userId,
+          name: label,
+          appType: "STATIC",
+          allowPanelDomain: true,
+          allowPanelHost: isPanel,
+          allowInfraHost: true,
+          // Infra hosts get nginx from issue_ssl; panel already has its proxy vhost.
+          skipAgent: true,
+        })
+      );
+    } catch (error) {
+      console.error(`ensureInfraSslHostnames ${fqdn}:`, error);
+    }
+  }
+  return created;
+}
+
+/** @deprecated Use ensureInfraSslHostnames */
+export async function ensurePanelControlHostname(userId: string) {
+  const rows = await ensureInfraSslHostnames(userId);
+  const panel = getPanelHostname();
+  if (!panel) return null;
+  return rows.find((r) => `${r.name}.${getDnsZoneApex()}` === panel) ?? rows[0] ?? null;
 }
 
 export async function retrySubdomain(subdomainId: string, userId: string) {

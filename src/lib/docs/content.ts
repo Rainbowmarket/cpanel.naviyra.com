@@ -586,7 +586,7 @@ export const DOC_ARTICLES: DocArticle[] = [
           "Manual block/whitelist changes and “Block” from a threat event require ADMIN.",
         ],
         tips: [
-          "Visitor ingest writes a dedicated nginx log with the request host and posts new lines to the panel every minute. The installer and agent enable this on Linux.",
+          "Visitor ingest writes a dedicated nginx log with the request host and posts new lines to the panel every minute. If Live visitors stalls, start the ingest timer from Admin → Services or Security → Start ingest.",
         ],
       },
       {
@@ -720,6 +720,29 @@ export const DOC_ARTICLES: DocArticle[] = [
         body: [
           "Includes PostgreSQL customer DB dumps when includeDatabases is on.",
           "Domain-level archives for single-site restore.",
+        ],
+      },
+    ],
+  },
+  {
+    slug: "services",
+    title: "Host services",
+    summary: "Start and stop nginx, mail, FTP, DNS, visitor ingest, and other panel units (admin).",
+    href: "/dashboard/services",
+    audience: "admin",
+    category: "Admin",
+    sections: [
+      {
+        heading: "How to start or stop a service",
+        steps: [
+          "Open Admin → Services.",
+          "Each row is a systemd unit the panel is allowed to control.",
+          "Use Start, Stop, or Restart. Green means active.",
+          "Visitor ingest also has Start ingest / Stop ingest on Tools → Security.",
+        ],
+        tips: [
+          "The hosting panel itself cannot be stopped from this page (you would lose the UI). Restart is allowed.",
+          "Only allowlisted units are accepted. Arbitrary systemctl commands are not.",
         ],
       },
     ],

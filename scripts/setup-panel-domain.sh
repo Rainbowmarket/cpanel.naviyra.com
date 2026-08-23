@@ -61,6 +61,6 @@ fi
 
 echo ""
 echo "nginx: ${DOMAIN} → 127.0.0.1:${PANEL_PORT}"
-echo "Optional cert: sudo ./scripts/fix-naviyra-uk-https.sh"
+echo "HTTPS: sudo bash scripts/setup-panel-https.sh"
 echo ""
 curl -sI -H "Host: ${DOMAIN}" "http://127.0.0.1/" | head -n 8 || true

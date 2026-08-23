@@ -7,7 +7,7 @@ import {
   userHasPanelPermission,
 } from "./panel-permissions";
 import { fromB64url, hmacSign, hmacVerify, b64url } from "./crypto-hmac";
-import { shouldUseSecureCookies } from "./cookie-secure";
+import { sessionCookieShouldBeSecure } from "./cookie-secure";
 import { requireSessionSecret } from "./secrets";
 
 const SESSION_COOKIE = "naviyra_session";
@@ -47,9 +47,8 @@ type SessionClaims = {
   exp: number;
 };
 
-/** Secure flag: auto when HTTPS panel URL / production; override with COOKIE_SECURE. */
-function sessionCookieSecure(): boolean {
-  return shouldUseSecureCookies();
+async function sessionCookieSecure(): Promise<boolean> {
+  return sessionCookieShouldBeSecure();
 }
 
 function encodeSession(claims: SessionClaims): string {
@@ -77,10 +76,10 @@ function decodeSession(token: string): SessionClaims | null {
   }
 }
 
-function buildSessionCookie(
+async function buildSessionCookie(
   userId: string,
   sessionVersion = 0
-): { name: string; value: string; options: SessionCookieOptions } {
+): Promise<{ name: string; value: string; options: SessionCookieOptions }> {
   const exp = Math.floor(Date.now() / 1000) + SESSION_MAX_AGE;
   const value = encodeSession({ uid: userId, sv: sessionVersion, exp });
   return {
@@ -88,7 +87,7 @@ function buildSessionCookie(
     value,
     options: {
       httpOnly: true,
-      secure: sessionCookieSecure(),
+      secure: await sessionCookieSecure(),
       sameSite: "lax",
       maxAge: SESSION_MAX_AGE,
       path: "/",
@@ -97,12 +96,12 @@ function buildSessionCookie(
 }
 
 /** Prefer this in Route Handlers — set cookie on the response object. */
-export function applySessionCookie(
+export async function applySessionCookie(
   response: NextResponse,
   userId: string,
   sessionVersion = 0
-): NextResponse {
-  const cookie = buildSessionCookie(userId, sessionVersion);
+): Promise<NextResponse> {
+  const cookie = await buildSessionCookie(userId, sessionVersion);
   response.cookies.set(cookie.name, cookie.value, cookie.options);
   return response;
 }
@@ -112,7 +111,7 @@ export async function createSession(
   sessionVersion = 0
 ): Promise<void> {
   const cookieStore = await cookies();
-  const cookie = buildSessionCookie(userId, sessionVersion);
+  const cookie = await buildSessionCookie(userId, sessionVersion);
   cookieStore.set(cookie.name, cookie.value, cookie.options);
 }
 
@@ -121,10 +120,10 @@ export async function destroySession(): Promise<void> {
   cookieStore.delete(SESSION_COOKIE);
 }
 
-export function clearSessionCookie(response: NextResponse): NextResponse {
+export async function clearSessionCookie(response: NextResponse): Promise<NextResponse> {
   response.cookies.set(SESSION_COOKIE, "", {
     httpOnly: true,
-    secure: sessionCookieSecure(),
+    secure: await sessionCookieSecure(),
     sameSite: "lax",
     maxAge: 0,
     path: "/",

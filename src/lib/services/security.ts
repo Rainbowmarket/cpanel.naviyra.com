@@ -140,7 +140,7 @@ export function getVisitorIngestStatus() {
   let hint = "Visitor ingest is running. New site hits appear within about a minute.";
   if (timerState !== "active") {
     hint =
-      "Ingest timer is not active. Re-run the panel installer as root, or: sudo bash scripts/install-visitor-ingest.sh";
+      "Ingest timer is not active. Start it from Admin → Services, or the Start ingest button on this page.";
   } else if (!visitorLogExists) {
     hint = "nginx visitor log is missing. Reload nginx after enabling ingest.";
   } else if (visitorLogBytes === 0) {

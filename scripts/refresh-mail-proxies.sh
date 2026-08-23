@@ -45,8 +45,7 @@ server {
 
     ssl_certificate     ${cert}/fullchain.pem;
     ssl_certificate_key ${cert}/privkey.pem;
-    include /etc/letsencrypt/options-ssl-nginx.conf;
-    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+    include /etc/nginx/snippets/naviyra-ssl-params.conf;
 
     client_max_body_size 64M;
 

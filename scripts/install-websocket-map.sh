@@ -95,7 +95,7 @@ for conf in sorted(sites.iterdir()):
 print(f"install-websocket-map: patched={patched}")
 PY
 
-if nginx -t; then
+if command -v nginx >/dev/null 2>&1 && nginx -t; then
   systemctl reload nginx
   echo "install-websocket-map: nginx reloaded"
 else

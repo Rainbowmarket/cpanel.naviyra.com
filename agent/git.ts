@@ -11,17 +11,22 @@ const exec = promisify(execFile);
 const isWindows = process.platform === "win32";
 
 export function assertGitUrl(raw: string): string {
-  const url = raw.trim();
+  let url = raw.trim();
   if (!url || url.length > 500) throw new Error("Invalid repository URL");
   if (/[\r\n;|&`$<>\\]/.test(url)) throw new Error("Invalid repository URL");
-  if (
-    url.startsWith("https://") ||
-    url.startsWith("http://") ||
-    url.startsWith("ssh://") ||
-    /^git@[\w.-]+:[\w./~+-]+\.git$/i.test(url)
-  ) {
-    return url;
+  if (url.startsWith("https://") || url.startsWith("http://") || url.startsWith("ssh://")) {
+    try {
+      const parsed = new URL(url);
+      parsed.pathname = parsed.pathname.replace(/\/{2,}/g, "/");
+      url = parsed.toString().replace(/\/+$/, "");
+    } catch {
+      throw new Error("Invalid repository URL");
+    }
+    if (url.startsWith("https://") || url.startsWith("http://") || url.startsWith("ssh://")) {
+      return url;
+    }
   }
+  if (/^git@[\w.-]+:[\w./~+-]+\.git$/i.test(url)) return url;
   throw new Error("Use an https://, ssh://, or git@host:path.git URL");
 }
 

@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { verifyPassword } from "@/lib/auth";
-import { shouldUseSecureCookies } from "@/lib/cookie-secure";
+import { sessionCookieShouldBeSecure } from "@/lib/cookie-secure";
 import { callAgent } from "@/lib/agent/client";
 import { agentTargetForServerId } from "@/lib/agent/target";
 import { fromB64url, hmacSign, hmacVerify, b64url } from "@/lib/crypto-hmac";
@@ -29,8 +29,8 @@ type MailClaims = {
   exp: number;
 };
 
-function cookieSecure(): boolean {
-  return shouldUseSecureCookies();
+async function cookieSecure(): Promise<boolean> {
+  return sessionCookieShouldBeSecure();
 }
 
 function maxFailedLogins(): number {
@@ -65,7 +65,7 @@ export async function createMailSession(accountId: string): Promise<void> {
   const cookieStore = await cookies();
   cookieStore.set(MAIL_SESSION_COOKIE, encodeMailSession(accountId), {
     httpOnly: true,
-    secure: cookieSecure(),
+    secure: await cookieSecure(),
     sameSite: "lax",
     maxAge: MAIL_SESSION_MAX_AGE,
     path: "/",

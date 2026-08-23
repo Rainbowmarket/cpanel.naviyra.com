@@ -39,6 +39,9 @@ describe("execute action allowlist", () => {
 
   it("accepts ping", () => {
     assert.equal(assertKnownAction("ping"), "ping");
+    assert.equal(assertKnownAction("list_host_services"), "list_host_services");
+    assert.equal(assertKnownAction("control_host_service"), "control_host_service");
+    assert.equal(assertKnownAction("install_host_service"), "install_host_service");
   });
 
   it("rejects unsafe plugin ids", () => {

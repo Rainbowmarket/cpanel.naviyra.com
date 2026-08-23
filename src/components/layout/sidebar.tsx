@@ -29,6 +29,7 @@ import {
   GitBranch,
   Activity,
   Clock,
+  Power,
 } from "lucide-react";
 import { BrandLogo } from "@/components/ui/brand-logo";
 import { cn } from "@/lib/utils";
@@ -84,6 +85,7 @@ const adminNavGroup = {
     { href: "/dashboard/servers", label: "Servers", icon: Server },
     { href: "/dashboard/backups", label: "Backups", icon: Archive },
     { href: "/dashboard/speed-test", label: "Speed Test", icon: Gauge },
+    { href: "/dashboard/services", label: "Services", icon: Power },
     { href: "/dashboard/service-tests", label: "Service tests", icon: HeartPulse },
     { href: "/dashboard/terminal", label: "Terminal", icon: Terminal },
   ],
