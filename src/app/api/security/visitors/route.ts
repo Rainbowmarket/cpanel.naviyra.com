@@ -34,7 +34,11 @@ export async function GET(request: Request) {
     const from = parseDateParam(params.get("from"), false);
     const to = parseDateParam(params.get("to"), true);
     const format = params.get("format");
-    const limit = format === "csv" ? 5000 : Number(params.get("limit") ?? 500);
+    const limitRaw = Number(params.get("limit") ?? 500);
+    const limit =
+      format === "csv"
+        ? 5000
+        : Math.min(5000, Math.max(1, Number.isFinite(limitRaw) ? limitRaw : 500));
 
     const visitors = await listVisitors(user.id, {
       domainId,

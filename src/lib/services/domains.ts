@@ -8,6 +8,7 @@ import { assertValidHostname } from "@/lib/hostname";
 import { deleteDnsZoneForDomain, syncDnsZone } from "@/lib/services/dns";
 import { phpEnabledForAppType, removeSiteAppUnit } from "@/lib/services/apps";
 import { ensurePanelSslSynced } from "@/lib/services/ssl";
+import { domainAccessWhere } from "@/lib/hosting-targets";
 import type { AppType, DomainStatus } from "@/generated/prisma/client";
 
 /**
@@ -99,7 +100,10 @@ export async function listDomains(
     console.error("ensurePanelSslSynced failed:", error);
   }
 
-  const where = opts?.role === "ADMIN" ? {} : { userId };
+  const where = domainAccessWhere(
+    { id: userId, role: opts?.role === "ADMIN" ? "ADMIN" : "USER" },
+    "domains"
+  );
 
   return prisma.domain.findMany({
     where,

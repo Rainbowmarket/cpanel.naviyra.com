@@ -8,17 +8,26 @@ import { ensureMailDnsRecords } from "@/lib/services/dns";
 import { issueSubdomainSslCertificate } from "@/lib/services/ssl";
 import { createSubdomain } from "@/lib/services/subdomains";
 import { cleanupMailbox, initializeMailbox } from "@/lib/services/webmail";
+import { domainAccessWhere } from "@/lib/hosting-targets";
 
-async function getMailAccount(accountId: string, userId: string) {
+async function getMailAccount(accountId: string, userId: string, role?: string) {
+  const access = domainAccessWhere(
+    { id: userId, role: role === "ADMIN" ? "ADMIN" : "USER" },
+    "mail"
+  );
   return prisma.mailAccount.findFirstOrThrow({
-    where: { id: accountId, mailDomain: { domain: { userId } } },
+    where: { id: accountId, mailDomain: { domain: access } },
     include: { mailDomain: { include: { domain: { include: { server: true } } } } },
   });
 }
 
-export async function ensureMailDomain(domainId: string, userId: string) {
+export async function ensureMailDomain(domainId: string, userId: string, role?: string) {
+  const access = domainAccessWhere(
+    { id: userId, role: role === "ADMIN" ? "ADMIN" : "USER" },
+    "mail"
+  );
   const domain = await prisma.domain.findFirstOrThrow({
-    where: { id: domainId, userId },
+    where: { id: domainId, ...access },
   });
 
   return prisma.mailDomain.upsert({
@@ -28,10 +37,18 @@ export async function ensureMailDomain(domainId: string, userId: string) {
   });
 }
 
-export async function listMailAccounts(userId: string, domainId?: string | null) {
+export async function listMailAccounts(
+  userId: string,
+  domainId?: string | null,
+  role?: string
+) {
+  const access = domainAccessWhere(
+    { id: userId, role: role === "ADMIN" ? "ADMIN" : "USER" },
+    "mail"
+  );
   if (domainId) {
     const mailDomain = await prisma.mailDomain.findFirst({
-      where: { domainId, domain: { userId } },
+      where: { domainId, domain: access },
       include: {
         accounts: { orderBy: { createdAt: "desc" } },
         aliases: true,
@@ -50,7 +67,7 @@ export async function listMailAccounts(userId: string, domainId?: string | null)
   }
 
   const accounts = await prisma.mailAccount.findMany({
-    where: { mailDomain: { domain: { userId } } },
+    where: { mailDomain: { domain: access } },
     orderBy: [{ email: "asc" }],
     include: {
       mailDomain: { include: { domain: { select: { id: true, name: true } } } },
@@ -77,11 +94,19 @@ export async function listMailAccounts(userId: string, domainId?: string | null)
 }
 
 /** DNS + mail subdomain + SSL for mail.{domain} (or MAIL_HOSTNAME label). */
-export async function ensureMailHostSetup(domainId: string, userId: string) {
+export async function ensureMailHostSetup(
+  domainId: string,
+  userId: string,
+  role?: string
+) {
   await ensureMailDnsRecords(domainId, userId);
 
+  const access = domainAccessWhere(
+    { id: userId, role: role === "ADMIN" ? "ADMIN" : "USER" },
+    "mail"
+  );
   const domain = await prisma.domain.findFirstOrThrow({
-    where: { id: domainId, userId },
+    where: { id: domainId, ...access },
     include: { server: true },
   });
 
@@ -143,12 +168,17 @@ export async function ensureMailHostSetup(domainId: string, userId: string) {
 export async function createMailAccount(input: {
   domainId: string;
   userId: string;
+  role?: string;
   localPart: string;
   password: string;
   quotaMb?: number;
 }) {
+  const access = domainAccessWhere(
+    { id: input.userId, role: input.role === "ADMIN" ? "ADMIN" : "USER" },
+    "mail"
+  );
   const domain = await prisma.domain.findFirstOrThrow({
-    where: { id: input.domainId, userId: input.userId },
+    where: { id: input.domainId, ...access },
     include: { server: true, mailDomain: true },
   });
 

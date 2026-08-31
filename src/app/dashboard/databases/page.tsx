@@ -1,8 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import { Copy, Database, KeyRound, Pencil, Table2, Trash2 } from "lucide-react";
+import { Copy, Database, ExternalLink, KeyRound, Pencil, Table2, Trash2 } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { Modal, modalInputClass, modalLabelClass } from "@/components/ui/modal";
 import { ModalActions, PageHeader } from "@/components/ui/page-header";
@@ -144,6 +143,95 @@ export default function DatabasesPage() {
   const [editingTable, setEditingTable] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [pmaDb, setPmaDb] = useState<PgDatabase | null>(null);
+  const [pmaPassword, setPmaPassword] = useState("");
+  const [pmaBusy, setPmaBusy] = useState(false);
+  const [pmaError, setPmaError] = useState("");
+  const [webAdminKind, setWebAdminKind] = useState<"phpmyadmin" | "phppgadmin">(
+    "phpmyadmin"
+  );
+
+  function isMysqlLike(engine?: string) {
+    const e = (engine || "").toLowerCase();
+    return e === "mysql" || e === "mariadb";
+  }
+
+  function isPostgresLike(engine?: string) {
+    const e = (engine || "postgres").toLowerCase();
+    return e === "postgres" || e === "postgresql" || e === "timescaledb";
+  }
+
+  function browseToolLabel(engine?: string) {
+    if (isMysqlLike(engine)) return "phpMyAdmin";
+    if (isPostgresLike(engine)) return "phpPgAdmin";
+    return "Browser";
+  }
+
+  async function openWebAdmin(
+    db: PgDatabase,
+    kind: "phpmyadmin" | "phppgadmin",
+    password?: string
+  ) {
+    const label = kind === "phpmyadmin" ? "phpMyAdmin" : "phpPgAdmin";
+    const path =
+      kind === "phpmyadmin"
+        ? `/api/databases/${encodeURIComponent(db.id)}/phpmyadmin`
+        : `/api/databases/${encodeURIComponent(db.id)}/phppgadmin`;
+    setWebAdminKind(kind);
+    setPmaBusy(true);
+    setPmaError("");
+    try {
+      const res = await fetch(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(password ? { password } : {}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 409 || data.needsPassword) {
+        setPmaDb(db);
+        setPmaPassword("");
+        setPmaError(
+          typeof data.error === "string" && data.error.includes("password")
+            ? data.error
+            : "Enter the database password (or Reset password if you forgot it)."
+        );
+        return;
+      }
+      if (!res.ok || typeof data.url !== "string") {
+        throw new Error(
+          typeof data.error === "string" ? data.error : `Could not open ${label}`
+        );
+      }
+      if (!String(data.url).includes("token=")) {
+        throw new Error(
+          "Browse link was missing a sign-in token. Try Browse again from Databases."
+        );
+      }
+      setPmaDb(null);
+      setPmaPassword("");
+      window.open(data.url, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : `Could not open ${label}`;
+      setPmaError(msg);
+      if (!pmaDb) {
+        await alert(msg, { title: label });
+      }
+    } finally {
+      setPmaBusy(false);
+    }
+  }
+
+  function openBrowse(db: PgDatabase) {
+    if (isMysqlLike(db.engine)) {
+      void openWebAdmin(db, "phpmyadmin");
+      return;
+    }
+    if (isPostgresLike(db.engine)) {
+      void openWebAdmin(db, "phppgadmin");
+      return;
+    }
+    window.open(`/db-browser/${db.id}`, "_blank", "noopener,noreferrer");
+  }
 
   const selectedTarget = targets.find((t) => t.id === target);
   const enginesForTarget = useMemo(() => {
@@ -532,11 +620,60 @@ export default function DatabasesPage() {
         <p className="font-medium text-white">Connection</p>
         <p className="mt-1 text-xs text-slate-400">
           Apps on this server connect to <span className="font-mono">127.0.0.1</span>.
-          Each database row shows its own engine, port, and URI. Use{" "}
-          <span className="text-slate-300">Browse</span> to open a native table view
-          (new tab).
+          Each database row shows its own engine, port, and URI.{" "}
+          <span className="text-slate-300">Browse</span> opens phpMyAdmin for MySQL/MariaDB,
+          phpPgAdmin for PostgreSQL, or the built-in browser for other engines (new tab).
         </p>
       </div>
+
+      <Modal
+        open={!!pmaDb}
+        onClose={() => {
+          if (pmaBusy) return;
+          setPmaDb(null);
+          setPmaPassword("");
+          setPmaError("");
+        }}
+        title={`${webAdminKind === "phpmyadmin" ? "phpMyAdmin" : "phpPgAdmin"} password`}
+        description={
+          pmaDb
+            ? `Enter the password for ${pmaDb.roleName} once. It is stored encrypted for future Browse opens.`
+            : undefined
+        }
+      >
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!pmaDb) return;
+            void openWebAdmin(pmaDb, webAdminKind, pmaPassword);
+          }}
+        >
+          <div>
+            <label className={modalLabelClass}>Database password</label>
+            <input
+              type="password"
+              value={pmaPassword}
+              onChange={(e) => setPmaPassword(e.target.value)}
+              className={modalInputClass}
+              autoFocus
+              required
+              minLength={8}
+            />
+          </div>
+          {pmaError ? <p className="text-sm text-red-400">{pmaError}</p> : null}
+          <ModalActions
+            submitLabel={`Open ${webAdminKind === "phpmyadmin" ? "phpMyAdmin" : "phpPgAdmin"}`}
+            submitting={pmaBusy}
+            submitDisabled={pmaPassword.length < 8}
+            onCancel={() => {
+              setPmaDb(null);
+              setPmaPassword("");
+              setPmaError("");
+            }}
+          />
+        </form>
+      </Modal>
 
       <Modal
         open={createOpen}
@@ -1312,14 +1449,22 @@ export default function DatabasesPage() {
                 </p>
               </div>
                 <div className="flex flex-wrap gap-2">
-                  <Link
-                    href={`/db-browser/${db.id}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <button
+                    type="button"
+                    onClick={() => openBrowse(db)}
                     className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
+                    title={`Open ${browseToolLabel(db.engine)}`}
                   >
+                    {isMysqlLike(db.engine) || isPostgresLike(db.engine) ? (
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    ) : null}
                     Browse
-                  </Link>
+                    {isMysqlLike(db.engine) || isPostgresLike(db.engine) ? (
+                      <span className="text-[10px] text-slate-500">
+                        {browseToolLabel(db.engine)}
+                      </span>
+                    ) : null}
+                  </button>
                 <button
                   type="button"
                   onClick={() => copyText(db.connection.uri)}

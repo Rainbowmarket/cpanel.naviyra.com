@@ -30,6 +30,7 @@ import {
   Activity,
   Clock,
   Power,
+  Share2,
 } from "lucide-react";
 import { BrandLogo } from "@/components/ui/brand-logo";
 import { cn } from "@/lib/utils";
@@ -81,6 +82,7 @@ const adminNavGroup = {
   items: [
     { href: "/dashboard/users", label: "Users", icon: Users },
     { href: "/dashboard/groups", label: "Groups", icon: UsersRound },
+    { href: "/dashboard/domain-access", label: "Domain Access", icon: Share2 },
     { href: "/dashboard/settings", label: "Settings", icon: Settings2 },
     { href: "/dashboard/servers", label: "Servers", icon: Server },
     { href: "/dashboard/backups", label: "Backups", icon: Archive },

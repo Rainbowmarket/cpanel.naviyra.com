@@ -23,10 +23,14 @@ export async function GET() {
       listInstalledDbEngines(user.id, user.role),
     ]);
     return NextResponse.json({
-      databases: databases.map(({ passwordHash: _, ...db }) => ({
-        ...db,
-        connection: connectionForList(db),
-      })),
+      databases: databases.map((row) => {
+        const { passwordHash: _h, passwordEnc, ...db } = row;
+        return {
+          ...db,
+          connection: connectionForList(db),
+          hasPasswordEnc: Boolean(passwordEnc),
+        };
+      }),
       engines,
       connectionDefaults: postgresConnectionInfo(),
     });

@@ -25,6 +25,7 @@ export const PANEL_PERMISSION_KEYS = PANEL_PERMISSION_CATALOG.map((item) => item
 const ADMIN_PATH_PREFIXES = [
   "/dashboard/users",
   "/dashboard/groups",
+  "/dashboard/domain-access",
   "/dashboard/settings",
   "/dashboard/backups",
   "/dashboard/servers",

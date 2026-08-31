@@ -51,11 +51,13 @@ export async function POST(request: Request) {
       ? await issueSubdomainSslCertificate({
           subdomainId: body.subdomainId,
           userId: user.id,
+          role: user.role,
           autoRenew: body.autoRenew,
         })
       : await issueSslCertificate({
           domainId: body.domainId!,
           userId: user.id,
+          role: user.role,
           includeWww: body.includeWww,
           autoRenew: body.autoRenew,
         });
@@ -79,7 +81,7 @@ export async function PATCH(request: Request) {
     if (!id) {
       return NextResponse.json({ error: "Missing id" }, { status: 400 });
     }
-    const certificate = await renewSslCertificate(id, user.id);
+    const certificate = await renewSslCertificate(id, user.id, user.role);
     return NextResponse.json({ certificate });
   } catch (error) {
     const message =

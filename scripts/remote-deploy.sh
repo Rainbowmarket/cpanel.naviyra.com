@@ -348,6 +348,33 @@ echo "== expire auto-blocks timer =="
 chmod +x scripts/install-expire-auto-blocks.sh scripts/expire-auto-blocks.sh
 ./scripts/install-expire-auto-blocks.sh "$PANEL"
 
+echo "== visitor ingest (Security live visitors) =="
+chmod +x scripts/install-visitor-ingest.sh scripts/visitor-ingest.sh scripts/enable-visitor-ingest.sh 2>/dev/null || true
+./scripts/install-visitor-ingest.sh "$PANEL" || echo "install-visitor-ingest=warn"
+systemctl enable --now naviyra-visitor-ingest.timer 2>/dev/null || true
+systemctl start naviyra-visitor-ingest.service 2>/dev/null || true
+
+echo "== phpMyAdmin (MySQL Browse SSO) =="
+chmod +x scripts/install-phpmyadmin.sh 2>/dev/null || true
+# Idempotent: only needed when MySQL/MariaDB is used; safe to run always if PHP available.
+if command -v php >/dev/null 2>&1 || [ -S /run/php/php8.3-fpm.sock ] || [ -S /run/php/php8.2-fpm.sock ]; then
+  ./scripts/install-phpmyadmin.sh || echo "install-phpmyadmin=warn"
+elif [ -d "$PANEL/phpmyadmin" ]; then
+  ./scripts/install-phpmyadmin.sh || echo "install-phpmyadmin=warn"
+else
+  echo "install-phpmyadmin=skip (PHP-FPM not installed yet; install MySQL plugin or run scripts/install-phpmyadmin.sh)"
+fi
+
+echo "== phpPgAdmin (PostgreSQL Browse SSO) =="
+chmod +x scripts/install-phppgadmin.sh 2>/dev/null || true
+if command -v php >/dev/null 2>&1 || [ -S /run/php/php8.3-fpm.sock ] || [ -S /run/php/php8.2-fpm.sock ]; then
+  ./scripts/install-phppgadmin.sh || echo "install-phppgadmin=warn"
+elif [ -d "$PANEL/phppgadmin" ]; then
+  ./scripts/install-phppgadmin.sh || echo "install-phppgadmin=warn"
+else
+  echo "install-phppgadmin=skip (PHP-FPM not installed yet; run scripts/install-phppgadmin.sh after PHP)"
+fi
+
 echo "== mail.* webmail proxies =="
 chmod +x scripts/refresh-mail-proxies.sh scripts/provision-panel-mail.sh
 ./scripts/refresh-mail-proxies.sh "$PANEL" || true

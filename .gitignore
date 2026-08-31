@@ -26,6 +26,8 @@
 .DS_Store
 *.pem
 /data/
+/phpmyadmin/
+/phppgadmin/
 /sites/
 *.db
 *.db-journal

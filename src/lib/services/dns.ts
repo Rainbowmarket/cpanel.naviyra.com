@@ -10,6 +10,7 @@ import {
   type DnsRecordInput,
 } from "@/lib/dns/zone";
 import { assertSafeDnsRecord } from "@/lib/dns/validate";
+import { domainAccessWhere } from "@/lib/hosting-targets";
 
 const RECORD_TYPES = ["A", "AAAA", "CNAME", "MX", "TXT"] as const;
 export type DnsRecordType = (typeof RECORD_TYPES)[number];
@@ -23,7 +24,12 @@ function serialFromDate(): number {
 
 async function loadDomainWithZone(domainId: string, userId?: string) {
   return prisma.domain.findFirstOrThrow({
-    where: { id: domainId, ...(userId ? { userId } : {}) },
+    where: {
+      id: domainId,
+      ...(userId
+        ? domainAccessWhere({ id: userId, role: "USER" }, "dns")
+        : {}),
+    },
     include: {
       server: true,
       subdomains: true,
@@ -168,8 +174,12 @@ export async function listDnsZones(
   userId: string,
   role?: "ADMIN" | "USER"
 ) {
+  const access = domainAccessWhere(
+    { id: userId, role: role === "ADMIN" ? "ADMIN" : "USER" },
+    "dns"
+  );
   return prisma.dnsZone.findMany({
-    where: role === "ADMIN" ? {} : { domain: { userId } },
+    where: { domain: access },
     include: {
       domain: {
         select: { id: true, name: true, status: true, server: { select: { ipAddress: true } } },
@@ -185,8 +195,12 @@ export async function ensureDnsZonesForAccessibleDomains(
   userId: string,
   role?: "ADMIN" | "USER"
 ) {
+  const access = domainAccessWhere(
+    { id: userId, role: role === "ADMIN" ? "ADMIN" : "USER" },
+    "dns"
+  );
   const domains = await prisma.domain.findMany({
-    where: role === "ADMIN" ? {} : { userId },
+    where: access,
     select: { id: true, dnsZone: { select: { id: true } } },
   });
 
@@ -379,7 +393,12 @@ export async function updateDnsRecord(
   }
 
   const record = await prisma.dnsRecord.findFirstOrThrow({
-    where: { id: recordId, zone: { domain: { userId } } },
+    where: {
+      id: recordId,
+      zone: {
+        domain: domainAccessWhere({ id: userId, role: "USER" }, "dns"),
+      },
+    },
     include: { zone: { include: { domain: true } } },
   });
 
@@ -420,7 +439,12 @@ export async function updateDnsRecord(
 
 export async function deleteDnsRecord(recordId: string, userId: string) {
   const record = await prisma.dnsRecord.findFirstOrThrow({
-    where: { id: recordId, zone: { domain: { userId } } },
+    where: {
+      id: recordId,
+      zone: {
+        domain: domainAccessWhere({ id: userId, role: "USER" }, "dns"),
+      },
+    },
     include: { zone: { include: { domain: true } } },
   });
 
@@ -459,7 +483,10 @@ export async function deleteDnsZoneForDomain(domainName: string, serverId: strin
 
 export async function retryDnsZone(domainId: string, userId: string) {
   const domain = await prisma.domain.findFirstOrThrow({
-    where: { id: domainId, userId },
+    where: {
+      id: domainId,
+      ...domainAccessWhere({ id: userId, role: "USER" }, "dns"),
+    },
   });
   return syncDnsZone(domain.id, userId);
 }

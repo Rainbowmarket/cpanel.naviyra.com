@@ -11,13 +11,40 @@ import {
   parseUserAgent,
   type ThreatFinding,
 } from "@/lib/security/threat-detector";
+import { migrateLegacyVisitorLogsIfNeeded } from "@/lib/visitors/migrate-legacy";
+import {
+  clampVisitorFromDate,
+  countUniqueVisitorIps,
+  countVisitorLogs,
+  insertVisitorLog,
+  listVisitorLogs,
+  retentionCutoffMonth,
+  visitorArchiveSummary,
+  type VisitorListRow,
+} from "@/lib/visitors/store";
+import { domainAccessWhere } from "@/lib/hosting-targets";
 import type { ThreatSeverity, ThreatType } from "@/generated/prisma/client";
 
 type AccessRole = "ADMIN" | "USER";
 
-/** Admins can see all domains; others only their own. */
+/** Admins see all; owners and DomainAccess grantees with security see matching domains. */
 function domainOwnerFilter(userId: string, role?: AccessRole) {
-  return role === "ADMIN" ? {} : { userId };
+  return domainAccessWhere(
+    { id: userId, role: role === "ADMIN" ? "ADMIN" : "USER" },
+    "security"
+  );
+}
+
+function visitorStoreFilter(userId: string, role?: AccessRole, domainId?: string) {
+  return {
+    admin: role === "ADMIN",
+    userId: role === "ADMIN" ? undefined : userId,
+    domainId,
+  };
+}
+
+async function ensureVisitorStoreReady() {
+  await migrateLegacyVisitorLogsIfNeeded();
 }
 
 const LIVE_TTL_MS = 5 * 60 * 1000;
@@ -87,38 +114,44 @@ export async function getSecurityOverview(
   role?: AccessRole
 ) {
   await expireAutoBlocks();
+  await ensureVisitorStoreReady();
   const owner = domainOwnerFilter(userId, role);
-  const domainFilter = domainId
-    ? { domainId, domain: owner }
-    : { domain: owner };
+  const visitorFilter = visitorStoreFilter(userId, role, domainId);
   const since = new Date();
   since.setHours(0, 0, 0, 0);
 
-  const [visitorsToday, uniqueToday, threatsToday, blockedIps, liveNow, domains] = await Promise.all([
-    prisma.visitorLog.count({ where: { ...domainFilter, visitedAt: { gte: since } } }),
-    prisma.visitorLog.groupBy({
-      by: ["ipAddress"],
-      where: { ...domainFilter, visitedAt: { gte: since } },
-    }).then((r) => r.length),
-    prisma.securityEvent.count({
-      where: {
-        detectedAt: { gte: since },
-        ...(domainId ? { domainId, domain: owner } : { domain: owner }),
-      },
-    }),
-    prisma.blockedIp.count({ where: { isActive: true } }),
-    prisma.liveVisitor.count({
-      where: {
-        lastSeen: { gte: new Date(Date.now() - LIVE_TTL_MS) },
-        ...(domainId ? { domainId, domain: owner } : { domain: owner }),
-      },
-    }),
-    prisma.domain.count({
-      where: { status: "ACTIVE", ...owner },
-    }),
-  ]);
+  const [visitorsToday, uniqueToday, threatsToday, blockedIps, liveNow, domains, visitorArchive] =
+    await Promise.all([
+      Promise.resolve(countVisitorLogs(visitorFilter, since)),
+      Promise.resolve(countUniqueVisitorIps(visitorFilter, since)),
+      prisma.securityEvent.count({
+        where: {
+          detectedAt: { gte: since },
+          ...(domainId ? { domainId, domain: owner } : { domain: owner }),
+        },
+      }),
+      prisma.blockedIp.count({ where: { isActive: true } }),
+      prisma.liveVisitor.count({
+        where: {
+          lastSeen: { gte: new Date(Date.now() - LIVE_TTL_MS) },
+          ...(domainId ? { domainId, domain: owner } : { domain: owner }),
+        },
+      }),
+      prisma.domain.count({
+        where: { status: "ACTIVE", ...owner },
+      }),
+      Promise.resolve(visitorArchiveSummary()),
+    ]);
 
-  return { visitorsToday, uniqueToday, threatsToday, blockedIps, liveNow, domains };
+  return {
+    visitorsToday,
+    uniqueToday,
+    threatsToday,
+    blockedIps,
+    liveNow,
+    domains,
+    visitorArchive,
+  };
 }
 
 export function getVisitorIngestStatus() {
@@ -134,18 +167,32 @@ export function getVisitorIngestStatus() {
   const timer = spawnSync("systemctl", ["is-active", "naviyra-visitor-ingest.timer"], {
     encoding: "utf8",
   });
+  const oneshot = spawnSync(
+    "systemctl",
+    ["show", "naviyra-visitor-ingest.service", "-p", "Result", "-p", "ExecMainStatus", "--value"],
+    { encoding: "utf8" }
+  );
   const visitorLogExists = fs.existsSync(log);
   const visitorLogBytes = visitorLogExists ? fs.statSync(log).size : 0;
   const timerState = (timer.stdout || "").trim() || "inactive";
+  const oneshotOut = (oneshot.stdout || "").trim().split(/\r?\n/).filter(Boolean);
+  const oneshotResult = oneshotOut[0] || "";
+  const oneshotStatus = oneshotOut[1] || "";
   let hint = "Visitor ingest is running. New site hits appear within about a minute.";
   if (timerState !== "active") {
     hint =
       "Ingest timer is not active. Start it from Admin → Services, or the Start ingest button on this page.";
+  } else if (oneshotResult === "exit-code" || oneshotStatus === "203") {
+    hint =
+      "Ingest timer is on but the worker failed to start (systemd 203/EXEC). Re-run: sudo bash scripts/install-visitor-ingest.sh";
   } else if (!visitorLogExists) {
     hint = "nginx visitor log is missing. Reload nginx after enabling ingest.";
   } else if (visitorLogBytes === 0) {
     hint =
       "Ingest is on, but nginx has not logged a site hit yet. Open a hosted domain (not only this panel page).";
+  } else {
+    hint =
+      "Visitor ingest is running. Open a customer site (not only hpanel) — panel /api traffic is ignored. New hits appear within about a minute.";
   }
   return { timer: timerState, visitorLogExists, visitorLogBytes, hint };
 }
@@ -179,34 +226,18 @@ export async function listVisitors(
     to?: Date;
     role?: AccessRole;
   }
-) {
+): Promise<VisitorListRow[]> {
+  await ensureVisitorStoreReady();
   const limit = Math.min(opts.limit ?? 100, 5000);
-  const owner = domainOwnerFilter(userId, opts.role);
-  return prisma.visitorLog.findMany({
-    where: {
-      domain: owner,
-      ...(opts.domainId ? { domainId: opts.domainId } : {}),
-      ...(opts.from || opts.to
-        ? {
-            visitedAt: {
-              ...(opts.from ? { gte: opts.from } : {}),
-              ...(opts.to ? { lte: opts.to } : {}),
-            },
-          }
-        : {}),
-      ...(opts.search
-        ? {
-            OR: [
-              { ipAddress: { contains: opts.search } },
-              { url: { contains: opts.search } },
-              { browser: { contains: opts.search } },
-            ],
-          }
-        : {}),
-    },
-    include: { domain: { select: { name: true } } },
-    orderBy: { visitedAt: "desc" },
-    take: limit,
+  const from =
+    clampVisitorFromDate(opts.from) ??
+    new Date(`${retentionCutoffMonth()}-01T00:00:00.000Z`);
+  return listVisitorLogs({
+    ...visitorStoreFilter(userId, opts.role, opts.domainId),
+    search: opts.search,
+    limit,
+    from,
+    to: opts.to,
   });
 }
 
@@ -272,21 +303,23 @@ export async function logVisit(input: {
   const findings = analyzeThreats(input.url, input.userAgent);
   const isBot = findings.some((f) => f.type === "BOT");
 
-  const visitor = await prisma.visitorLog.create({
-    data: {
-      domainId: domain.id,
-      ipAddress: input.ipAddress,
-      url: input.url,
-      method: input.method ?? "GET",
-      userAgent: input.userAgent,
-      browser: parsed.browser,
-      os: parsed.os,
-      countryCode: geo.countryCode,
-      countryName: geo.countryName,
-      referrer: input.referrer,
-      statusCode: input.statusCode ?? 200,
-      isBot,
-    },
+  await ensureVisitorStoreReady();
+  const visitorId = insertVisitorLog({
+    domainId: domain.id,
+    domainName: domain.name,
+    userId: domain.userId,
+    ipAddress: input.ipAddress,
+    url: input.url,
+    method: input.method ?? "GET",
+    userAgent: input.userAgent ?? null,
+    browser: parsed.browser,
+    os: parsed.os,
+    countryCode: geo.countryCode,
+    countryName: geo.countryName,
+    referrer: input.referrer ?? null,
+    statusCode: input.statusCode ?? 200,
+    isBot,
+    visitedAt: new Date(),
   });
 
   await prisma.liveVisitor.upsert({
@@ -330,7 +363,7 @@ export async function logVisit(input: {
     }
   }
 
-  return { visitorId: visitor.id, threats: findings.length, blocked: autoBlocked };
+  return { visitorId, threats: findings.length, blocked: autoBlocked };
 }
 
 async function maybeAutoBlock(

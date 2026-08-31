@@ -8,6 +8,10 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { buildPhpDenyBlock, buildPhpLocationBlock, resolvePhpFpmPass } from "./php-fpm";
 import { sanitizeHostnameForPath } from "./hostname";
+import {
+  assertLetsEncryptWillIssue,
+  rewriteLetsEncryptCertbotError,
+} from "./letsencrypt-policy";
 import { PROJECT_ROOT } from "./paths";
 import { installPackages, whichBin } from "./pkg-install";
 import { applyMailDaemonTls } from "./mail";
@@ -832,6 +836,9 @@ export async function issueLetsEncrypt(
 ): Promise<{ issuedAt: string; expiresAt: string; certDir: string }> {
   const safeDomain = sanitizeHostnameForPath(domain);
   const hosts = expandSslHosts(safeDomain, extraLabels);
+  for (const host of hosts) {
+    assertLetsEncryptWillIssue(host);
+  }
   const certDir = `/etc/letsencrypt/live/${safeDomain}`;
   const siteName = safeDomain;
   const vhostOpts = await resolveVhostOptions(phpEnabled, extras);
@@ -913,7 +920,7 @@ export async function issueLetsEncrypt(
         "certbot is not installed. On the server run: apt-get install -y certbot"
       );
     }
-    throw error;
+    throw rewriteLetsEncryptCertbotError(safeDomain, error);
   }
 
   if (!panelHost) {

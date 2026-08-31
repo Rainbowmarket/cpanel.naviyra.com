@@ -38,7 +38,8 @@ function toDateInputValue(d: Date): string {
 function resolveVisitorRange(
   preset: DatePreset,
   customFrom: string,
-  customTo: string
+  customTo: string,
+  retentionMonths = 6
 ): { from?: string; to?: string; label: string } {
   const now = new Date();
   if (preset === "today") {
@@ -65,7 +66,13 @@ function resolveVisitorRange(
               : "Custom range",
     };
   }
-  return { label: "All time" };
+  const start = new Date(now);
+  start.setMonth(start.getMonth() - retentionMonths);
+  return {
+    from: toDateInputValue(start),
+    to: toDateInputValue(now),
+    label: `Last ${retentionMonths} months`,
+  };
 }
 
 type Domain = { id: string; name: string };
@@ -76,6 +83,12 @@ type Stats = {
   threatsToday: number;
   blockedIps: number;
   domains: number;
+  visitorArchive?: {
+    retentionMonths: number;
+    months: string[];
+    oldest: string | null;
+    newest: string | null;
+  };
 };
 type IngestStatus = {
   timer: string;
@@ -237,6 +250,8 @@ function SecurityPageInner() {
   const [groupByDomain, setGroupByDomain] = useState(true);
   const [collapsedDomains, setCollapsedDomains] = useState<Record<string, boolean>>({});
   const [exporting, setExporting] = useState(false);
+  const [visitorLimit, setVisitorLimit] = useState(500);
+  const [loadingMoreVisitors, setLoadingMoreVisitors] = useState(false);
   const [blockIp, setBlockIp] = useState("");
   const [blockReason, setBlockReason] = useState("Manual block");
   const [whiteIp, setWhiteIp] = useState("");
@@ -246,9 +261,11 @@ function SecurityPageInner() {
 
   const domainQuery = domainId ? `?domainId=${domainId}` : "";
 
+  const retentionMonths = stats?.visitorArchive?.retentionMonths ?? 6;
+
   const visitorRange = useMemo(
-    () => resolveVisitorRange(datePreset, customFrom, customTo),
-    [datePreset, customFrom, customTo]
+    () => resolveVisitorRange(datePreset, customFrom, customTo, retentionMonths),
+    [datePreset, customFrom, customTo, retentionMonths]
   );
 
   const buildVisitorQuery = useCallback(
@@ -258,12 +275,13 @@ function SecurityPageInner() {
       if (search) q.set("search", search);
       if (visitorRange.from) q.set("from", visitorRange.from);
       if (visitorRange.to) q.set("to", visitorRange.to);
+      q.set("limit", String(visitorLimit));
       if (extra) {
         for (const [k, v] of Object.entries(extra)) q.set(k, v);
       }
       return q;
     },
-    [domainId, search, visitorRange.from, visitorRange.to]
+    [domainId, search, visitorRange.from, visitorRange.to, visitorLimit]
   );
 
   const loadOverview = useCallback(async () => {
@@ -307,11 +325,25 @@ function SecurityPageInner() {
     setVisitors(data.visitors ?? []);
   }, [buildVisitorQuery]);
 
+  async function loadMoreVisitors() {
+    if (visitorLimit >= 5000 || loadingMoreVisitors) return;
+    const next = Math.min(5000, visitorLimit + 500);
+    setLoadingMoreVisitors(true);
+    try {
+      const q = buildVisitorQuery({ limit: String(next) });
+      const data = await fetch(`/api/security/visitors?${q}`).then((r) => r.json());
+      setVisitors(data.visitors ?? []);
+      setVisitorLimit(next);
+    } finally {
+      setLoadingMoreVisitors(false);
+    }
+  }
+
   async function exportVisitorsCsv() {
     setExporting(true);
     try {
       const res = await fetch(
-        `/api/security/visitors?${buildVisitorQuery({ format: "csv" })}`
+        `/api/security/visitors?${buildVisitorQuery({ format: "csv", limit: "5000" })}`
       );
       if (!res.ok) throw new Error("Export failed");
       const blob = await res.blob();
@@ -356,6 +388,10 @@ function SecurityPageInner() {
         setIsAdmin(d.role === "ADMIN");
       });
   }, []);
+
+  useEffect(() => {
+    setVisitorLimit(500);
+  }, [domainId, search, datePreset, customFrom, customTo]);
 
   useEffect(() => {
     if (tab === "overview") loadOverview();
@@ -664,7 +700,7 @@ function SecurityPageInner() {
                   ["today", "Today"],
                   ["yesterday", "Yesterday"],
                   ["custom", "Custom"],
-                  ["all", "All time"],
+                  ["all", `Last ${retentionMonths} months`],
                 ] as const
               ).map(([id, label]) => (
                 <Chip
@@ -761,6 +797,15 @@ function SecurityPageInner() {
                   {visitors.length} loaded
                 </>
               ) : null}
+              {stats?.visitorArchive ? (
+                <>
+                  <span className="mx-1.5 text-slate-700">·</span>
+                  stored {stats.visitorArchive.retentionMonths} months
+                  {stats.visitorArchive.oldest && stats.visitorArchive.newest
+                    ? ` (${stats.visitorArchive.oldest} → ${stats.visitorArchive.newest})`
+                    : ""}
+                </>
+              ) : null}
             </p>
             {groupByDomain && visitorsByDomain.length > 1 ? (
               <div className="flex gap-2">
@@ -852,6 +897,25 @@ function SecurityPageInner() {
               <tbody>{renderVisitorRows(filteredVisitors)}</tbody>
             </TableShell>
           )}
+
+          {visitors.length >= visitorLimit && visitorLimit < 5000 ? (
+            <div className="flex justify-center pt-1">
+              <button
+                type="button"
+                onClick={() => void loadMoreVisitors()}
+                disabled={loadingMoreVisitors}
+                className="rounded-lg border border-slate-700 px-4 py-2 text-xs text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+              >
+                {loadingMoreVisitors
+                  ? "Loading…"
+                  : `Load more (${visitorLimit} → ${Math.min(5000, visitorLimit + 500)})`}
+              </button>
+            </div>
+          ) : visitors.length >= 5000 ? (
+            <p className="text-center text-xs text-slate-500">
+              Showing the newest 5,000 rows. Use CSV for a bulk export of this range.
+            </p>
+          ) : null}
         </div>
       )}
 

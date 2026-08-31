@@ -113,6 +113,7 @@ model User {
   updatedAt             DateTime @updatedAt
 
   domains          Domain[]
+  domainAccesses   DomainAccess[]
   jobs             Job[]
   terminalSessions TerminalSession[]
   passwordResets   PasswordResetToken[]
@@ -151,6 +152,32 @@ model PanelGroupMember {
 
   @@unique([groupId, userId])
   @@index([userId])
+}
+
+/** Admin grant: map an existing domain to a user with granular feature keys (does not change Domain.userId). */
+model DomainAccess {
+  id        String   @id @default(cuid())
+  domainId  String
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  domain      Domain                   @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  user        User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permissions DomainAccessPermission[]
+
+  @@unique([domainId, userId])
+  @@index([userId])
+}
+
+model DomainAccessPermission {
+  id       String @id @default(cuid())
+  accessId String
+  key      String
+  access   DomainAccess @relation(fields: [accessId], references: [id], onDelete: Cascade)
+
+  @@unique([accessId, key])
+  @@index([key])
 }
 
 model BackupCode {
@@ -231,6 +258,7 @@ model Domain {
   liveVisitors LiveVisitor[]
   securityEvents SecurityEvent[]
   migrations DomainMigration[]
+  accessGrants DomainAccess[]
 }
 
 model Subdomain {
@@ -314,6 +342,8 @@ model PostgresDatabase {
   dbName       String
   roleName     String
   passwordHash String
+  /** AES-GCM encrypted password for phpMyAdmin / SSO (optional for legacy rows). */
+  passwordEnc  String?
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt

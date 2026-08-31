@@ -2,6 +2,8 @@ import { prisma } from "@/lib/prisma";
 import { callAgent } from "@/lib/agent/client";
 import { agentTargetForServerId } from "@/lib/agent/target";
 import { isPanelHostname, isReservedPanelSubdomain } from "@/lib/panel-host";
+import { domainAccessWhere } from "@/lib/hosting-targets";
+import { assertLetsEncryptWillIssue } from "@/lib/letsencrypt-policy";
 import type { SslStatus } from "@/generated/prisma/client";
 
 function getCertificateHostname(cert: {
@@ -177,7 +179,12 @@ export async function listSslCertificates(userId: string, role?: string) {
   await ensurePanelSslSynced(userId);
 
   const certificates = await prisma.sslCertificate.findMany({
-    where: role === "ADMIN" ? undefined : { domain: { userId } },
+    where: {
+      domain: domainAccessWhere(
+        { id: userId, role: role === "ADMIN" ? "ADMIN" : "USER" },
+        "ssl"
+      ),
+    },
     include: {
       domain: { select: { name: true, id: true } },
       subdomain: { select: { name: true, id: true } },
@@ -220,13 +227,26 @@ async function finalizeSslCertificate(
 export async function issueSslCertificate(input: {
   domainId: string;
   userId: string;
+  role?: "ADMIN" | "USER";
   includeWww?: boolean;
   autoRenew?: boolean;
 }) {
-  const domain = await prisma.domain.findFirstOrThrow({
-    where: { id: input.domainId, userId: input.userId },
+  const domain = await prisma.domain.findFirst({
+    where: {
+      id: input.domainId,
+      ...domainAccessWhere(
+        {
+          id: input.userId,
+          role: input.role === "ADMIN" ? "ADMIN" : "USER",
+        },
+        "ssl"
+      ),
+    },
     include: { server: true },
   });
+  if (!domain) {
+    throw new Error("Domain not found (or you do not own it)");
+  }
 
   if (isPanelHostname(domain.name)) {
     // Panel apex SSL: renew/sync cert only — never rewrite the panel nginx vhost.
@@ -238,7 +258,9 @@ export async function issueSslCertificate(input: {
     });
   }
 
-  await dedupeSslCertificates(input.userId);
+  await dedupeSslCertificates(
+    input.role === "ADMIN" ? undefined : input.userId
+  );
 
   const existing = await prisma.sslCertificate.findFirst({
     where: { domainId: domain.id, subdomainId: null },
@@ -284,21 +306,40 @@ export async function issueSslCertificate(input: {
 export async function issueSubdomainSslCertificate(input: {
   subdomainId: string;
   userId: string;
+  role?: "ADMIN" | "USER";
   autoRenew?: boolean;
 }) {
-  const subdomain = await prisma.subdomain.findFirstOrThrow({
-    where: { id: input.subdomainId, domain: { userId: input.userId } },
+  const subdomain = await prisma.subdomain.findFirst({
+    where: {
+      id: input.subdomainId,
+      domain: domainAccessWhere(
+        {
+          id: input.userId,
+          role: input.role === "ADMIN" ? "ADMIN" : "USER",
+        },
+        "ssl"
+      ),
+    },
     include: { domain: { include: { server: true } } },
   });
+  if (!subdomain) {
+    throw new Error(
+      "Subdomain not found. Refresh the SSL page and pick the host again."
+    );
+  }
 
-  await dedupeSslCertificates(input.userId);
+  const hostname = `${subdomain.name}.${subdomain.domain.name}`;
+  assertLetsEncryptWillIssue(hostname);
+
+  await dedupeSslCertificates(
+    input.role === "ADMIN" ? undefined : input.userId
+  );
 
   const existing = await prisma.sslCertificate.findFirst({
     where: { subdomainId: subdomain.id },
     orderBy: { createdAt: "desc" },
   });
 
-  const hostname = `${subdomain.name}.${subdomain.domain.name}`;
   const target = await agentTargetForServerId(subdomain.domain.serverId);
 
   const cert = existing
@@ -335,14 +376,27 @@ export async function issueSubdomainSslCertificate(input: {
   return finalizeSslCertificate(cert.id, agentResult);
 }
 
-export async function renewSslCertificate(certId: string, userId: string) {
-  const cert = await prisma.sslCertificate.findFirstOrThrow({
-    where: { id: certId, domain: { userId } },
+export async function renewSslCertificate(
+  certId: string,
+  userId: string,
+  role?: "ADMIN" | "USER"
+) {
+  const cert = await prisma.sslCertificate.findFirst({
+    where: {
+      id: certId,
+      domain: domainAccessWhere(
+        { id: userId, role: role === "ADMIN" ? "ADMIN" : "USER" },
+        "ssl"
+      ),
+    },
     include: {
       domain: { include: { server: true } },
       subdomain: true,
     },
   });
+  if (!cert) {
+    throw new Error("Certificate not found");
+  }
 
   if (!cert.subdomain && isPanelHostname(cert.domain.name)) {
     return syncOrIssuePanelSsl({
@@ -373,24 +427,7 @@ export async function renewSslCertificate(certId: string, userId: string) {
     await agentTargetForServerId(cert.domain.serverId)
   );
 
-  const status: SslStatus = agentResult.success ? "ACTIVE" : "FAILED";
-  const data = agentResult.data as
-    | { issuedAt?: string; expiresAt?: string }
-    | undefined;
-
-  return prisma.sslCertificate.update({
-    where: { id: cert.id },
-    data: {
-      status,
-      issuedAt: data?.issuedAt ? new Date(data.issuedAt) : cert.issuedAt,
-      expiresAt: data?.expiresAt ? new Date(data.expiresAt) : cert.expiresAt,
-      lastError: agentResult.success ? null : agentResult.error,
-    },
-    include: {
-      domain: { select: { name: true, id: true } },
-      subdomain: { select: { name: true, id: true } },
-    },
-  });
+  return finalizeSslCertificate(cert.id, agentResult);
 }
 
 export function getSslHostname(cert: {

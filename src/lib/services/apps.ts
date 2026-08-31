@@ -36,7 +36,7 @@ function asActor(user: Actor): AccessActor {
 }
 
 async function loadSite(kind: SiteKind, id: string, user: Actor) {
-  const access = domainAccessWhere(user);
+  const access = domainAccessWhere(user, "apps");
   if (kind === "domain") {
     const domain = await prisma.domain.findFirstOrThrow({
       where: { id, ...access },
@@ -98,7 +98,7 @@ async function persistSite(
 }
 
 export async function listSiteApps(user: Actor) {
-  const access = domainAccessWhere(asActor(user));
+  const access = domainAccessWhere(asActor(user), "apps");
   const domains = await prisma.domain.findMany({
     where: access,
     orderBy: { name: "asc" },

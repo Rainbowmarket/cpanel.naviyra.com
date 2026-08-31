@@ -7,6 +7,9 @@ Wants=naviyra-panel.service
 Type=oneshot
 User=root
 Environment=NAVIYRA_ROOT=/opt/naviyra-panel
+# Prefer nvm Node (panel needs >=20); fall back to PATH.
+Environment=PATH=/root/.nvm/versions/node/v24.19.0/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 WorkingDirectory=/opt/naviyra-panel
-ExecStart=/opt/naviyra-panel/scripts/visitor-ingest.sh
+# Invoke via bash so Windows CRLF shebangs cannot cause systemd 203/EXEC.
+ExecStart=/bin/bash /opt/naviyra-panel/scripts/visitor-ingest.sh
 Nice=10

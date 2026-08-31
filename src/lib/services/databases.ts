@@ -2,7 +2,8 @@ import { prisma } from "@/lib/prisma";
 import { callAgent } from "@/lib/agent/client";
 import { agentTargetForServerId } from "@/lib/agent/target";
 import { hashPassword } from "@/lib/auth";
-import { resolveHostingTarget } from "@/lib/hosting-targets";
+import { domainAccessWhere, resolveHostingTarget } from "@/lib/hosting-targets";
+import { encryptSecret } from "@/lib/secrets";
 
 const RESERVED_PG_NAMES = new Set([
   "postgres",
@@ -80,6 +81,15 @@ export function postgresConnectionInfo() {
   };
 }
 
+export function mysqlConnectionInfo() {
+  const portRaw = process.env.CUSTOMER_MYSQL_PORT?.trim();
+  const port = portRaw && /^\d+$/.test(portRaw) ? Number(portRaw) : 3306;
+  return {
+    host: process.env.CUSTOMER_MYSQL_HOST?.trim() || "127.0.0.1",
+    port,
+  };
+}
+
 export function buildConnectionUri(input: {
   host: string;
   port: number;
@@ -132,7 +142,8 @@ export function connectionForEngine(
   password?: string
 ) {
   const meta = engineMeta(engine);
-  const base = postgresConnectionInfo();
+  const mysqlLike = engine === "mysql" || engine === "mariadb";
+  const base = mysqlLike ? mysqlConnectionInfo() : postgresConnectionInfo();
   const host = base.host;
   const port = meta.port || base.port;
   return {
@@ -153,9 +164,16 @@ export function connectionForEngine(
   };
 }
 
+function databasesAccess(userId: string, role?: string) {
+  return domainAccessWhere(
+    { id: userId, role: role === "ADMIN" ? "ADMIN" : "USER" },
+    "databases"
+  );
+}
+
 export async function listInstalledDbEngines(userId: string, role?: string) {
   const domains = await prisma.domain.findMany({
-    where: role === "ADMIN" ? undefined : { userId },
+    where: databasesAccess(userId, role),
     select: { serverId: true },
   });
   const serverIds = [...new Set(domains.map((d) => d.serverId))];
@@ -192,7 +210,7 @@ export async function listInstalledDbEngines(userId: string, role?: string) {
 
 export async function listPostgresDatabases(userId: string, role?: string) {
   return prisma.postgresDatabase.findMany({
-    where: role === "ADMIN" ? undefined : { domain: { userId } },
+    where: { domain: databasesAccess(userId, role) },
     orderBy: { createdAt: "desc" },
     include: {
       domain: { select: { id: true, name: true } },
@@ -220,12 +238,13 @@ export async function createPostgresDatabase(input: {
   const actor = { id: input.userId, role: input.role ?? ("USER" as const) };
   const hostingTarget = await resolveHostingTarget(input.target, actor, {
     excludeMailSubdomains: true,
+    feature: "databases",
   });
 
   const domain = await prisma.domain.findFirstOrThrow({
     where: {
       id: hostingTarget.domainId,
-      ...(actor.role === "ADMIN" ? {} : { userId: input.userId }),
+      ...domainAccessWhere(actor, "databases"),
     },
     include: { server: true },
   });
@@ -310,6 +329,12 @@ export async function createPostgresDatabase(input: {
   }
 
   const passwordHash = await hashPassword(input.password);
+  let passwordEnc: string | undefined;
+  try {
+    passwordEnc = encryptSecret(input.password);
+  } catch {
+    passwordEnc = undefined;
+  }
 
   const record = await prisma.postgresDatabase.create({
     data: {
@@ -318,6 +343,7 @@ export async function createPostgresDatabase(input: {
       dbName: names.dbName,
       roleName: names.roleName,
       passwordHash,
+      ...(passwordEnc ? { passwordEnc } : {}),
       domainId: domain.id,
     },
     include: {
@@ -344,7 +370,7 @@ export async function resetPostgresDatabasePassword(input: {
   const record = await prisma.postgresDatabase.findFirstOrThrow({
     where: {
       id: input.id,
-      ...(input.role === "ADMIN" ? {} : { domain: { userId: input.userId } }),
+      domain: databasesAccess(input.userId, input.role),
     },
     include: { domain: { include: { server: true } } },
   });
@@ -387,9 +413,18 @@ export async function resetPostgresDatabasePassword(input: {
   }
 
   const passwordHash = await hashPassword(input.password);
+  let passwordEnc: string | undefined;
+  try {
+    passwordEnc = encryptSecret(input.password);
+  } catch {
+    passwordEnc = undefined;
+  }
   const updated = await prisma.postgresDatabase.update({
     where: { id: record.id },
-    data: { passwordHash },
+    data: {
+      passwordHash,
+      ...(passwordEnc ? { passwordEnc } : {}),
+    },
     include: {
       domain: { select: { id: true, name: true } },
     },
@@ -409,7 +444,7 @@ export async function deletePostgresDatabase(
   const record = await prisma.postgresDatabase.findFirstOrThrow({
     where: {
       id,
-      ...(role === "ADMIN" ? {} : { domain: { userId } }),
+      domain: databasesAccess(userId, role),
     },
     include: { domain: { include: { server: true } } },
   });
@@ -458,7 +493,7 @@ export async function inspectPostgresDatabaseSchema(
   const record = await prisma.postgresDatabase.findFirstOrThrow({
     where: {
       id,
-      ...(role === "ADMIN" ? {} : { domain: { userId } }),
+      domain: databasesAccess(userId, role),
     },
     include: {
       domain: {
@@ -548,7 +583,7 @@ export async function previewPostgresDatabaseTable(input: {
   const record = await prisma.postgresDatabase.findFirstOrThrow({
     where: {
       id: input.id,
-      ...(input.role === "ADMIN" ? {} : { domain: { userId: input.userId } }),
+      domain: databasesAccess(input.userId, input.role),
     },
     include: {
       domain: {
@@ -611,7 +646,7 @@ export async function queryPostgresDatabaseSql(input: {
   const record = await prisma.postgresDatabase.findFirstOrThrow({
     where: {
       id: input.id,
-      ...(input.role === "ADMIN" ? {} : { domain: { userId: input.userId } }),
+      domain: databasesAccess(input.userId, input.role),
     },
     include: {
       domain: {
@@ -672,7 +707,7 @@ export async function createPostgresDatabaseTable(input: {
   const record = await prisma.postgresDatabase.findFirstOrThrow({
     where: {
       id: input.id,
-      ...(input.role === "ADMIN" ? {} : { domain: { userId: input.userId } }),
+      domain: databasesAccess(input.userId, input.role),
     },
     include: {
       domain: {
@@ -719,7 +754,7 @@ export async function deletePostgresDatabaseTable(input: {
   const record = await prisma.postgresDatabase.findFirstOrThrow({
     where: {
       id: input.id,
-      ...(input.role === "ADMIN" ? {} : { domain: { userId: input.userId } }),
+      domain: databasesAccess(input.userId, input.role),
     },
     include: {
       domain: {
@@ -772,7 +807,7 @@ export async function alterPostgresDatabaseTable(input: {
   const record = await prisma.postgresDatabase.findFirstOrThrow({
     where: {
       id: input.id,
-      ...(input.role === "ADMIN" ? {} : { domain: { userId: input.userId } }),
+      domain: databasesAccess(input.userId, input.role),
     },
     include: {
       domain: {
@@ -827,7 +862,7 @@ export async function mutatePostgresDatabaseRows(input: {
   const record = await prisma.postgresDatabase.findFirstOrThrow({
     where: {
       id: input.id,
-      ...(input.role === "ADMIN" ? {} : { domain: { userId: input.userId } }),
+      domain: databasesAccess(input.userId, input.role),
     },
     include: {
       domain: {
@@ -875,7 +910,7 @@ export async function exportPostgresDatabaseDump(input: {
   const record = await prisma.postgresDatabase.findFirstOrThrow({
     where: {
       id: input.id,
-      ...(input.role === "ADMIN" ? {} : { domain: { userId: input.userId } }),
+      domain: databasesAccess(input.userId, input.role),
     },
     include: { domain: { include: { server: true } } },
   });
@@ -917,7 +952,7 @@ export async function importPostgresDatabaseDump(input: {
   const record = await prisma.postgresDatabase.findFirstOrThrow({
     where: {
       id: input.id,
-      ...(input.role === "ADMIN" ? {} : { domain: { userId: input.userId } }),
+      domain: databasesAccess(input.userId, input.role),
     },
     include: { domain: { include: { server: true } } },
   });
@@ -996,7 +1031,7 @@ export async function reassignPostgresDatabaseOwnership(input: {
   const record = await prisma.postgresDatabase.findFirstOrThrow({
     where: {
       id: input.id,
-      ...(input.role === "ADMIN" ? {} : { domain: { userId: input.userId } }),
+      domain: databasesAccess(input.userId, input.role),
     },
     include: { domain: { include: { server: true } } },
   });

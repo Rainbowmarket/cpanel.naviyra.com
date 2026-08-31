@@ -7,7 +7,7 @@ export async function GET() {
     const user = await requireSessionUser("ftp");
     const targets = await listHostingTargets(
       { id: user.id, role: user.role },
-      { excludeMailSubdomains: true }
+      { excludeMailSubdomains: true, feature: "ftp" }
     );
     return NextResponse.json({ targets });
   } catch (error) {

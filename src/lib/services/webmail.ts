@@ -18,10 +18,16 @@ import {
 } from "@/lib/mail/store";
 import type { MailAttachmentPayload, MailFolder } from "@/lib/mail/types";
 import { MAIL_FOLDERS } from "@/lib/mail/types";
+import { domainAccessWhere } from "@/lib/hosting-targets";
 
 async function getOwnedAccount(accountId: string, userId: string) {
   return prisma.mailAccount.findFirstOrThrow({
-    where: { id: accountId, mailDomain: { domain: { userId } } },
+    where: {
+      id: accountId,
+      mailDomain: {
+        domain: domainAccessWhere({ id: userId, role: "USER" }, "mail"),
+      },
+    },
     select: { id: true, email: true, isActive: true },
   });
 }

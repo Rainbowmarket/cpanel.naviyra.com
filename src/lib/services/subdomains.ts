@@ -18,6 +18,7 @@ import { assertValidSubdomainLabels } from "@/lib/hostname";
 import { ensurePanelBaseDomain } from "@/lib/services/domains";
 import { addSubdomainDnsRecord, removeSubdomainDnsRecord } from "@/lib/services/dns";
 import { phpEnabledForAppType, removeSiteAppUnit } from "@/lib/services/apps";
+import { domainAccessWhere } from "@/lib/hosting-targets";
 import type { AppType, DomainStatus } from "@/generated/prisma/client";
 
 /** Normalize subdomain label (supports nested: api.v1). */
@@ -151,20 +152,23 @@ export async function listSubdomains(
     });
   }
 
-  const panelBase = getDnsZoneApex();
-  return prisma.subdomain.findMany({
+  const rows = await prisma.subdomain.findMany({
     where: {
       domainId,
-      domain: {
-        OR: [
-          { userId },
-          ...(panelBase ? [{ name: panelBase }] : []),
-        ],
-      },
+      domain: domainAccessWhere(
+        { id: userId, role: "USER" },
+        "subdomains"
+      ),
     },
     include: subdomainListInclude,
     orderBy: { createdAt: "desc" },
   });
+
+  // Never expose panel infra hostnames (ns1/s1/mail/…) to non-admins,
+  // even if they somehow have access to the panel apex domain.
+  return rows.filter(
+    (s) => !isReservedPanelSubdomain(s.name, s.domain.name)
+  );
 }
 
 /** All subdomains for the user (admins see every domain, including reserved mail hosts). */
@@ -181,19 +185,20 @@ export async function listAllSubdomains(
     });
   }
 
-  const panelBase = getDnsZoneApex();
-  return prisma.subdomain.findMany({
+  const rows = await prisma.subdomain.findMany({
     where: {
-      domain: {
-        OR: [
-          { userId },
-          ...(panelBase ? [{ name: panelBase }] : []),
-        ],
-      },
+      domain: domainAccessWhere(
+        { id: userId, role: "USER" },
+        "subdomains"
+      ),
     },
     include: subdomainListInclude,
     orderBy: { createdAt: "desc" },
   });
+
+  return rows.filter(
+    (s) => !isReservedPanelSubdomain(s.name, s.domain.name)
+  );
 }
 
 async function provisionSubdomain(subdomain: {
@@ -260,15 +265,21 @@ export async function createSubdomain(input: {
   skipAgent?: boolean;
 }) {
   const panelBase = getDnsZoneApex();
+  const access = domainAccessWhere(
+    { id: input.userId, role: "USER" },
+    "subdomains"
+  );
   const domain = await prisma.domain.findFirst({
     where: {
       id: input.domainId,
-      OR: [
-        { userId: input.userId },
-        ...(input.allowPanelDomain && panelBase
-          ? [{ name: panelBase }]
-          : []),
-      ],
+      ...(input.allowPanelDomain && panelBase
+        ? {
+            OR: [
+              ...(Array.isArray(access.OR) ? access.OR : [access]),
+              { name: panelBase },
+            ],
+          }
+        : access),
     },
     include: { server: true },
   });
@@ -315,6 +326,7 @@ export async function createSubdomain(input: {
       appType,
       status: input.skipAgent ? "ACTIVE" : "PENDING",
     },
+    include: { domain: { select: { name: true, id: true } } },
   });
 
   if (input.skipAgent) {
@@ -323,10 +335,7 @@ export async function createSubdomain(input: {
     } catch (error) {
       console.error("Panel host DNS record sync failed:", error);
     }
-    return prisma.subdomain.findFirstOrThrow({
-      where: { id: subdomain.id },
-      include: { domain: { select: { name: true, id: true } } },
-    });
+    return subdomain;
   }
 
   return provisionSubdomain({
@@ -420,7 +429,10 @@ export async function ensurePanelControlHostname(userId: string) {
 
 export async function retrySubdomain(subdomainId: string, userId: string) {
   const subdomain = await prisma.subdomain.findFirstOrThrow({
-    where: { id: subdomainId, domain: { userId } },
+    where: {
+      id: subdomainId,
+      domain: domainAccessWhere({ id: userId, role: "USER" }, "subdomains"),
+    },
     include: { domain: { include: { server: true } } },
   });
 
@@ -454,7 +466,10 @@ export async function updateSubdomainPath(
   documentRoot: string
 ) {
   const subdomain = await prisma.subdomain.findFirstOrThrow({
-    where: { id: subdomainId, domain: { userId } },
+    where: {
+      id: subdomainId,
+      domain: domainAccessWhere({ id: userId, role: "USER" }, "subdomains"),
+    },
     include: { domain: { include: { server: true } } },
   });
 
@@ -497,7 +512,10 @@ export async function deleteSubdomain(
   deleteFiles = false
 ) {
   const subdomain = await prisma.subdomain.findFirstOrThrow({
-    where: { id: subdomainId, domain: { userId } },
+    where: {
+      id: subdomainId,
+      domain: domainAccessWhere({ id: userId, role: "USER" }, "subdomains"),
+    },
     include: { domain: { include: { server: true } } },
   });
 

@@ -39,7 +39,7 @@ export async function getTargetContext(
   actor: AccessActor | string
 ) {
   const normalized = parseHostingTargetId(target);
-  const access = domainAccessWhere(actor);
+  const access = domainAccessWhere(actor, "files");
 
   if (normalized.kind === "subdomain") {
     const subdomain = await prisma.subdomain.findFirstOrThrow({
@@ -83,6 +83,7 @@ export async function listFileManagerTargets(actor: AccessActor | string) {
   // mail.* / webmail.* are panel proxies, not site document roots
   const targets = await listHostingTargets(actor, {
     excludeMailSubdomains: true,
+    feature: "files",
   });
   const asAdmin = toAccessActor(actor).role === "ADMIN";
   return targets.map((t) => ({

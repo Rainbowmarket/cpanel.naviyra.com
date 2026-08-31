@@ -13,7 +13,7 @@ export async function GET(request: Request) {
   try {
     const user = await requireSessionUser("mail");
     const domainId = new URL(request.url).searchParams.get("domainId");
-    const mail = await listMailAccounts(user.id, domainId);
+    const mail = await listMailAccounts(user.id, domainId, user.role);
     return NextResponse.json(mail);
   } catch (error) {
     return authFailureResponse(error);
@@ -31,7 +31,11 @@ export async function POST(request: Request) {
   try {
     const user = await requireSessionUser("mail");
     const body = createSchema.parse(await request.json());
-    const account = await createMailAccount({ ...body, userId: user.id });
+    const account = await createMailAccount({
+      ...body,
+      userId: user.id,
+      role: user.role,
+    });
     return NextResponse.json({ account }, { status: 201 });
   } catch (error) {
     if (error instanceof z.ZodError) {

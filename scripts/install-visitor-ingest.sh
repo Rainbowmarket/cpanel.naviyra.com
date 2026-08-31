@@ -180,9 +180,30 @@ fi
 copy_file "$ROOT/scripts/visitor-ingest.sh" "$PANEL_ROOT/scripts/visitor-ingest.sh" 0755
 copy_file "$ROOT/scripts/parse-nginx-visitors.mjs" "$PANEL_ROOT/scripts/parse-nginx-visitors.mjs" 0755
 copy_file "$ROOT/scripts/nginx-naviyra-visitors.conf" "$PANEL_ROOT/scripts/nginx-naviyra-visitors.conf" 0644
+# Strip CRLF from Windows-packed scripts (systemd 203/EXEC otherwise).
+sed -i 's/\r$//' "$PANEL_ROOT/scripts/visitor-ingest.sh" \
+  "$PANEL_ROOT/scripts/parse-nginx-visitors.mjs" 2>/dev/null || true
+chmod 0755 "$PANEL_ROOT/scripts/visitor-ingest.sh" "$PANEL_ROOT/scripts/parse-nginx-visitors.mjs"
+
+# Resolve Node 20+ for the unit PATH (nvm LTS preferred).
+NODE_DIR=""
+if [ -d /root/.nvm/versions/node ]; then
+  NODE_DIR="$(ls -d /root/.nvm/versions/node/v*/bin 2>/dev/null | sort -V | tail -1 || true)"
+fi
+NODE_PATH_LINE="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+if [ -n "${NODE_DIR:-}" ]; then
+  NODE_PATH_LINE="${NODE_DIR}:${NODE_PATH_LINE}"
+fi
+
 sed -e "s|/opt/naviyra-panel|${PANEL_ROOT}|g" \
+  -e "s|^Environment=PATH=.*|Environment=PATH=${NODE_PATH_LINE}|" \
   "$ROOT/scripts/systemd/naviyra-visitor-ingest.service" \
   > /etc/systemd/system/naviyra-visitor-ingest.service
+# Ensure ExecStart uses bash even if the template was an old direct shebang path.
+if ! grep -q 'ExecStart=/bin/bash' /etc/systemd/system/naviyra-visitor-ingest.service; then
+  sed -i "s|^ExecStart=.*|ExecStart=/bin/bash ${PANEL_ROOT}/scripts/visitor-ingest.sh|" \
+    /etc/systemd/system/naviyra-visitor-ingest.service
+fi
 install -m 0644 "$ROOT/scripts/systemd/naviyra-visitor-ingest.timer" /etc/systemd/system/naviyra-visitor-ingest.timer
 
 systemctl daemon-reload

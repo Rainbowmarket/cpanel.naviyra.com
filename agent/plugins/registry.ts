@@ -59,6 +59,8 @@ type InstallSpec = {
   packageSets: string[][];
   services?: string[];
   script?: string;
+  /** Run after packages succeed (e.g. phpMyAdmin for MySQL). */
+  postScript?: string;
   prepare?: () => Promise<void>;
 };
 
@@ -90,6 +92,18 @@ async function doInstall(
         services: spec.services,
       });
       notes.push(result.detail);
+      if (spec.postScript) {
+        try {
+          const ran = await runPanelScript(spec.postScript, dryRun);
+          if (ran) notes.push(ran.detail);
+        } catch (error) {
+          notes.push(
+            `postScript ${spec.postScript} failed: ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          );
+        }
+      }
       return { ok: true, installed: true, detail: notes.join(". ") };
     } catch (error) {
       const aptMsg = error instanceof Error ? error.message : `Failed to install ${name}`;
@@ -257,7 +271,14 @@ function postgresPlugin(): AgentPlugin {
         const existing = findPgBin("psql");
         if (existing) {
           const bins = await ensurePostgresReady();
-          return { ok: true, installed: true, detail: bins.psql };
+          let extra = "";
+          try {
+            const ran = await runPanelScript("install-phppgadmin.sh", ctx.dryRun);
+            if (ran) extra = `. ${ran.detail}`;
+          } catch (error) {
+            extra = `. phpPgAdmin: ${error instanceof Error ? error.message : String(error)}`;
+          }
+          return { ok: true, installed: true, detail: `${bins.psql}${extra}` };
         }
         const result = await doInstall(
           "PostgreSQL",
@@ -265,6 +286,7 @@ function postgresPlugin(): AgentPlugin {
             packageSets: [["postgresql", "postgresql-contrib"]],
             services: ["postgresql"],
             script: "install-postgres.sh",
+            postScript: "install-phppgadmin.sh",
           },
           ctx.dryRun
         );
@@ -552,6 +574,7 @@ export async function initPluginRegistry() {
       spec: {
         packageSets: [["mysql-server", "mysql-client"], ["default-mysql-server", "default-mysql-client"]],
         services: ["mysql", "mysqld"],
+        postScript: "install-phpmyadmin.sh",
       },
       probe: engines.probeMysql,
       create: async (_op, params, ctx) => ({
@@ -592,6 +615,7 @@ export async function initPluginRegistry() {
       spec: {
         packageSets: [["mariadb-server", "mariadb-client"]],
         services: ["mariadb", "mysql"],
+        postScript: "install-phpmyadmin.sh",
       },
       probe: engines.probeMysql,
       create: async (_op, params, ctx) => ({

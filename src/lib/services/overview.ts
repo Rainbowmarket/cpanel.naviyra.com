@@ -8,6 +8,8 @@ import { collectResourceReport, formatUptime, formatMemBytes } from "@/lib/syste
 import { collectDiskReport, formatDiskBytes } from "@/lib/system/disk";
 import { evaluateAndNotifyHostAlerts } from "@/lib/mail/admin-alerts";
 import { defaultControllerAgentUrl } from "@/lib/agent/target";
+import { migrateLegacyVisitorLogsIfNeeded } from "@/lib/visitors/migrate-legacy";
+import { groupVisitorCountsByDomain } from "@/lib/visitors/store";
 
 export type OverviewAlert = {
   id: string;
@@ -64,7 +66,9 @@ function ufwActive(): boolean | null {
 }
 
 export async function getDashboardOverview(actor: AccessActor) {
+  await migrateLegacyVisitorLogsIfNeeded();
   const access = domainAccessWhere(actor);
+  const isAdmin = actor.role === "ADMIN";
   const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
   const sslSoon = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
   const pgPort = Number(process.env.CUSTOMER_POSTGRES_PORT?.trim() || "5432") || 5432;
@@ -98,13 +102,16 @@ export async function getDashboardOverview(actor: AccessActor) {
       orderBy: { expiresAt: "asc" },
       take: 5,
     }),
-    prisma.visitorLog.groupBy({
-      by: ["domainId"],
-      where: { visitedAt: { gte: since24h }, domain: access },
-      _count: { _all: true },
-      orderBy: { _count: { domainId: "desc" } },
-      take: 5,
-    }),
+    Promise.resolve(
+      groupVisitorCountsByDomain(
+        {
+          admin: isAdmin,
+          userId: isAdmin ? undefined : actor.id,
+        },
+        since24h,
+        5
+      )
+    ),
     prisma.securityEvent.count({
       where: { detectedAt: { gte: since24h }, domain: access },
     }),
@@ -169,7 +176,7 @@ export async function getDashboardOverview(actor: AccessActor) {
   const topSites: OverviewTopSite[] = trafficGroups.map((g) => ({
     id: g.domainId,
     name: nameById.get(g.domainId) ?? "Site",
-    hits: g._count._all,
+    hits: g.count,
   }));
 
   const services: OverviewService[] = [

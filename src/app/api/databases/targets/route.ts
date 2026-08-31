@@ -7,7 +7,7 @@ export async function GET() {
     const user = await requireSessionUser("databases");
     const targets = await listHostingTargets(
       { id: user.id, role: user.role },
-      { excludeMailSubdomains: true }
+      { excludeMailSubdomains: true, feature: "databases" }
     );
     return NextResponse.json({ targets });
   } catch (error) {

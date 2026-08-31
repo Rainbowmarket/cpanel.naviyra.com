@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { mailHostLabel } from "@/lib/dns/zone";
 import { getMailHostname } from "@/lib/paths";
+import type { PanelPermissionKey } from "@/lib/panel-permissions";
 
 export type HostingTarget = {
   id: string;
@@ -43,19 +44,78 @@ export function toAccessActor(actor: AccessActor | string): AccessActor {
   return actor;
 }
 
-/** Domain ownership filter — admins see/manage everything. */
-export function domainAccessWhere(actor: AccessActor | string) {
+/**
+ * Domain visibility / scope filter.
+ * - ADMIN: all domains
+ * - Owner (Domain.userId): all features on that domain
+ * - Grantee: domain appears if they have any grant; with `feature`, only if that key is granted
+ * Never changes Domain.userId; grants are DomainAccess rows only.
+ */
+export function domainAccessWhere(
+  actor: AccessActor | string,
+  feature?: PanelPermissionKey
+): Record<string, unknown> {
   const a = toAccessActor(actor);
   if (a.role === "ADMIN") return {};
-  return { userId: a.id };
+  if (!feature) {
+    return {
+      OR: [{ userId: a.id }, { accessGrants: { some: { userId: a.id } } }],
+    };
+  }
+  return {
+    OR: [
+      { userId: a.id },
+      {
+        accessGrants: {
+          some: {
+            userId: a.id,
+            permissions: { some: { key: feature } },
+          },
+        },
+      },
+    ],
+  };
+}
+
+/** Merge grant/owner filter with optional panel apex visibility (admin create paths only). */
+export function domainAccessWhereOrPanel(
+  actor: AccessActor | string,
+  feature: PanelPermissionKey,
+  panelBase?: string | null
+): Record<string, unknown> {
+  const access = domainAccessWhere(actor, feature);
+  // Do not use this for user-facing lists — it leaks panel infra to every account.
+  if (!panelBase || Object.keys(access).length === 0) return access;
+  const ors = Array.isArray(access.OR) ? access.OR : [access];
+  return { OR: [...ors, { name: panelBase }] };
+}
+
+/** Throw if actor cannot use `feature` on this domain. */
+export async function assertDomainFeature(
+  actor: AccessActor | string,
+  domainId: string,
+  feature: PanelPermissionKey
+) {
+  const a = toAccessActor(actor);
+  if (a.role === "ADMIN") return;
+  const domain = await prisma.domain.findFirst({
+    where: { id: domainId, ...domainAccessWhere(a, feature) },
+    select: { id: true },
+  });
+  if (!domain) {
+    throw new Error("Forbidden: no permission for this domain feature");
+  }
 }
 
 export async function listHostingTargets(
   actor: AccessActor | string,
-  options?: { excludeMailSubdomains?: boolean }
+  options?: {
+    excludeMailSubdomains?: boolean;
+    feature?: PanelPermissionKey;
+  }
 ): Promise<HostingTarget[]> {
   const excludeMail = options?.excludeMailSubdomains ?? false;
-  const access = domainAccessWhere(actor);
+  const access = domainAccessWhere(actor, options?.feature);
   const asAdmin = toAccessActor(actor).role === "ADMIN";
 
   const domains = await prisma.domain.findMany({
@@ -117,7 +177,10 @@ export async function listHostingTargets(
 export async function resolveHostingTarget(
   target: string,
   actor: AccessActor | string,
-  options?: { excludeMailSubdomains?: boolean }
+  options?: {
+    excludeMailSubdomains?: boolean;
+    feature?: PanelPermissionKey;
+  }
 ): Promise<HostingTarget> {
   const parsed = parseHostingTargetId(target);
   const targets = await listHostingTargets(actor, options);

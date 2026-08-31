@@ -113,6 +113,68 @@ PROXY_HEADERS=$(cat <<EOF
 EOF
 )
 
+PMA_ROOT="${PHPMYADMIN_DIR:-${PANEL_ROOT:-/opt/naviyra-panel}/phpmyadmin}"
+PPA_ROOT="${PHPPGADMIN_DIR:-${PANEL_ROOT:-/opt/naviyra-panel}/phppgadmin}"
+if [ -z "${PANEL_ROOT:-}" ]; then
+  PANEL_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+  PMA_ROOT="${PHPMYADMIN_DIR:-$PANEL_ROOT/phpmyadmin}"
+  PPA_ROOT="${PHPPGADMIN_DIR:-$PANEL_ROOT/phppgadmin}"
+fi
+PHP_SOCK="${PHP_FPM_SOCKET:-}"
+if [ -z "$PHP_SOCK" ] || [ ! -S "$PHP_SOCK" ]; then
+  for s in /run/php/php*-fpm.sock; do
+    if [ -S "$s" ]; then
+      PHP_SOCK="$s"
+      break
+    fi
+  done
+fi
+PHP_SOCK="${PHP_SOCK:-/run/php/php8.3-fpm.sock}"
+
+PMA_BLOCK=""
+if [ -f "$PMA_ROOT/index.php" ]; then
+  PMA_BLOCK=$(cat <<EOF
+
+    # phpMyAdmin (panel host only — not on customer sites)
+    location /_pma/ {
+        alias ${PMA_ROOT}/;
+        index index.php;
+    }
+    location ~ ^/_pma/(.+\\.php)(/.*)?\$ {
+        include fastcgi_params;
+        fastcgi_pass unix:${PHP_SOCK};
+        fastcgi_param SCRIPT_FILENAME ${PMA_ROOT}/\$1;
+        fastcgi_param PATH_INFO \$2;
+        fastcgi_read_timeout 300;
+        fastcgi_buffers 16 16k;
+        fastcgi_buffer_size 32k;
+    }
+EOF
+)
+fi
+
+PPA_BLOCK=""
+if [ -f "$PPA_ROOT/index.php" ]; then
+  PPA_BLOCK=$(cat <<EOF
+
+    # phpPgAdmin (panel host only — not on customer sites)
+    location /_ppa/ {
+        alias ${PPA_ROOT}/;
+        index index.php;
+    }
+    location ~ ^/_ppa/(.+\\.php)(/.*)?\$ {
+        include fastcgi_params;
+        fastcgi_pass unix:${PHP_SOCK};
+        fastcgi_param SCRIPT_FILENAME ${PPA_ROOT}/\$1;
+        fastcgi_param PATH_INFO \$2;
+        fastcgi_read_timeout 300;
+        fastcgi_buffers 16 16k;
+        fastcgi_buffer_size 32k;
+    }
+EOF
+)
+fi
+
 cat > "/etc/nginx/sites-available/${DOMAIN}" <<EOF
 # Naviyra Panel — ${DOMAIN} → 127.0.0.1:${PORT}
 server {
@@ -127,6 +189,8 @@ server {
 
     client_max_body_size 512M;
 ${SNIPPET}
+${PMA_BLOCK}
+${PPA_BLOCK}
 
     location / {
 ${PROXY_HEADERS}
@@ -145,6 +209,8 @@ ${DH}
 
     client_max_body_size 512M;
 ${SNIPPET}
+${PMA_BLOCK}
+${PPA_BLOCK}
 
     location / {
 ${PROXY_HEADERS}

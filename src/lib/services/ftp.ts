@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { callAgent } from "@/lib/agent/client";
 import { agentTargetForServerId } from "@/lib/agent/target";
 import { hashPassword } from "@/lib/auth";
-import { resolveHostingTarget } from "@/lib/hosting-targets";
+import { domainAccessWhere, resolveHostingTarget } from "@/lib/hosting-targets";
 
 function validateFtpUsername(username: string): string {
   const name = username.trim().toLowerCase();
@@ -15,8 +15,12 @@ function validateFtpUsername(username: string): string {
 }
 
 export async function listFtpAccounts(userId: string, role?: string) {
+  const actor = {
+    id: userId,
+    role: (role === "ADMIN" ? "ADMIN" : "USER") as "ADMIN" | "USER",
+  };
   return prisma.ftpAccount.findMany({
-    where: role === "ADMIN" ? undefined : { domain: { userId } },
+    where: { domain: domainAccessWhere(actor, "ftp") },
     orderBy: { createdAt: "desc" },
   });
 }
@@ -36,12 +40,13 @@ export async function createFtpAccount(input: {
   const actor = { id: input.userId, role: input.role ?? ("USER" as const) };
   const hostingTarget = await resolveHostingTarget(input.target, actor, {
     excludeMailSubdomains: true,
+    feature: "ftp",
   });
 
   const domain = await prisma.domain.findFirstOrThrow({
     where: {
       id: hostingTarget.domainId,
-      ...(actor.role === "ADMIN" ? {} : { userId: input.userId }),
+      ...domainAccessWhere(actor, "ftp"),
     },
     include: { server: true },
   });
@@ -88,7 +93,10 @@ export async function deleteFtpAccount(
   const account = await prisma.ftpAccount.findFirstOrThrow({
     where: {
       id: accountId,
-      ...(role === "ADMIN" ? {} : { domain: { userId } }),
+      domain: domainAccessWhere(
+        { id: userId, role: role === "ADMIN" ? "ADMIN" : "USER" },
+        "ftp"
+      ),
     },
     include: { domain: { include: { server: true } } },
   });
@@ -115,7 +123,10 @@ export async function reprovisionFtpAccount(input: {
   const account = await prisma.ftpAccount.findFirstOrThrow({
     where: {
       username,
-      ...(input.role === "ADMIN" ? {} : { domain: { userId: input.userId } }),
+      domain: domainAccessWhere(
+        { id: input.userId, role: input.role === "ADMIN" ? "ADMIN" : "USER" },
+        "ftp"
+      ),
     },
     include: { domain: { include: { server: true } } },
   });
