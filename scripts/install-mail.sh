@@ -35,11 +35,13 @@ chmod 755 /var/mail/vhosts
 
 touch /etc/postfix/virtual_mailbox_domains
 touch /etc/postfix/virtual_mailbox_maps
+touch /etc/postfix/virtual_alias_maps
 touch /etc/dovecot/users
 chmod 640 /etc/dovecot/users
 chown root:dovecot /etc/dovecot/users
 postmap /etc/postfix/virtual_mailbox_domains
 postmap /etc/postfix/virtual_mailbox_maps
+postmap /etc/postfix/virtual_alias_maps
 
 # --- Postfix ---
 postconf -e "myhostname = ${MAIL_HOSTNAME}"
@@ -52,6 +54,7 @@ postconf -e "mynetworks = 127.0.0.0/8 [::1]/128"
 postconf -e "home_mailbox = Maildir/"
 postconf -e "virtual_mailbox_domains = hash:/etc/postfix/virtual_mailbox_domains"
 postconf -e "virtual_mailbox_maps = hash:/etc/postfix/virtual_mailbox_maps"
+postconf -e "virtual_alias_maps = hash:/etc/postfix/virtual_alias_maps"
 postconf -e "virtual_mailbox_base = /var/mail/vhosts"
 postconf -e "virtual_minimum_uid = 100"
 postconf -e "virtual_uid_maps = static:${VMAIL_UID}"
@@ -143,8 +146,21 @@ mail_gid = ${VMAIL_GID}
 first_valid_uid = ${VMAIL_UID}
 last_valid_uid = ${VMAIL_UID}
 mail_privileged_group = vmail
+mail_plugins = \$mail_plugins quota
 namespace inbox {
   inbox = yes
+}
+EOF
+
+cat > /etc/dovecot/conf.d/90-quota.conf <<EOF
+protocol imap {
+  mail_plugins = \$mail_plugins imap_quota
+}
+plugin {
+  quota = maildir:User quota
+  quota_rule = *:storage=1G
+  quota_status_success = DUNNO
+  quota_status_overquota = "552 5.2.2 Mailbox is full"
 }
 EOF
 

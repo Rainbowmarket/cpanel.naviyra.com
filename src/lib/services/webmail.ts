@@ -20,19 +20,28 @@ import type { MailAttachmentPayload, MailFolder } from "@/lib/mail/types";
 import { MAIL_FOLDERS } from "@/lib/mail/types";
 import { domainAccessWhere } from "@/lib/hosting-targets";
 
-async function getOwnedAccount(accountId: string, userId: string) {
+async function getOwnedAccount(
+  accountId: string,
+  user: { id: string; role: string }
+) {
   return prisma.mailAccount.findFirstOrThrow({
     where: {
       id: accountId,
       mailDomain: {
-        domain: domainAccessWhere({ id: userId, role: "USER" }, "mail"),
+        domain: domainAccessWhere(
+          {
+            id: user.id,
+            role: user.role === "ADMIN" ? "ADMIN" : "USER",
+          },
+          "mail"
+        ),
       },
     },
     select: { id: true, email: true, isActive: true },
   });
 }
 
-/** Panel owner session or mailbox user session. */
+/** Panel owner/admin/grantee session or mailbox user session. */
 export async function authorizeWebmail(accountId: string) {
   const mailSession = await getMailSession();
   if (mailSession?.accountId === accountId) {
@@ -47,7 +56,21 @@ export async function authorizeWebmail(accountId: string) {
   const user = await getSessionUser();
   if (!user) throw new Error("Unauthorized");
   if (!userHasPanelPermission(user, "mail")) throw new Error("Forbidden");
-  return getOwnedAccount(accountId, user.id);
+  return getOwnedAccount(accountId, user);
+}
+
+/** Panel SSO into a mailbox the user can manage (no mailbox password). */
+export async function openMailboxAsPanelUser(accountId: string) {
+  const user = await getSessionUser();
+  if (!user) throw new Error("Unauthorized");
+  if (!userHasPanelPermission(user, "mail")) throw new Error("Forbidden");
+  const account = await getOwnedAccount(accountId, user);
+  if (!account.isActive) {
+    throw new Error("Mailbox is deactivated");
+  }
+  const { createMailSession } = await import("@/lib/mail/session");
+  await createMailSession(account.id);
+  return account;
 }
 
 export async function getWebmailAccount(accountId: string) {

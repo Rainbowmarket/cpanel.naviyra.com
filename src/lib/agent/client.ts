@@ -21,6 +21,17 @@ export type AgentAction =
   | { action: "reset_mail_password"; email: string; password: string }
   | { action: "set_mail_account_active"; email: string; isActive: boolean }
   | { action: "create_mail_alias"; alias: string; forwardTo: string }
+  | { action: "delete_mail_alias"; alias: string }
+  | { action: "set_mail_quota"; email: string; quotaMb: number }
+  | { action: "mail_usage"; email: string }
+  | { action: "ensure_domain_dkim"; domain: string; selector?: string }
+  | { action: "install_opendkim" }
+  | { action: "mail_queue_list" }
+  | { action: "mail_queue_flush"; id?: string }
+  | { action: "mail_queue_delete"; id: string }
+  | { action: "mail_log_tail"; lines?: number }
+  | { action: "install_rspamd" }
+  | { action: "install_clamav" }
   | { action: "create_ftp_account"; username: string; password: string; homeDir: string }
   | { action: "delete_ftp_account"; username: string }
   | {

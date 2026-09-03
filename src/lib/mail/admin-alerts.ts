@@ -16,7 +16,9 @@ const KIND_LABEL: Record<AdminAlertKind, string> = {
   migration: "Migration",
 };
 
-const COOLDOWN_MS = Number(process.env.ADMIN_ALERT_COOLDOWN_MS ?? 30 * 60 * 1000);
+const COOLDOWN_MS = Number(
+  process.env.ADMIN_ALERT_COOLDOWN_MS ?? 60 * 60 * 1000
+); // default 1 hour
 
 const DISK_CRITICAL = 90;
 const CPU_OVERLOAD = 90;
@@ -139,7 +141,27 @@ export function notifyMigration(opts: {
   });
 }
 
-export function evaluateAndNotifyHostAlerts(input: {
+async function topMemoryProcesses(limit = 10): Promise<string> {
+  if (process.platform === "win32") return "";
+  try {
+    const { execFile } = await import("node:child_process");
+    const { promisify } = await import("node:util");
+    const exec = promisify(execFile);
+    const { stdout } = await exec("ps", ["aux", "--sort=-%mem"], {
+      windowsHide: true,
+      maxBuffer: 2 * 1024 * 1024,
+    });
+    return stdout
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .slice(0, limit + 1)
+      .join("\n");
+  } catch {
+    return "";
+  }
+}
+
+export async function evaluateAndNotifyHostAlerts(input: {
   hostname: string;
   cpuPercent: number | null;
   memPercent: number | null;
@@ -149,26 +171,29 @@ export function evaluateAndNotifyHostAlerts(input: {
   diskLabel?: string;
   agentOnline?: boolean;
   agentUrl?: string;
-}) {
+}): Promise<void> {
   const host = input.hostname || "controller";
+  const tasks: Promise<void>[] = [];
 
   if (input.agentOnline === false && input.agentUrl) {
     notifyIfAgentUnreachable(`Could not reach agent at ${input.agentUrl}`);
   }
 
   if (input.diskPercent != null && input.diskPercent >= DISK_CRITICAL) {
-    void notifyAdmins({
-      kind: "storage",
-      fingerprint: `storage:${host}:${Math.floor(input.diskPercent / 5) * 5}`,
-      title: `Disk space is critically low (${input.diskPercent}%)`,
-      detail: [
-        `Host: ${host}`,
-        input.diskLabel ? `Volume: ${input.diskLabel}` : null,
-        `Used: ${input.diskPercent}% (threshold ${DISK_CRITICAL}%). Free space on the controller node before mail, backups, and sites fail.`,
-      ]
-        .filter(Boolean)
-        .join("\n"),
-    });
+    tasks.push(
+      notifyAdmins({
+        kind: "storage",
+        fingerprint: `storage:${host}`,
+        title: `Disk space is critically low (${input.diskPercent}%)`,
+        detail: [
+          `Host: ${host}`,
+          input.diskLabel ? `Volume: ${input.diskLabel}` : null,
+          `Used: ${input.diskPercent}% (threshold ${DISK_CRITICAL}%). Free space on the controller node before mail, backups, and sites fail.`,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      })
+    );
   }
 
   const cpuOver =
@@ -180,12 +205,26 @@ export function evaluateAndNotifyHostAlerts(input: {
       cpuOver ? `CPU ${input.cpuPercent}%` : null,
       memOver ? `RAM ${input.memPercent}%` : null,
     ].filter(Boolean);
-    void notifyAdmins({
-      kind: "overload",
-      fingerprint: `overload:${host}:${parts.join(",")}`,
-      title: `Server overload on ${host} (${parts.join(", ")})`,
-      detail: `The controller host is over the ${CPU_OVERLOAD}% CPU / ${MEM_OVERLOAD}% RAM thresholds. Reduce load or add capacity.`,
-    });
+    tasks.push(
+      (async () => {
+        const topMem = memOver ? await topMemoryProcesses(10) : "";
+        await notifyAdmins({
+          kind: "overload",
+          fingerprint: `overload:${host}`,
+          title: `Server overload on ${host} (${parts.join(", ")})`,
+          detail: [
+            `The controller host is over the ${CPU_OVERLOAD}% CPU / ${MEM_OVERLOAD}% RAM thresholds.`,
+            `Current: ${parts.join(", ")}.`,
+            `System load averages are separate; high RAM with low load usually means resident processes, not CPU thrashing.`,
+            `On small (~2 GB) VPS hosts, panel + mail + DB often fill RAM after Node/agent/DB start.`,
+            `Next email for this host waits for the admin alert cooldown (default 1 hour).`,
+            topMem ? `\nTop memory processes:\n${topMem}` : null,
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        });
+      })()
+    );
   }
 
   const cores = Math.max(1, input.cores || 1);
@@ -194,11 +233,15 @@ export function evaluateAndNotifyHostAlerts(input: {
     Number.isFinite(input.load1) &&
     input.load1 >= cores * LOAD_SLOW_PER_CORE
   ) {
-    void notifyAdmins({
-      kind: "slow",
-      fingerprint: `slow:${host}:${Math.floor(input.load1)}`,
-      title: `${host} is running slowly (load ${input.load1.toFixed(2)})`,
-      detail: `1-minute load average is ${input.load1.toFixed(2)} on ${cores} CPU core(s) (threshold ${LOAD_SLOW_PER_CORE}× cores). The panel host is overloaded or blocked on I/O.`,
-    });
+    tasks.push(
+      notifyAdmins({
+        kind: "slow",
+        fingerprint: `slow:${host}`,
+        title: `${host} is running slowly (load ${input.load1.toFixed(2)})`,
+        detail: `1-minute load average is ${input.load1.toFixed(2)} on ${cores} CPU core(s) (threshold ${LOAD_SLOW_PER_CORE}× cores). The panel host is overloaded or blocked on I/O.`,
+      })
+    );
   }
+
+  await Promise.all(tasks);
 }

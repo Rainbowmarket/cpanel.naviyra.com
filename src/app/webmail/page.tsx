@@ -11,6 +11,7 @@ export default function WebmailLoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [mailHost, setMailHost] = useState("");
+  const [showClientDetails, setShowClientDetails] = useState(false);
 
   useEffect(() => {
     const host = window.location.hostname.toLowerCase();
@@ -119,19 +120,43 @@ export default function WebmailLoginPage() {
         </div>
 
         <div className="mt-6 rounded-xl border border-slate-800 bg-slate-900/60 px-5 py-4 text-sm text-slate-400">
-          <p className="font-medium text-slate-300">Mobile / desktop apps</p>
-          <dl className="mt-3 grid grid-cols-[7.5rem_1fr] gap-x-3 gap-y-1.5 text-xs sm:text-sm">
-            <dt className="text-slate-500">IMAP host</dt>
-            <dd className="font-mono text-slate-200">{mailHost || "mail.yourdomain"}</dd>
-            <dt className="text-slate-500">IMAP port</dt>
-            <dd className="font-mono text-slate-200">993 (SSL/TLS)</dd>
-            <dt className="text-slate-500">SMTP host</dt>
-            <dd className="font-mono text-slate-200">{mailHost || "mail.yourdomain"}</dd>
-            <dt className="text-slate-500">SMTP port</dt>
-            <dd className="font-mono text-slate-200">587 STARTTLS · 465 SSL</dd>
-            <dt className="text-slate-500">Username</dt>
-            <dd className="text-slate-200">full email address</dd>
-          </dl>
+          <button
+            type="button"
+            onClick={() => setShowClientDetails((v) => !v)}
+            aria-expanded={showClientDetails}
+            className="flex w-full items-center justify-between gap-3 text-left"
+          >
+            <span className="font-medium text-slate-300">
+              Mobile / desktop apps
+            </span>
+            <span className="text-xs text-emerald-400/90">
+              {showClientDetails ? "Hide details" : "More details"}
+            </span>
+          </button>
+          {showClientDetails ? (
+            <dl className="mt-3 grid grid-cols-[7.5rem_1fr] gap-x-3 gap-y-1.5 border-t border-slate-800 pt-3 text-xs sm:text-sm">
+              <dt className="text-slate-500">IMAP host</dt>
+              <dd className="font-mono text-slate-200">
+                {mailHost || "mail.yourdomain"}
+              </dd>
+              <dt className="text-slate-500">IMAP port</dt>
+              <dd className="font-mono text-slate-200">993 (SSL/TLS)</dd>
+              <dt className="text-slate-500">SMTP host</dt>
+              <dd className="font-mono text-slate-200">
+                {mailHost || "mail.yourdomain"}
+              </dd>
+              <dt className="text-slate-500">SMTP port</dt>
+              <dd className="font-mono text-slate-200">
+                587 STARTTLS · 465 SSL
+              </dd>
+              <dt className="text-slate-500">Username</dt>
+              <dd className="text-slate-200">full email address</dd>
+            </dl>
+          ) : (
+            <p className="mt-1.5 text-xs text-slate-500">
+              IMAP/SMTP settings for Outlook, Apple Mail, and other clients.
+            </p>
+          )}
         </div>
       </div>
     </div>

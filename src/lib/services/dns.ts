@@ -325,10 +325,21 @@ export async function ensureMailDnsRecords(domainId: string, userId?: string) {
   const domain = await loadDomainWithZone(domainId, userId);
   const zoneId = domain.dnsZone!.id;
   const mailHost = getMailHostname(domain.name);
+  const mailDomain = await prisma.mailDomain.findUnique({
+    where: { domainId },
+    select: {
+      dkimSelector: true,
+      dkimDnsValue: true,
+    },
+  });
   const records = mailDnsRecords(
     domain.name,
     resolveDomainIp(domain.server.ipAddress),
-    mailHost
+    mailHost,
+    {
+      dkimSelector: mailDomain?.dkimSelector,
+      dkimDnsValue: mailDomain?.dkimDnsValue,
+    }
   );
 
   for (const record of records) {

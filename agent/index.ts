@@ -36,6 +36,18 @@ import {
   resetMailPassword as resetVirtualMailboxPassword,
   setMailAccountActive as setVirtualMailboxActive,
   provisionMailboxShell,
+  createMailAlias,
+  deleteMailAlias,
+  setMailAccountQuota,
+  mailboxUsageBytes,
+  ensureDomainDkim,
+  installOpenDkim,
+  listMailQueue,
+  flushMailQueue,
+  deleteMailQueueItem,
+  tailMailLog,
+  installRspamd,
+  installClamAv,
 } from "./mail";
 import {
   buildHttpVhost,
@@ -547,12 +559,14 @@ async function handleAction(payload: Action) {
     case "create_mail_account": {
       const email = String(payload.email);
       const password = String(payload.password ?? "");
+      const quotaMb =
+        typeof payload.quotaMb === "number" ? Number(payload.quotaMb) : undefined;
       await ensureConfigDir();
       if (!isWindows) {
         if (!password) {
           await provisionMailboxShell(email, DRY_RUN);
         } else {
-          await createVirtualMailbox(email, password, DRY_RUN);
+          await createVirtualMailbox(email, password, DRY_RUN, quotaMb);
         }
       }
       await fs.appendFile(
@@ -602,6 +616,115 @@ async function handleAction(payload: Action) {
         "utf8"
       );
       return { success: true, data: { email, isActive } };
+    }
+
+    case "create_mail_alias": {
+      const alias = String(payload.alias ?? "");
+      const forwardTo = String(payload.forwardTo ?? "");
+      if (isWindows) {
+        return { success: true, data: { alias, forwardTo, skipped: true } };
+      }
+      const data = await createMailAlias(alias, forwardTo, DRY_RUN);
+      return { success: true, data };
+    }
+
+    case "delete_mail_alias": {
+      const alias = String(payload.alias ?? "");
+      if (isWindows) {
+        return { success: true, data: { alias, skipped: true } };
+      }
+      const data = await deleteMailAlias(alias, DRY_RUN);
+      return { success: true, data };
+    }
+
+    case "set_mail_quota": {
+      const email = String(payload.email ?? "");
+      const quotaMb = Number(payload.quotaMb ?? 1024);
+      if (isWindows) {
+        return { success: true, data: { email, quotaMb, skipped: true } };
+      }
+      const data = await setMailAccountQuota(email, quotaMb, DRY_RUN);
+      return { success: true, data };
+    }
+
+    case "mail_usage": {
+      const email = String(payload.email ?? "");
+      if (isWindows) {
+        return { success: true, data: { email, usedBytes: 0 } };
+      }
+      const data = await mailboxUsageBytes(email);
+      return { success: true, data };
+    }
+
+    case "ensure_domain_dkim": {
+      const domain = String(payload.domain ?? "");
+      const selector =
+        typeof payload.selector === "string" ? payload.selector : undefined;
+      if (isWindows) {
+        return {
+          success: true,
+          data: {
+            domain,
+            selector: selector || "naviyra",
+            publicKey: "",
+            dnsName: "",
+            dnsValue: "",
+            skipped: true,
+          },
+        };
+      }
+      if (!DRY_RUN) {
+        await installOpenDkim(false);
+      }
+      const data = await ensureDomainDkim(domain, DRY_RUN, selector);
+      return { success: true, data };
+    }
+
+    case "install_opendkim": {
+      if (isWindows) return { success: true, data: { skipped: true } };
+      const data = await installOpenDkim(DRY_RUN);
+      return { success: true, data };
+    }
+
+    case "mail_queue_list": {
+      if (isWindows) return { success: true, data: { items: [] } };
+      const data = await listMailQueue(DRY_RUN);
+      return { success: true, data };
+    }
+
+    case "mail_queue_flush": {
+      const id =
+        typeof payload.id === "string" && payload.id ? payload.id : undefined;
+      if (isWindows) return { success: true, data: { ok: true } };
+      const data = await flushMailQueue(DRY_RUN, id);
+      return { success: true, data };
+    }
+
+    case "mail_queue_delete": {
+      const id = String(payload.id ?? "");
+      if (!id) return { success: false, error: "Missing queue id" };
+      if (isWindows) return { success: true, data: { ok: true, id } };
+      const data = await deleteMailQueueItem(id, DRY_RUN);
+      return { success: true, data };
+    }
+
+    case "mail_log_tail": {
+      const lines = Number(payload.lines ?? 100);
+      if (isWindows) return { success: true, data: { lines: [] } };
+      const data = await tailMailLog(lines, DRY_RUN);
+      return { success: true, data };
+    }
+
+    case "install_rspamd": {
+      if (isWindows) return { success: true, data: { skipped: true } };
+      const data = await installRspamd(DRY_RUN);
+      return { success: true, data };
+    }
+
+    case "install_clamav": {
+      if (isWindows) return { success: true, data: { skipped: true } };
+      const data = await installClamAv(DRY_RUN);
+      return { success: true, data };
     }
 
     case "create_ftp_account": {

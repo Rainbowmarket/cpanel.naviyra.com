@@ -4,6 +4,7 @@ import { getSessionUser } from "@/lib/auth";
 import { getMailSession } from "@/lib/mail/session";
 import { prisma } from "@/lib/prisma";
 import { userHasPanelPermission } from "@/lib/panel-permissions";
+import { domainAccessWhere } from "@/lib/hosting-targets";
 
 export default async function MailboxLayout({
   children,
@@ -33,7 +34,18 @@ export default async function MailboxLayout({
   if (!userHasPanelPermission(panelUser, "mail")) redirect("/dashboard");
 
   const account = await prisma.mailAccount.findFirst({
-    where: { id: accountId, mailDomain: { domain: { userId: panelUser.id } } },
+    where: {
+      id: accountId,
+      mailDomain: {
+        domain: domainAccessWhere(
+          {
+            id: panelUser.id,
+            role: panelUser.role === "ADMIN" ? "ADMIN" : "USER",
+          },
+          "mail"
+        ),
+      },
+    },
     select: { email: true, isActive: true },
   });
 

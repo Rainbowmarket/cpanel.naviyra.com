@@ -121,7 +121,12 @@ export function mailHostLabel(mailHost: string, domainName: string): string | nu
 export function mailDnsRecords(
   domainName: string,
   ipAddress: string,
-  mailHost: string
+  mailHost: string,
+  extras?: {
+    dkimSelector?: string | null;
+    dkimDnsValue?: string | null;
+    dmarcPolicy?: string | null;
+  }
 ): DnsRecordInput[] {
   const records: DnsRecordInput[] = [
     { name: "@", type: "MX", value: mailHost, priority: 10 },
@@ -132,6 +137,19 @@ export function mailDnsRecords(
   if (mailLabel && mailLabel !== "@") {
     records.push({ name: mailLabel, type: "A", value: ipAddress });
   }
+
+  if (extras?.dkimSelector && extras?.dkimDnsValue) {
+    records.push({
+      name: `${extras.dkimSelector}._domainkey`,
+      type: "TXT",
+      value: extras.dkimDnsValue,
+    });
+  }
+
+  const dmarc =
+    extras?.dmarcPolicy?.trim() ||
+    `v=DMARC1; p=none; rua=mailto:dmarc@${domainName}; fo=1`;
+  records.push({ name: "_dmarc", type: "TXT", value: dmarc });
 
   return records;
 }

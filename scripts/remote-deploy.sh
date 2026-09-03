@@ -348,6 +348,10 @@ echo "== expire auto-blocks timer =="
 chmod +x scripts/install-expire-auto-blocks.sh scripts/expire-auto-blocks.sh
 ./scripts/install-expire-auto-blocks.sh "$PANEL"
 
+echo "== host alerts timer =="
+chmod +x scripts/install-host-alerts.sh scripts/check-host-alerts.sh
+./scripts/install-host-alerts.sh "$PANEL"
+
 echo "== visitor ingest (Security live visitors) =="
 chmod +x scripts/install-visitor-ingest.sh scripts/visitor-ingest.sh scripts/enable-visitor-ingest.sh 2>/dev/null || true
 ./scripts/install-visitor-ingest.sh "$PANEL" || echo "install-visitor-ingest=warn"

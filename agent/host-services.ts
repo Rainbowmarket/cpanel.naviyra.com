@@ -85,6 +85,16 @@ export const HOST_SERVICE_CATALOG: HostServiceDef[] = [
     alsoStart: ["naviyra-expire-blocks.service", "naviyra-expire-blocks.service"],
   },
   {
+    id: "host-alerts",
+    name: "Host alerts",
+    group: "Panel",
+    detail: "Hourly CPU/RAM/disk/agent checks that email admins when thresholds are hit.",
+    units: ["naviyra-host-alerts.timer", "naviyra-host-alerts.timer"],
+    kind: "timer",
+    allowStop: true,
+    alsoStart: ["naviyra-host-alerts.service", "naviyra-host-alerts.service"],
+  },
+  {
     id: "backup-timer",
     name: "Backup timer",
     group: "Panel",

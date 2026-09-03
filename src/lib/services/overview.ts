@@ -6,8 +6,6 @@ import { controllerAgentTarget } from "@/lib/agent/target";
 import { domainAccessWhere, type AccessActor } from "@/lib/hosting-targets";
 import { collectResourceReport, formatUptime, formatMemBytes } from "@/lib/system/resources";
 import { collectDiskReport, formatDiskBytes } from "@/lib/system/disk";
-import { evaluateAndNotifyHostAlerts } from "@/lib/mail/admin-alerts";
-import { defaultControllerAgentUrl } from "@/lib/agent/target";
 import { migrateLegacyVisitorLogsIfNeeded } from "@/lib/visitors/migrate-legacy";
 import { groupVisitorCountsByDomain } from "@/lib/visitors/store";
 
@@ -149,20 +147,6 @@ export async function getDashboardOverview(actor: AccessActor) {
           Math.round((volume.usedBytes / volume.totalBytes) * 1000) / 10
         )
       : null;
-
-  evaluateAndNotifyHostAlerts({
-    hostname: health.hostname,
-    cpuPercent: health.cpu.percent,
-    memPercent: health.memory.percent,
-    load1: health.cpu.loadAvg?.[0] ?? null,
-    cores: health.cpu.cores,
-    diskPercent: diskPct,
-    diskLabel: volume
-      ? `${formatDiskBytes(volume.usedBytes)} / ${formatDiskBytes(volume.totalBytes)}`
-      : undefined,
-    agentOnline,
-    agentUrl: defaultControllerAgentUrl(),
-  });
 
   const domainIds = trafficGroups.map((g) => g.domainId);
   const domainNames =

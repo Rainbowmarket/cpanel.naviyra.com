@@ -290,6 +290,13 @@ model MailDomain {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  /// Catch-all destination email (Postfix @domain → this mailbox), null = disabled
+  catchAllTo     String?
+  dkimSelector   String  @default("naviyra")
+  dkimPublicKey  String?
+  dkimDnsValue   String?
+  spamFilterOn   Boolean @default(false)
+
   domainId String @unique
   domain   Domain @relation(fields: [domainId], references: [id], onDelete: Cascade)
 
