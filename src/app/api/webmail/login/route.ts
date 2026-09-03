@@ -6,6 +6,12 @@ import {
   destroyMailSession,
   getMailSession,
 } from "@/lib/mail/session";
+import {
+  assertLoginAllowed,
+  clearLoginFailures,
+  getClientIp,
+  recordLoginFailure,
+} from "@/lib/rate-limit";
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -13,10 +19,29 @@ const loginSchema = z.object({
 });
 
 export async function POST(request: Request) {
+  const ip = getClientIp(request);
   try {
     const body = loginSchema.parse(await request.json());
+
+    try {
+      assertLoginAllowed(ip, body.email);
+    } catch (error) {
+      return NextResponse.json(
+        {
+          error:
+            error instanceof Error
+              ? error.message
+              : "Too many failed attempts",
+        },
+        { status: 429 }
+      );
+    }
+
     const result = await authenticateMailbox(body.email, body.password);
     if (!result.ok) {
+      if (result.code === "invalid") {
+        recordLoginFailure(ip, body.email);
+      }
       return NextResponse.json(
         {
           error: result.message,
@@ -27,6 +52,7 @@ export async function POST(request: Request) {
       );
     }
 
+    clearLoginFailures(ip, body.email);
     await createMailSession(result.id);
     return NextResponse.json({
       accountId: result.id,

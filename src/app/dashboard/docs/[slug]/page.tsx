@@ -37,7 +37,7 @@ export default function DocArticlePage() {
 
   if (!article) {
     return (
-      <div className="space-y-4">
+      <div className="space-y-6">
         <p className="text-sm text-slate-400">Article not found.</p>
         <Link
           href="/dashboard/docs"
@@ -91,11 +91,11 @@ export default function DocArticlePage() {
         ) : null}
       </div>
 
-      <div className="space-y-4">
+      <div className="space-y-6">
         {article.sections.map((section) => (
           <article
             key={section.heading}
-            className="rounded-xl border border-slate-800 bg-slate-950/80 p-4 sm:p-5"
+            className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 sm:p-5"
           >
             <h3 className="flex items-center gap-2 text-base font-semibold text-white">
               <BookOpen className="h-4 w-4 text-emerald-400" />

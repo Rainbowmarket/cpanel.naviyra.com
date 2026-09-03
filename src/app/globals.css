@@ -3,6 +3,10 @@
 :root {
   --background: #0f172a;
   --foreground: #f8fafc;
+  /* Canonical dashboard surfaces */
+  --panel-card-bg: #0f172a; /* slate-900 */
+  --panel-card-border: #1e293b; /* slate-800 */
+  --panel-inset-bg: rgb(2 6 23 / 0.6); /* slate-950/60 */
 }
 
 @theme inline {
@@ -26,6 +30,20 @@ html {
 body {
   min-height: 100%;
   overflow: hidden;
+}
+
+/* Standard card / section panel */
+.panel-card {
+  border-radius: 0.75rem; /* xl */
+  border: 1px solid var(--panel-card-border);
+  background-color: var(--panel-card-bg);
+}
+
+/* Nested / inset panel inside a card */
+.panel-card-inset {
+  border-radius: 0.75rem;
+  border: 1px solid var(--panel-card-border);
+  background-color: var(--panel-inset-bg);
 }
 
 /* Dark themed scrollbars — root and all scroll containers */

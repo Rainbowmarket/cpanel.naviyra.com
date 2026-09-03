@@ -4,6 +4,8 @@ import { SearchInput } from "@/components/ui/search-input";
 
 type PageHeaderProps = {
   title: string;
+  /** Visible subtitle under the title (e.g. hostname). */
+  subtitle?: ReactNode;
   description?: string;
   actionLabel?: string;
   onAction?: () => void;
@@ -11,10 +13,13 @@ type PageHeaderProps = {
   searchValue?: string;
   onSearchChange?: (value: string) => void;
   searchPlaceholder?: string;
+  /** Right-side status chip / custom control (e.g. agent online). */
+  trailing?: ReactNode;
 };
 
 export function PageHeader({
   title,
+  subtitle,
   description,
   actionLabel,
   onAction,
@@ -22,12 +27,16 @@ export function PageHeader({
   searchValue,
   onSearchChange,
   searchPlaceholder = "Search...",
+  trailing,
 }: PageHeaderProps) {
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
-      <h2 className="shrink-0 text-lg font-semibold text-white sm:text-xl">
-        {title}
-      </h2>
+      <div className="min-w-0 shrink-0">
+        <h2 className="text-lg font-semibold text-white sm:text-xl">{title}</h2>
+        {subtitle ? (
+          <div className="mt-0.5 text-xs text-slate-500">{subtitle}</div>
+        ) : null}
+      </div>
 
       {onSearchChange ? (
         <SearchInput
@@ -39,6 +48,8 @@ export function PageHeader({
       ) : (
         <div className="hidden min-w-0 flex-1 sm:block" />
       )}
+
+      {trailing ? <div className="shrink-0">{trailing}</div> : null}
 
       {actionLabel && onAction ? (
         <button

@@ -247,14 +247,14 @@ export default function DnsPage() {
       />
 
       <div className="flex flex-wrap items-center gap-2">
-        <div className="inline-flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/80 px-3.5 py-2 text-sm text-slate-400">
+        <div className="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/60 px-3.5 py-2 text-sm text-slate-400">
           <Network className="h-4 w-4 text-emerald-400" />
           <span className="text-xs uppercase tracking-wider text-slate-500">NS</span>
           <span className="font-mono text-emerald-300">{nameservers.ns1 || "—"}</span>
           <span className="text-slate-600">·</span>
           <span className="font-mono text-emerald-300">{nameservers.ns2 || "—"}</span>
         </div>
-        <div className="rounded-lg border border-slate-800 bg-slate-950/80 px-3.5 py-2 text-sm text-slate-400">
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 px-3.5 py-2 text-sm text-slate-400">
           <span className="text-white">{filtered.length}</span> zone
           {filtered.length === 1 ? "" : "s"}
           <span className="mx-1.5 text-slate-600">·</span>
@@ -312,7 +312,7 @@ export default function DnsPage() {
         }`}
         description="Use @ for the root domain, or a label like www, mail, or blog."
       >
-        <form onSubmit={handleSaveRecord} className="space-y-4">
+        <form onSubmit={handleSaveRecord} className="space-y-6">
           <div>
             <label className={modalLabelClass}>Name</label>
             <input
@@ -382,7 +382,7 @@ export default function DnsPage() {
           return (
             <div
               key={zone.id}
-              className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/80"
+              className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/60"
             >
               <div className="flex flex-wrap items-center gap-2 px-3 py-2.5 sm:px-4">
                 <button

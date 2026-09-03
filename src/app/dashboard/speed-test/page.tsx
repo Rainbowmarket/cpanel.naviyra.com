@@ -127,7 +127,7 @@ export default function SpeedTestPage() {
         description="Measures download and upload throughput from this server (not your browser)."
       />
 
-      <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-4 sm:p-5">
+      <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 sm:p-5">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap items-center gap-4 text-sm text-slate-300">
             <label className="inline-flex cursor-pointer items-center gap-2">
@@ -190,7 +190,7 @@ export default function SpeedTestPage() {
       {report ? (
         <>
           <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-4 sm:p-5">
+            <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 sm:p-5">
               <div className="flex items-center gap-2 text-slate-400">
                 <ArrowDownToLine className="h-4 w-4 text-emerald-400" />
                 <span className="text-xs font-medium uppercase tracking-wider">
@@ -215,7 +215,7 @@ export default function SpeedTestPage() {
               )}
             </div>
 
-            <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-4 sm:p-5">
+            <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 sm:p-5">
               <div className="flex items-center gap-2 text-slate-400">
                 <ArrowUpFromLine className="h-4 w-4 text-sky-400" />
                 <span className="text-xs font-medium uppercase tracking-wider">
@@ -241,7 +241,7 @@ export default function SpeedTestPage() {
             </div>
           </div>
 
-          <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/80">
+          <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/60">
             <div className="border-b border-slate-800 px-4 py-3 text-xs font-medium uppercase tracking-wider text-slate-500">
               Probe details ·{" "}
               {new Date(report.testedAt).toLocaleString()}

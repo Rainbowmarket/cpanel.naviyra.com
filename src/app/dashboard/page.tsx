@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getSessionUser } from "@/lib/auth";
 import { getDashboardOverview } from "@/lib/services/overview";
 import { canAccessDashboardPath } from "@/lib/panel-permissions";
+import { PageHeader } from "@/components/ui/page-header";
 import {
   Activity,
   AlertTriangle,
@@ -48,7 +49,7 @@ function Metric({
   return (
     <Link
       href={href}
-      className="rounded-xl border border-slate-800 bg-slate-950/80 p-3 transition hover:border-slate-700"
+      className="panel-card-inset p-3 transition hover:border-slate-700"
     >
       <div className="flex items-center justify-between gap-2">
         <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-500">
@@ -102,30 +103,34 @@ export default async function DashboardPage() {
     : "/dashboard";
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <h2 className="text-lg font-bold text-white sm:text-xl">Overview</h2>
-          <p className="mt-0.5 text-xs text-slate-500">
+    <div className="space-y-6">
+      <PageHeader
+        title="Overview"
+        subtitle={
+          <>
             {overview.health.hostname}
-            {domainCount ? ` · ${domainCount} site${domainCount === 1 ? "" : "s"}` : ""}
-          </p>
-        </div>
-        <div
-          className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] ${
-            overview.agentOnline
-              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-              : "border-red-500/30 bg-red-500/10 text-red-300"
-          }`}
-        >
-          <span
-            className={`h-1.5 w-1.5 rounded-full ${
-              overview.agentOnline ? "bg-emerald-400" : "bg-red-400"
+            {domainCount
+              ? ` · ${domainCount} site${domainCount === 1 ? "" : "s"}`
+              : ""}
+          </>
+        }
+        trailing={
+          <div
+            className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] ${
+              overview.agentOnline
+                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                : "border-red-500/30 bg-red-500/10 text-red-300"
             }`}
-          />
-          Agent {overview.agentOnline ? "online" : "offline"}
-        </div>
-      </div>
+          >
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${
+                overview.agentOnline ? "bg-emerald-400" : "bg-red-400"
+              }`}
+            />
+            Agent {overview.agentOnline ? "online" : "offline"}
+          </div>
+        }
+      />
 
       {overview.alerts.length > 0 ? (
         <section className="rounded-xl border border-amber-500/25 bg-amber-500/5">
@@ -167,7 +172,7 @@ export default async function DashboardPage() {
           <h3 className="text-sm font-semibold text-white">Server health</h3>
           <Link
             href={healthHref}
-            className="inline-flex items-center gap-1 text-[11px] text-sky-400 hover:text-sky-300"
+            className="inline-flex items-center gap-1 text-[11px] text-emerald-400 hover:text-emerald-300"
           >
             Details
             <ArrowRight className="h-3 w-3" />
@@ -226,7 +231,7 @@ export default async function DashboardPage() {
           {canAccessDashboardPath(user, "/dashboard/services") ? (
             <Link
               href="/dashboard/services"
-              className="inline-flex items-center gap-1 text-[11px] text-sky-400 hover:text-sky-300"
+              className="inline-flex items-center gap-1 text-[11px] text-emerald-400 hover:text-emerald-300"
             >
               Start / stop
               <ArrowRight className="h-3 w-3" />
@@ -234,7 +239,7 @@ export default async function DashboardPage() {
           ) : canAccessDashboardPath(user, "/dashboard/service-tests") ? (
             <Link
               href="/dashboard/service-tests"
-              className="inline-flex items-center gap-1 text-[11px] text-sky-400 hover:text-sky-300"
+              className="inline-flex items-center gap-1 text-[11px] text-emerald-400 hover:text-emerald-300"
             >
               Tests
               <ArrowRight className="h-3 w-3" />
@@ -248,7 +253,7 @@ export default async function DashboardPage() {
               href={
                 canAccessDashboardPath(user, svc.href) ? svc.href : "/dashboard"
               }
-              className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-2.5 hover:border-slate-700"
+              className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2.5 hover:border-slate-700"
             >
               <span
                 className={`h-2.5 w-2.5 shrink-0 rounded-full ${
@@ -265,7 +270,7 @@ export default async function DashboardPage() {
       </section>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <section className="rounded-xl border border-slate-800 bg-slate-950/80">
+        <section className="rounded-xl border border-slate-800 bg-slate-950/60">
           <div className="flex items-center justify-between border-b border-slate-800 px-3 py-2.5">
             <h3 className="flex items-center gap-1.5 text-sm font-semibold text-white">
               <Globe className="h-4 w-4 text-slate-500" />
@@ -273,7 +278,7 @@ export default async function DashboardPage() {
             </h3>
             <Link
               href="/dashboard/domains"
-              className="inline-flex items-center gap-1 text-[11px] text-sky-400 hover:text-sky-300"
+              className="inline-flex items-center gap-1 text-[11px] text-emerald-400 hover:text-emerald-300"
             >
               All sites
               <ArrowRight className="h-3 w-3" />
@@ -305,7 +310,7 @@ export default async function DashboardPage() {
           )}
         </section>
 
-        <section className="rounded-xl border border-slate-800 bg-slate-950/80">
+        <section className="rounded-xl border border-slate-800 bg-slate-950/60">
           <div className="flex items-center justify-between border-b border-slate-800 px-3 py-2.5">
             <h3 className="flex items-center gap-1.5 text-sm font-semibold text-white">
               <Shield className="h-4 w-4 text-slate-500" />
@@ -313,14 +318,14 @@ export default async function DashboardPage() {
             </h3>
             <Link
               href="/dashboard/security"
-              className="inline-flex items-center gap-1 text-[11px] text-sky-400 hover:text-sky-300"
+              className="inline-flex items-center gap-1 text-[11px] text-emerald-400 hover:text-emerald-300"
             >
               Details
               <ArrowRight className="h-3 w-3" />
             </Link>
           </div>
           <div className="grid grid-cols-2 gap-px bg-slate-800">
-            <div className="bg-slate-950/80 p-3">
+            <div className="bg-slate-950/60 p-3">
               <p className="text-[11px] uppercase tracking-wide text-slate-500">
                 Firewall
               </p>
@@ -338,7 +343,7 @@ export default async function DashboardPage() {
                     : "Inactive"}
               </p>
             </div>
-            <div className="bg-slate-950/80 p-3">
+            <div className="bg-slate-950/60 p-3">
               <p className="flex items-center gap-1 text-[11px] uppercase tracking-wide text-slate-500">
                 <Lock className="h-3 w-3" />
                 Failed logins
@@ -350,7 +355,7 @@ export default async function DashboardPage() {
                 </span>
               </p>
             </div>
-            <div className="bg-slate-950/80 p-3">
+            <div className="bg-slate-950/60 p-3">
               <p className="flex items-center gap-1 text-[11px] uppercase tracking-wide text-slate-500">
                 <ShieldAlert className="h-3 w-3" />
                 Threats
@@ -362,7 +367,7 @@ export default async function DashboardPage() {
                 </span>
               </p>
             </div>
-            <div className="bg-slate-950/80 p-3">
+            <div className="bg-slate-950/60 p-3">
               <p className="text-[11px] uppercase tracking-wide text-slate-500">
                 Blocked IPs
               </p>

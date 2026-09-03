@@ -448,7 +448,7 @@ export default function TerminalPage() {
       )}
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950 shadow-inner">
+        <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/60 shadow-inner">
           <div ref={termRef} className="h-[min(60vh,520px)] w-full p-2" />
           <p className="border-t border-slate-800 px-3 py-1.5 text-[11px] text-slate-500">
             Select text then Ctrl+C to copy. Paste with Ctrl+V (⌘C / ⌘V on
@@ -457,7 +457,7 @@ export default function TerminalPage() {
           </p>
         </div>
 
-        <div className="flex max-h-[min(60vh,520px)] flex-col overflow-hidden rounded-xl border border-slate-800 bg-slate-950">
+        <div className="flex max-h-[min(60vh,520px)] flex-col overflow-hidden rounded-xl border border-slate-800 bg-slate-950/60">
           <div className="border-b border-slate-800 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
             Session log
             {sessionId && (

@@ -65,7 +65,7 @@ export default function DocsIndexPage() {
       ))}
 
       {filtered.length === 0 ? (
-        <p className="rounded-xl border border-slate-800 bg-slate-950/80 px-4 py-8 text-center text-sm text-slate-500">
+        <p className="rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-8 text-center text-sm text-slate-500">
           No articles match “{q}”.
         </p>
       ) : null}
@@ -77,7 +77,7 @@ function DocCard({ article }: { article: DocArticle }) {
   return (
     <Link
       href={`/dashboard/docs/${article.slug}`}
-      className="group flex flex-col rounded-xl border border-slate-800 bg-slate-950/80 p-4 transition hover:border-emerald-500/30 hover:bg-slate-900/70"
+      className="group flex flex-col rounded-xl border border-slate-800 bg-slate-950/60 p-4 transition hover:border-emerald-500/30 hover:bg-slate-900/70"
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2">

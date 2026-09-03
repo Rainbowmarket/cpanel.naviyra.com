@@ -845,7 +845,7 @@ export default function DatabaseBrowser({ native = false }: { native?: boolean }
       className={
         native
           ? "flex h-[100dvh] min-h-0 flex-col overflow-hidden bg-slate-950 text-slate-100"
-          : "space-y-4"
+          : "space-y-6"
       }
     >
       <div
@@ -857,13 +857,13 @@ export default function DatabaseBrowser({ native = false }: { native?: boolean }
       >
         <div>
           <p className="text-xs text-slate-500">
-            <Link href="/dashboard/databases" className="text-sky-400 hover:text-sky-300">
+            <Link href="/dashboard/databases" className="text-emerald-400 hover:text-emerald-300">
               Databases
             </Link>
             {selected ? ` · ${selected.schema}` : ""}
           </p>
           <div className="mt-1 flex flex-wrap items-center gap-2">
-            <h2 className="text-lg font-bold text-white sm:text-xl">
+            <h2 className="text-lg font-semibold text-white sm:text-xl">
               {label || dbName || "Database"}
             </h2>
             <span className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-300">
@@ -937,7 +937,7 @@ export default function DatabaseBrowser({ native = false }: { native?: boolean }
         ].map((m) => (
           <div
             key={m.label}
-            className="rounded-xl border border-slate-800 bg-slate-950/80 p-3"
+            className="rounded-xl border border-slate-800 bg-slate-950/60 p-3"
           >
             <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
               {m.label}
@@ -987,7 +987,7 @@ export default function DatabaseBrowser({ native = false }: { native?: boolean }
           className={
             native
               ? "flex min-h-0 flex-col border-r border-slate-800 bg-slate-950 p-2"
-              : "rounded-xl border border-slate-800 bg-slate-950/80 p-2"
+              : "rounded-xl border border-slate-800 bg-slate-950/60 p-2"
           }
         >
           <input
@@ -1068,7 +1068,7 @@ export default function DatabaseBrowser({ native = false }: { native?: boolean }
           className={
             native
               ? "flex min-h-0 min-w-0 flex-col overflow-hidden bg-slate-950"
-              : "min-w-0 rounded-xl border border-slate-800 bg-slate-950/80"
+              : "min-w-0 rounded-xl border border-slate-800 bg-slate-950/60"
           }
         >
           {selected && !selectedKey.startsWith("fn:") && !selectedKey.startsWith("tg:") && !selectedKey.startsWith("en:") && !selectedKey.startsWith("sc:") ? (
@@ -1384,7 +1384,7 @@ export default function DatabaseBrowser({ native = false }: { native?: boolean }
                   ) : (
                     <ul className="space-y-2 text-xs">
                       {tableIndexes.map((idx) => (
-                        <li key={idx.name} className="rounded-lg border border-slate-800 px-3 py-2">
+                        <li key={idx.name} className="rounded-xl border border-slate-800 px-3 py-2">
                           <p className="font-mono text-slate-200">{idx.name}</p>
                           <p className="mt-1 text-slate-500">{idx.definition}</p>
                         </li>
@@ -1401,7 +1401,7 @@ export default function DatabaseBrowser({ native = false }: { native?: boolean }
                   ) : (
                     <ul className="space-y-2 text-xs">
                       {tableRelations.map((r) => (
-                        <li key={r.name + r.column} className="rounded-lg border border-slate-800 px-3 py-2">
+                        <li key={r.name + r.column} className="rounded-xl border border-slate-800 px-3 py-2">
                           {r.column} → {r.foreignTable}.{r.foreignColumn}
                         </li>
                       ))}
@@ -1454,7 +1454,7 @@ export default function DatabaseBrowser({ native = false }: { native?: boolean }
           className={
             native
               ? "shrink-0 border-t border-slate-800 bg-slate-950 p-3"
-              : "rounded-xl border border-slate-800 bg-slate-950/80 p-3"
+              : "rounded-xl border border-slate-800 bg-slate-950/60 p-3"
           }
         >
           <div className="mb-2 flex items-center justify-between">
@@ -1495,7 +1495,7 @@ export default function DatabaseBrowser({ native = false }: { native?: boolean }
             ) : null}
           </div>
           {sqlResult && sqlResult.columns.length > 0 ? (
-            <div className="mt-3 max-h-56 overflow-auto rounded-lg border border-slate-800">
+            <div className="mt-3 max-h-56 overflow-auto rounded-xl border border-slate-800">
               <table className="min-w-full text-left text-xs">
                 <thead className="sticky top-0 bg-slate-900 text-slate-400">
                   <tr>

@@ -91,7 +91,7 @@ export default function FtpPage() {
   );
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <PageHeader
         title="FTP Server"
         description="Create FTP accounts for file uploads."
@@ -122,7 +122,7 @@ export default function FtpPage() {
         title="Create FTP Account"
         description="Add an FTP user scoped to a domain or subdomain directory."
       >
-        <form onSubmit={handleCreate} className="space-y-4">
+        <form onSubmit={handleCreate} className="space-y-6">
           <div>
             <label className={modalLabelClass}>Domain / Subdomain</label>
             <Select
@@ -167,7 +167,7 @@ export default function FtpPage() {
         {filteredAccounts.map((a) => (
           <div
             key={a.id}
-            className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-950 px-4 py-3"
+            className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-3"
           >
             <div className="min-w-0">
               <p className="font-medium text-white">{a.username}</p>
@@ -185,11 +185,11 @@ export default function FtpPage() {
           </div>
         ))}
         {accounts.length === 0 ? (
-          <p className="rounded-lg border border-slate-800 bg-slate-950/50 px-5 py-8 text-center text-slate-500">
+          <p className="rounded-xl border border-slate-800 bg-slate-950/60 px-5 py-8 text-center text-slate-500">
             No FTP accounts yet. Click Create FTP Account to add one.
           </p>
         ) : filteredAccounts.length === 0 ? (
-          <p className="rounded-lg border border-slate-800 bg-slate-950/50 px-5 py-8 text-center text-slate-500">
+          <p className="rounded-xl border border-slate-800 bg-slate-950/60 px-5 py-8 text-center text-slate-500">
             No FTP accounts match your search.
           </p>
         ) : null}

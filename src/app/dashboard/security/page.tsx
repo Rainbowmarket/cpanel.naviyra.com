@@ -557,8 +557,8 @@ function SecurityPageInner() {
       </div>
 
       {tab === "overview" && stats && (
-        <div className="space-y-4">
-          <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/80">
+        <div className="space-y-6">
+          <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/60">
             <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6">
               {overviewStats.map((stat, idx) => {
                 const Icon = stat.icon;
@@ -606,7 +606,7 @@ function SecurityPageInner() {
             </div>
           </div>
 
-          <section className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/80">
+          <section className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/60">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 px-4 py-2.5 sm:px-5">
               <h2 className="text-sm font-semibold text-white">Live visitors</h2>
               <div className="flex flex-wrap items-center gap-2">
@@ -693,7 +693,7 @@ function SecurityPageInner() {
 
       {tab === "visitors" && (
         <div className="space-y-3">
-          <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-3.5 sm:p-4">
+          <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3.5 sm:p-4">
             <div className="flex flex-wrap items-center gap-2">
               {(
                 [
@@ -843,7 +843,7 @@ function SecurityPageInner() {
                 return (
                   <div
                     key={domainName}
-                    className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/80"
+                    className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/60"
                   >
                     <button
                       type="button"
@@ -998,7 +998,7 @@ function SecurityPageInner() {
           {isAdmin ? (
           <form
             onSubmit={addBlock}
-            className="flex flex-wrap gap-2 rounded-xl border border-slate-800 bg-slate-950/80 p-3.5"
+            className="flex flex-wrap gap-2 rounded-xl border border-slate-800 bg-slate-950/60 p-3.5"
           >
             <input
               className={fieldClass}
@@ -1089,7 +1089,7 @@ function SecurityPageInner() {
           {isAdmin ? (
           <form
             onSubmit={addWhite}
-            className="flex flex-wrap gap-2 rounded-xl border border-slate-800 bg-slate-950/80 p-3.5"
+            className="flex flex-wrap gap-2 rounded-xl border border-slate-800 bg-slate-950/60 p-3.5"
           >
             <input
               className={fieldClass}
@@ -1166,7 +1166,7 @@ function TableShell({
   emptyText: string;
 }) {
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/80">
+    <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/60">
       {empty ? (
         <p className="px-5 py-12 text-center text-sm text-slate-500">{emptyText}</p>
       ) : (

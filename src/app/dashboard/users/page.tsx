@@ -166,7 +166,7 @@ export default function UsersPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <PageHeader
         title="Users"
         description="Create and manage panel login accounts."
@@ -188,7 +188,7 @@ export default function UsersPage() {
             : undefined
         }
       >
-        <form onSubmit={handleResetPassword} className="space-y-4">
+        <form onSubmit={handleResetPassword} className="space-y-6">
           <div>
             <label className={modalLabelClass}>New password</label>
             <input
@@ -237,7 +237,7 @@ export default function UsersPage() {
         title="New User"
         description="Create a new panel login account."
       >
-        <form onSubmit={handleCreate} className="space-y-4">
+        <form onSubmit={handleCreate} className="space-y-6">
           <div>
             <label className={modalLabelClass}>Full name</label>
             <input
@@ -298,7 +298,7 @@ export default function UsersPage() {
         {filteredUsers.map((u) => (
           <div
             key={u.id}
-            className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-slate-800 bg-slate-950/80 px-5 py-4"
+            className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-slate-800 bg-slate-950/60 px-5 py-4"
           >
             <div>
               <div className="flex flex-wrap items-center gap-3">
@@ -341,11 +341,11 @@ export default function UsersPage() {
           </div>
         ))}
         {users.length === 0 ? (
-          <p className="rounded-xl border border-slate-800 bg-slate-950/50 px-5 py-10 text-center text-slate-500">
+          <p className="rounded-xl border border-slate-800 bg-slate-950/60 px-5 py-10 text-center text-slate-500">
             No users yet. Click New User to create one.
           </p>
         ) : filteredUsers.length === 0 ? (
-          <p className="rounded-xl border border-slate-800 bg-slate-950/50 px-5 py-10 text-center text-slate-500">
+          <p className="rounded-xl border border-slate-800 bg-slate-950/60 px-5 py-10 text-center text-slate-500">
             No users match your search.
           </p>
         ) : null}

@@ -126,9 +126,17 @@ function formatFileSize(n: number): string {
 }
 
 function isImageAttachment(file: MailAttachment): boolean {
-  const type = (file.contentType || "").toLowerCase();
-  if (type.startsWith("image/")) return true;
-  return /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(file.filename);
+  const type = (file.contentType || "").toLowerCase().split(";")[0]?.trim() ?? "";
+  // Exclude SVG — executable when served as image/svg+xml in the panel origin.
+  if (
+    type === "image/png" ||
+    type === "image/jpeg" ||
+    type === "image/gif" ||
+    type === "image/webp"
+  ) {
+    return true;
+  }
+  return /\.(png|jpe?g|gif|webp)$/i.test(file.filename);
 }
 
 function isPdfAttachment(file: MailAttachment): boolean {

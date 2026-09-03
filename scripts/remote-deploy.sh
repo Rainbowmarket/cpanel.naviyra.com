@@ -30,6 +30,12 @@ grep -q '^AGENT_URL=' .env || echo 'AGENT_URL=http://127.0.0.1:4100' >> .env
 sed -i 's|^AGENT_DRY_RUN=.*|AGENT_DRY_RUN=false|' .env
 grep -q '^AGENT_DRY_RUN=' .env || echo 'AGENT_DRY_RUN=false' >> .env
 grep -q '^NAVIYRA_NO_BROWSER=' .env || echo 'NAVIYRA_NO_BROWSER=true' >> .env
+# Behind nginx: honor X-Real-IP / X-Forwarded-Proto (keep PANEL_PORT off the public internet).
+if grep -q '^TRUST_PROXY=' .env; then
+  sed -i 's|^TRUST_PROXY=.*|TRUST_PROXY=true|' .env
+else
+  echo 'TRUST_PROXY=true' >> .env
+fi
 # HTTP://IP:3100 cannot keep a Secure cookie — do not force COOKIE_SECURE=true
 if grep -q '^COOKIE_SECURE=' .env; then
   sed -i 's|^COOKIE_SECURE=true|COOKIE_SECURE=false|' .env

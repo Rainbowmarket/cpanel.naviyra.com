@@ -601,7 +601,7 @@ export default function DatabasesPage() {
   );
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <PageHeader
         title="Databases"
         description="Managed databases on the site’s server (localhost)."
@@ -642,7 +642,7 @@ export default function DatabasesPage() {
         }
       >
         <form
-          className="space-y-4"
+          className="space-y-6"
           onSubmit={(e) => {
             e.preventDefault();
             if (!pmaDb) return;
@@ -681,7 +681,7 @@ export default function DatabasesPage() {
         title="Create Database"
         description="Name is what you type. Pick an engine installed on that site’s server (Servers → Plugins → Install)."
       >
-        <form onSubmit={handleCreate} className="space-y-4">
+        <form onSubmit={handleCreate} className="space-y-6">
           <div>
             <label className={modalLabelClass}>Domain / Subdomain</label>
             <Select
@@ -746,7 +746,7 @@ export default function DatabasesPage() {
         title="Reset password"
         description="Set a new password for this database user. Shown once."
       >
-        <form onSubmit={handleReset} className="space-y-4">
+        <form onSubmit={handleReset} className="space-y-6">
           <div>
             <label className={modalLabelClass}>New password</label>
             <input
@@ -855,7 +855,7 @@ export default function DatabasesPage() {
         ) : schemaError ? (
           <p className="text-sm text-red-400">{schemaError}</p>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-6">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-xs text-slate-500">
                 {schemaTables.length} table
@@ -882,7 +882,7 @@ export default function DatabasesPage() {
             {createTableOpen ? (
               <form
                 onSubmit={handleCreateTable}
-                className="space-y-3 rounded-lg border border-slate-800 bg-slate-950/70 p-3"
+                className="space-y-3 rounded-xl border border-slate-800 bg-slate-950/60 p-3"
               >
                 <div>
                   <label className={modalLabelClass}>Table name</label>
@@ -1031,7 +1031,7 @@ export default function DatabasesPage() {
             {editOpen ? (
               <form
                 onSubmit={handleEditTable}
-                className="space-y-3 rounded-lg border border-slate-800 bg-slate-950/70 p-3"
+                className="space-y-3 rounded-xl border border-slate-800 bg-slate-950/60 p-3"
               >
                 {(() => {
                   const selected = schemaTables.find(
@@ -1228,7 +1228,7 @@ export default function DatabasesPage() {
               </p>
             ) : schemaTables.length > 0 ? (
               <div className="grid gap-4 lg:grid-cols-[13rem_1fr]">
-                <div className="max-h-[28rem] space-y-1 overflow-y-auto rounded-lg border border-slate-800 bg-slate-950/60 p-2">
+                <div className="max-h-[28rem] space-y-1 overflow-y-auto rounded-xl border border-slate-800 bg-slate-950/60 p-2">
                   {schemaTables.map((table) => {
                     const key = `${table.schema}.${table.name}`;
                     const active = key === selectedTableKey;
@@ -1305,7 +1305,7 @@ export default function DatabasesPage() {
                               </button>
                             </div>
                           </div>
-                          <div className="mt-3 overflow-x-auto rounded-lg border border-slate-800">
+                          <div className="mt-3 overflow-x-auto rounded-xl border border-slate-800">
                             <table className="min-w-full text-left text-xs">
                               <thead className="bg-slate-900 text-slate-400">
                                 <tr>
@@ -1369,7 +1369,7 @@ export default function DatabasesPage() {
                               No columns or rows to show.
                             </p>
                           ) : (
-                            <div className="mt-3 max-h-64 overflow-auto rounded-lg border border-slate-800">
+                            <div className="mt-3 max-h-64 overflow-auto rounded-xl border border-slate-800">
                               <table className="min-w-full text-left text-xs">
                                 <thead className="sticky top-0 bg-slate-900 text-slate-400">
                                   <tr>
@@ -1430,7 +1430,7 @@ export default function DatabasesPage() {
         {filtered.map((db) => (
           <div
             key={db.id}
-            className="rounded-lg border border-slate-800 bg-slate-950 px-4 py-3"
+            className="rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-3"
           >
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
@@ -1497,11 +1497,11 @@ export default function DatabasesPage() {
           </div>
         ))}
         {databases.length === 0 ? (
-          <p className="rounded-lg border border-slate-800 bg-slate-950/50 px-5 py-8 text-center text-slate-500">
+          <p className="rounded-xl border border-slate-800 bg-slate-950/60 px-5 py-8 text-center text-slate-500">
             No databases yet. Click Create Database to add one.
           </p>
         ) : filtered.length === 0 ? (
-          <p className="rounded-lg border border-slate-800 bg-slate-950/50 px-5 py-8 text-center text-slate-500">
+          <p className="rounded-xl border border-slate-800 bg-slate-950/60 px-5 py-8 text-center text-slate-500">
             No databases match your search.
           </p>
         ) : null}

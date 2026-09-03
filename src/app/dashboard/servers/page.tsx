@@ -287,7 +287,7 @@ export default function ServersPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <PageHeader
         title="Servers"
         description="Hosting nodes for your sites"
@@ -301,12 +301,12 @@ export default function ServersPage() {
         {servers.map((s) => (
           <div
             key={s.id}
-            className="rounded-xl border border-slate-800 bg-slate-950/80 p-4"
+            className="rounded-xl border border-slate-800 bg-slate-950/60 p-4"
           >
             <div className="flex items-start justify-between gap-2">
               <div>
                 <p className="flex items-center gap-2 text-sm font-semibold text-white">
-                  <Server className="h-4 w-4 text-sky-400" />
+                  <Server className="h-4 w-4 text-emerald-400" />
                   {s.name}
                 </p>
                 <p className="mt-0.5 font-mono text-xs text-slate-400">{s.hostname}</p>
@@ -377,7 +377,7 @@ export default function ServersPage() {
       </div>
 
       {pluginServerId ? (
-        <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-4">
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
           <p className="text-sm font-medium text-white">
             Plugins on {servers.find((s) => s.id === pluginServerId)?.hostname ?? pluginServerId}
           </p>
@@ -393,7 +393,7 @@ export default function ServersPage() {
             {plugins.map((p) => (
               <div
                 key={p.pluginId}
-                className="rounded-lg border border-slate-800 bg-slate-900/60 p-3"
+                className="rounded-xl border border-slate-800 bg-slate-900 p-3"
               >
                 <p className="text-xs font-medium text-slate-200">
                   {p.name}{" "}

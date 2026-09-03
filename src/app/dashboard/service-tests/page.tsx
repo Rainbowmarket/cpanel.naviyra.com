@@ -113,7 +113,7 @@ export default function ServiceTestsPage() {
   const done = rows.some((r) => r.state !== "idle" && r.state !== "running");
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <PageHeader
         title="Service tests"
         description="Runs each check in order: process up, HTTP, agent, databases, nginx, logs, timers."
@@ -141,7 +141,7 @@ export default function ServiceTestsPage() {
         </p>
       ) : null}
 
-      <ol className="divide-y divide-slate-800 overflow-hidden rounded-xl border border-slate-800 bg-slate-950/80">
+      <ol className="divide-y divide-slate-800 overflow-hidden rounded-xl border border-slate-800 bg-slate-950/60">
         {rows.map((row, index) => (
           <li key={row.id} className="flex gap-3 px-4 py-3 sm:px-5">
             <span className="w-6 shrink-0 pt-0.5 text-right text-xs tabular-nums text-slate-600">
@@ -187,7 +187,7 @@ export default function ServiceTestsPage() {
         ))}
       </ol>
 
-      <section className="space-y-3 rounded-xl border border-slate-800 bg-slate-950/80 p-4 sm:p-5">
+      <section className="space-y-3 rounded-xl border border-slate-800 bg-slate-950/60 p-4 sm:p-5">
         <h3 className="text-sm font-semibold text-white">Access log vs error log</h3>
         <div className="grid gap-3 text-sm text-slate-400 sm:grid-cols-2">
           <div>

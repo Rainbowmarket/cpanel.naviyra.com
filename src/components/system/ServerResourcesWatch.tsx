@@ -96,7 +96,7 @@ export function ServerResourcesWatch() {
   const memPct = report?.memory.percent ?? null;
 
   return (
-    <section className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/80">
+    <section className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/60">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 px-4 py-2.5">
         <div className="flex items-center gap-2">
           <Activity className="h-4 w-4 text-sky-400" />
@@ -135,7 +135,7 @@ export function ServerResourcesWatch() {
       </div>
 
       <div className="grid gap-3 p-4 sm:grid-cols-2">
-        <div className="rounded-lg border border-slate-800/80 bg-slate-900/40 px-3 py-3">
+        <div className="rounded-xl border border-slate-800/80 bg-slate-900/40 px-3 py-3">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-1.5 text-xs text-slate-300">
               <Cpu className="h-3.5 w-3.5 text-sky-400" />
@@ -164,7 +164,7 @@ export function ServerResourcesWatch() {
           </p>
         </div>
 
-        <div className="rounded-lg border border-slate-800/80 bg-slate-900/40 px-3 py-3">
+        <div className="rounded-xl border border-slate-800/80 bg-slate-900/40 px-3 py-3">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-1.5 text-xs text-slate-300">
               <MemoryStick className="h-3.5 w-3.5 text-violet-400" />

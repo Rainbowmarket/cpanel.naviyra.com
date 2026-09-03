@@ -352,7 +352,7 @@ export default function MailPage() {
   });
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <PageHeader
         title="Mail Server"
         description="Mailboxes, aliases, catch-all, DKIM/DMARC, quotas, and admin queue tools."
@@ -407,7 +407,7 @@ export default function MailPage() {
       </div>
 
       {filterDomainId ? (
-        <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-4">
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
           <p className="text-sm font-medium text-white">Catch-all</p>
           <p className="mt-1 text-xs text-slate-500">
             Forward unknown addresses on this domain to a mailbox (or clear to
@@ -437,7 +437,7 @@ export default function MailPage() {
         title="Create Mailbox"
         description="Add a new email account for a domain."
       >
-        <form onSubmit={handleCreate} className="space-y-4">
+        <form onSubmit={handleCreate} className="space-y-6">
           <div>
             <label className={modalLabelClass}>Domain</label>
             <Select
@@ -492,7 +492,7 @@ export default function MailPage() {
         title="Create Alias"
         description="Alias forwards to another mailbox or external address."
       >
-        <form onSubmit={handleCreateAlias} className="space-y-4">
+        <form onSubmit={handleCreateAlias} className="space-y-6">
           <div>
             <label className={modalLabelClass}>Domain</label>
             <Select
@@ -535,7 +535,7 @@ export default function MailPage() {
         {filteredAccounts.map((a) => (
           <div
             key={a.id}
-            className="rounded-xl border border-slate-800 bg-slate-950/80 p-5"
+            className="rounded-xl border border-slate-800 bg-slate-950/60 p-5"
           >
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
@@ -656,11 +656,11 @@ export default function MailPage() {
           </div>
         ))}
         {accounts.length === 0 ? (
-          <p className="rounded-xl border border-slate-800 bg-slate-950/50 px-5 py-10 text-center text-slate-500">
+          <p className="rounded-xl border border-slate-800 bg-slate-950/60 px-5 py-10 text-center text-slate-500">
             No mail accounts yet. Click Create Mailbox to add one.
           </p>
         ) : filteredAccounts.length === 0 ? (
-          <p className="rounded-xl border border-slate-800 bg-slate-950/50 px-5 py-10 text-center text-slate-500">
+          <p className="rounded-xl border border-slate-800 bg-slate-950/60 px-5 py-10 text-center text-slate-500">
             No mailboxes match your filters.
           </p>
         ) : null}
@@ -671,7 +671,7 @@ export default function MailPage() {
         {filteredAliases.map((a) => (
           <div
             key={a.id}
-            className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/80 px-5 py-3"
+            className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/60 px-5 py-3"
           >
             <div>
               <p className="font-medium text-white">{a.alias}</p>
@@ -693,7 +693,7 @@ export default function MailPage() {
       </div>
 
       {isAdmin ? (
-        <div className="space-y-3 rounded-xl border border-slate-800 bg-slate-950/80 p-5">
+        <div className="space-y-3 rounded-xl border border-slate-800 bg-slate-950/60 p-5">
           <h2 className="text-sm font-semibold text-white">Admin mail ops</h2>
           <div className="flex flex-wrap gap-2">
             <button
@@ -742,7 +742,7 @@ export default function MailPage() {
               {queueItems.map((item) => (
                 <div
                   key={item.id}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 px-3 py-2 text-xs"
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-800 px-3 py-2 text-xs"
                 >
                   <div className="text-slate-300">
                     <span className="font-mono text-white">{item.id}</span> ·{" "}

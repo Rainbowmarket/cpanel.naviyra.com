@@ -183,7 +183,7 @@ export default function GroupsPage() {
         description="Check Administrator for a full admin group, or pick individual features. Assign regular users as members — they receive those permissions immediately."
         className="max-w-2xl"
       >
-        <form onSubmit={handleSubmit} className="space-y-5">
+        <form onSubmit={handleSubmit} className="space-y-6">
           <div>
             <label className={modalLabelClass}>Group name</label>
             <input
@@ -241,7 +241,7 @@ export default function GroupsPage() {
                 No non-admin users yet. Create users first, then add them here.
               </p>
             ) : (
-              <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-slate-800 p-2">
+              <div className="max-h-48 space-y-1 overflow-y-auto rounded-xl border border-slate-800 p-2">
                 {users.map((user) => (
                   <label
                     key={user.id}
@@ -279,7 +279,7 @@ export default function GroupsPage() {
         {filtered.map((group) => (
           <div
             key={group.id}
-            className="flex flex-wrap items-start justify-between gap-4 rounded-xl border border-slate-800 bg-slate-950/80 px-5 py-4"
+            className="flex flex-wrap items-start justify-between gap-4 rounded-xl border border-slate-800 bg-slate-950/60 px-5 py-4"
           >
             <div className="min-w-0 flex-1">
               <p className="font-medium text-white">{group.name}</p>
@@ -339,11 +339,11 @@ export default function GroupsPage() {
           </div>
         ))}
         {groups.length === 0 ? (
-          <p className="rounded-xl border border-slate-800 bg-slate-950/50 px-5 py-10 text-center text-slate-500">
+          <p className="rounded-xl border border-slate-800 bg-slate-950/60 px-5 py-10 text-center text-slate-500">
             No groups yet. Click New Group to create one and assign permissions.
           </p>
         ) : filtered.length === 0 ? (
-          <p className="rounded-xl border border-slate-800 bg-slate-950/50 px-5 py-10 text-center text-slate-500">
+          <p className="rounded-xl border border-slate-800 bg-slate-950/60 px-5 py-10 text-center text-slate-500">
             No groups match your search.
           </p>
         ) : null}

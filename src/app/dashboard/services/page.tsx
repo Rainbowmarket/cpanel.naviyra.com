@@ -118,7 +118,7 @@ export default function HostServicesPage() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <PageHeader
         title="Services"
         description="Start, stop, restart, or install host packages (mail, FTP, DNS, nginx, PHP, PostgreSQL). Only allowlisted units and scripts run on the server."
@@ -160,7 +160,7 @@ export default function HostServicesPage() {
         grouped.map(([group, items]) => (
           <section
             key={group}
-            className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/80"
+            className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/60"
           >
             <h2 className="border-b border-slate-800 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
               {group}
@@ -240,7 +240,7 @@ export default function HostServicesPage() {
                         type="button"
                         disabled={Boolean(busy) || !row.installed}
                         onClick={() => void runOp(row, "restart")}
-                        className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2 py-1 text-[11px] font-medium text-sky-300 hover:bg-slate-800 disabled:opacity-40"
+                        className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2 py-1 text-[11px] font-medium text-emerald-300 hover:bg-slate-800 disabled:opacity-40"
                       >
                         {busy === `${row.id}:restart` ? (
                           <Loader2 className="h-3 w-3 animate-spin" />

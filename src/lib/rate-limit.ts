@@ -1,10 +1,13 @@
+import { trustProxyHeaders } from "@/lib/proxy-trust";
+
 /**
  * In-memory login rate limiter (per process).
  * Keyed by IP + email, plus a coarser per-IP cap against email spraying.
  *
- * TRUST_PROXY (default true): use nginx X-Real-IP only. Do not trust
- * X-Forwarded-For — clients can spoof it. Set TRUST_PROXY=false if the
- * panel port is reachable without a proxy that overwrites X-Real-IP.
+ * TRUST_PROXY (default false): only use nginx X-Real-IP when explicitly enabled.
+ * Do not trust X-Forwarded-For — clients can spoof it. Set TRUST_PROXY=true only
+ * when the panel is behind a proxy that overwrites X-Real-IP with $remote_addr
+ * and PANEL_PORT is not exposed publicly.
  */
 type Bucket = {
   failures: number;
@@ -14,21 +17,25 @@ type Bucket = {
 
 const buckets = new Map<string, Bucket>();
 const ipBuckets = new Map<string, Bucket>();
+const totpBuckets = new Map<string, Bucket>();
 
 const WINDOW_MS = 15 * 60 * 1000;
 const MAX_FAILURES = 8;
 const MAX_IP_FAILURES = 25;
 const LOCKOUT_MS = 15 * 60 * 1000;
+const SWEEP_INTERVAL_MS = 5 * 60 * 1000;
+const MAX_BUCKET_ENTRIES = 10_000;
+const TOTP_WINDOW_MS = 15 * 60 * 1000;
+const TOTP_MAX_FAILURES = 5;
+const TOTP_LOCKOUT_MS = 15 * 60 * 1000;
+
+let lastSweepAt = 0;
 
 function keyFor(ip: string, email: string): string {
   return `${ip}|${email.trim().toLowerCase()}`;
 }
 
-function trustProxyHeaders(): boolean {
-  const raw = process.env.TRUST_PROXY?.trim().toLowerCase();
-  if (raw === "false" || raw === "0") return false;
-  return true;
-}
+export { trustProxyHeaders };
 
 /**
  * Client IP for rate limiting. Prefer nginx X-Real-IP ($remote_addr),
@@ -43,7 +50,34 @@ export function getClientIp(request: Request): string {
   return "unknown";
 }
 
+function sweepStaleBuckets(now = Date.now()): void {
+  if (now - lastSweepAt < SWEEP_INTERVAL_MS) return;
+  lastSweepAt = now;
+
+  const drop = (map: Map<string, Bucket>) => {
+    for (const [key, bucket] of map) {
+      const idle = now - bucket.firstAt > WINDOW_MS && bucket.lockedUntil <= now;
+      if (idle) map.delete(key);
+    }
+    if (map.size <= MAX_BUCKET_ENTRIES) return;
+    // Spray defense: drop oldest unlocked entries first.
+    const entries = [...map.entries()].sort(
+      (a, b) => a[1].firstAt - b[1].firstAt
+    );
+    for (const [key, bucket] of entries) {
+      if (map.size <= MAX_BUCKET_ENTRIES) break;
+      if (bucket.lockedUntil > now) continue;
+      map.delete(key);
+    }
+  };
+
+  drop(buckets);
+  drop(ipBuckets);
+  drop(totpBuckets);
+}
+
 function assertBucket(map: Map<string, Bucket>, key: string, message: string): void {
+  sweepStaleBuckets();
   const now = Date.now();
   const bucket = map.get(key);
   if (!bucket) return;
@@ -63,6 +97,7 @@ function recordBucket(
   key: string,
   maxFailures: number
 ): void {
+  sweepStaleBuckets();
   const now = Date.now();
   const existing = map.get(key);
   if (!existing || now - existing.firstAt > WINDOW_MS) {
@@ -98,16 +133,12 @@ export function clearLoginFailures(ip: string, email: string): void {
 }
 
 /** Separate TOTP / backup-code brute-force limiter (IP + userId). */
-const totpBuckets = new Map<string, Bucket>();
-const TOTP_WINDOW_MS = 15 * 60 * 1000;
-const TOTP_MAX_FAILURES = 5;
-const TOTP_LOCKOUT_MS = 15 * 60 * 1000;
-
 function totpKey(ip: string, userId: string): string {
   return `2fa|${ip}|${userId}`;
 }
 
 export function assertTotpAllowed(ip: string, userId: string): void {
+  sweepStaleBuckets();
   const key = totpKey(ip, userId);
   const now = Date.now();
   const bucket = totpBuckets.get(key);
@@ -124,6 +155,7 @@ export function assertTotpAllowed(ip: string, userId: string): void {
 }
 
 export function recordTotpFailure(ip: string, userId: string): void {
+  sweepStaleBuckets();
   const key = totpKey(ip, userId);
   const now = Date.now();
   const existing = totpBuckets.get(key);

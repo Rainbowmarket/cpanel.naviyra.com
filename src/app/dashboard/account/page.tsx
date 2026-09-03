@@ -143,7 +143,7 @@ export default function AccountSecurityPage() {
         description="Optional authenticator app (TOTP) for panel login — Google Authenticator, Authy, 1Password, etc."
       />
 
-      <section className="rounded-xl border border-slate-800 bg-slate-950/80 p-5">
+      <section className="rounded-xl border border-slate-800 bg-slate-950/60 p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex items-start gap-3">
             <ShieldCheck className="mt-0.5 h-5 w-5 text-emerald-400" />
@@ -181,7 +181,7 @@ export default function AccountSecurityPage() {
             <img
               src={qrDataUrl}
               alt="2FA QR code"
-              className="h-[220px] w-[220px] rounded-lg border border-slate-800 bg-white p-2"
+              className="h-[220px] w-[220px] rounded-xl border border-slate-800 bg-white p-2"
             />
             <div className="space-y-3">
               <p className="text-xs text-slate-400">
@@ -229,7 +229,7 @@ export default function AccountSecurityPage() {
 
       {status?.enabled ? (
         <>
-          <section className="rounded-xl border border-slate-800 bg-slate-950/80 p-5">
+          <section className="rounded-xl border border-slate-800 bg-slate-950/60 p-5">
             <div className="mb-3 flex items-center gap-2">
               <KeyRound className="h-4 w-4 text-slate-400" />
               <h2 className="text-sm font-semibold text-white">
@@ -264,7 +264,7 @@ export default function AccountSecurityPage() {
             </form>
           </section>
 
-          <section className="rounded-xl border border-slate-800 bg-slate-950/80 p-5">
+          <section className="rounded-xl border border-slate-800 bg-slate-950/60 p-5">
             <h2 className="text-sm font-semibold text-white">Disable 2FA</h2>
             <p className="mt-1 text-xs text-slate-500">
               Requires your account password.

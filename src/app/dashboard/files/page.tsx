@@ -131,7 +131,7 @@ export default function FilesDirectoryPage() {
             return (
               <div
                 key={group.domain.id}
-                className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/80"
+                className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/60"
               >
                 <div className="flex flex-wrap items-center gap-2 px-3 py-2.5 sm:px-4">
                   {hasSubs ? (

@@ -331,7 +331,7 @@ export const DOC_ARTICLES: DocArticle[] = [
         body: [
           "Webmail: visit mail.yourdomain (when provisioned) or use the panel mailbox UI.",
           "External clients: use IMAP/SMTP with the server hostname and the mailbox password.",
-          "Password reset and lockouts after failed webmail logins are managed in the panel.",
+          "Password reset and timed lockouts after failed webmail logins are managed in the panel.",
         ],
         tips: [
           "MAIL_FROM / SPF must allow this server IP for outbound system mail (password reset and admin alerts).",

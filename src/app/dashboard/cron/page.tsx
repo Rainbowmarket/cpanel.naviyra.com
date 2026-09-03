@@ -127,7 +127,7 @@ export default function CronPage() {
   );
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <PageHeader
         title="Cron Jobs"
         description="Schedule commands on the server (Linux crontab)."
@@ -152,7 +152,7 @@ export default function CronPage() {
         title={editing ? "Edit cron job" : "Add cron job"}
         description="The command runs as the panel cron user on the VPS."
       >
-        <form onSubmit={handleSave} className="space-y-4">
+        <form onSubmit={handleSave} className="space-y-6">
           <div>
             <label className={modalLabelClass}>Name</label>
             <input
@@ -210,7 +210,7 @@ export default function CronPage() {
         {filtered.map((job) => (
           <div
             key={job.id}
-            className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-950 px-4 py-3"
+            className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-3"
           >
             <div className="min-w-0">
               <p className="font-medium text-white">
@@ -252,11 +252,11 @@ export default function CronPage() {
           </div>
         ))}
         {jobs.length === 0 ? (
-          <p className="rounded-lg border border-slate-800 bg-slate-950/50 px-5 py-8 text-center text-slate-500">
+          <p className="rounded-xl border border-slate-800 bg-slate-950/60 px-5 py-8 text-center text-slate-500">
             No cron jobs yet. Click Add Cron Job to schedule a command.
           </p>
         ) : filtered.length === 0 ? (
-          <p className="rounded-lg border border-slate-800 bg-slate-950/50 px-5 py-8 text-center text-slate-500">
+          <p className="rounded-xl border border-slate-800 bg-slate-950/60 px-5 py-8 text-center text-slate-500">
             No cron jobs match your search.
           </p>
         ) : null}

@@ -198,7 +198,7 @@ export default function DomainAccessPage() {
         description="Pick an existing domain and a regular user, then choose which features they may use. Domain.userId (owner) stays the same."
         className="max-w-2xl"
       >
-        <form onSubmit={handleSubmit} className="space-y-5">
+        <form onSubmit={handleSubmit} className="space-y-6">
           <div>
             <label className={modalLabelClass}>Domain</label>
             <select
@@ -245,7 +245,7 @@ export default function DomainAccessPage() {
                 return (
                   <label
                     key={item.key}
-                    className="flex cursor-pointer items-start gap-3 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2.5 hover:border-slate-700"
+                    className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2.5 hover:border-slate-700"
                   >
                     <input
                       type="checkbox"
@@ -283,7 +283,7 @@ export default function DomainAccessPage() {
         {filtered.map((grant) => (
           <div
             key={grant.id}
-            className="flex flex-wrap items-start justify-between gap-4 rounded-xl border border-slate-800 bg-slate-950/80 px-5 py-4"
+            className="flex flex-wrap items-start justify-between gap-4 rounded-xl border border-slate-800 bg-slate-950/60 px-5 py-4"
           >
             <div className="min-w-0 flex-1">
               <p className="font-medium text-white">{grant.domain.name}</p>

@@ -88,7 +88,7 @@ export default function SettingsPage() {
       ) : (
         <form
           onSubmit={handleSave}
-          className="max-w-xl space-y-5 rounded-2xl border border-slate-800 bg-slate-900/50 p-5"
+          className="max-w-xl space-y-5 rounded-xl border border-slate-800 bg-slate-900 p-5"
         >
           <div className="flex items-start gap-3">
             <div className="mt-0.5 rounded-lg bg-emerald-500/15 p-2 text-emerald-300">

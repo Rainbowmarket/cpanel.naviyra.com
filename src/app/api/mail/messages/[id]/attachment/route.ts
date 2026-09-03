@@ -3,24 +3,9 @@ import {
   downloadWebmailAttachment,
   parseMailFolder,
 } from "@/lib/services/webmail";
+import { resolveAttachmentServeHeaders } from "@/lib/mail/attachment-serve";
 
 type RouteContext = { params: Promise<{ id: string }> };
-
-const NAME_MIME: Record<string, string> = {
-  png: "image/png",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  gif: "image/gif",
-  webp: "image/webp",
-  svg: "image/svg+xml",
-  pdf: "application/pdf",
-  txt: "text/plain",
-};
-
-function guessMimeFromName(filename: string): string {
-  const ext = filename.split(".").pop()?.toLowerCase() ?? "";
-  return NAME_MIME[ext] || "application/octet-stream";
-}
 
 export async function GET(request: Request, context: RouteContext) {
   try {
@@ -46,11 +31,11 @@ export async function GET(request: Request, context: RouteContext) {
     const file = await downloadWebmailAttachment(accountId, folder, id, index);
     const safeName = file.filename.replace(/"/g, "");
     const wantInline = searchParams.get("disposition") === "inline";
-    const disposition = wantInline ? "inline" : "attachment";
-    const contentType =
-      file.contentType && file.contentType !== "application/octet-stream"
-        ? file.contentType
-        : guessMimeFromName(safeName);
+    const { contentType, disposition } = resolveAttachmentServeHeaders({
+      contentType: file.contentType,
+      filename: safeName,
+      wantInline,
+    });
     return new NextResponse(new Uint8Array(file.content), {
       headers: {
         "Content-Type": contentType,
@@ -58,6 +43,7 @@ export async function GET(request: Request, context: RouteContext) {
         "Content-Length": String(file.content.length),
         "Cache-Control": "private, max-age=120",
         "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "default-src 'none'; sandbox",
       },
     });
   } catch (error) {

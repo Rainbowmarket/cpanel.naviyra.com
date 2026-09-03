@@ -96,7 +96,7 @@ export default function GitDeployPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <PageHeader title="Git Deployments" description="Pull a repository into a site folder" />
       <p className="text-sm text-slate-400">
         Clone or fast-forward the site document root from Git. Hooks are disabled. The folder must
@@ -105,7 +105,7 @@ export default function GitDeployPage() {
       {error ? <p className="text-sm text-red-400">{error}</p> : null}
       {message ? <p className="text-sm text-emerald-300">{message}</p> : null}
 
-      <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-4">
+      <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
         <label className="mb-1.5 block text-xs text-slate-400">Site</label>
         <Select
           value={selected}
@@ -119,7 +119,7 @@ export default function GitDeployPage() {
       </div>
 
       {site ? (
-        <form onSubmit={deploy} className="space-y-3 rounded-xl border border-slate-800 bg-slate-950/80 p-4">
+        <form onSubmit={deploy} className="space-y-3 rounded-xl border border-slate-800 bg-slate-950/60 p-4">
           <p className="text-xs text-slate-500">
             Path <span className="font-mono text-slate-400">{site.documentRoot}</span>
             {site.lastStatus !== "idle" ? ` · last ${site.lastStatus}` : ""}

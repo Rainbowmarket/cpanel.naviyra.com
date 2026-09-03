@@ -107,7 +107,7 @@ export default function DockerPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <PageHeader
         title="Docker"
         description="Manage containers on this host"
@@ -124,7 +124,7 @@ export default function DockerPage() {
       ) : null}
       {error ? <p className="text-sm text-red-400">{error}</p> : null}
 
-      <div className="flex flex-wrap items-end gap-2 rounded-xl border border-slate-800 bg-slate-950/80 p-3">
+      <div className="flex flex-wrap items-end gap-2 rounded-xl border border-slate-800 bg-slate-950/60 p-3">
         <div className="min-w-[12rem] flex-1">
           <label className="mb-1 block text-xs text-slate-500">Site for compose up</label>
           <Select
@@ -178,7 +178,7 @@ export default function DockerPage() {
                 <tr key={c.id} className="border-t border-slate-800 text-slate-200">
                   <td className="px-3 py-2 font-mono">
                     <span className="inline-flex items-center gap-1">
-                      <Container className="h-3.5 w-3.5 text-sky-400" />
+                      <Container className="h-3.5 w-3.5 text-emerald-400" />
                       {c.name || c.id.slice(0, 12)}
                     </span>
                   </td>
@@ -210,7 +210,7 @@ export default function DockerPage() {
                       type="button"
                       disabled={Boolean(busy)}
                       onClick={() => void runOp(c.id, "restart")}
-                      className="mr-1 rounded border border-slate-700 px-1.5 py-0.5 text-[11px] text-sky-300 hover:bg-slate-800"
+                      className="mr-1 rounded border border-slate-700 px-1.5 py-0.5 text-[11px] text-emerald-300 hover:bg-slate-800"
                     >
                       Restart
                     </button>

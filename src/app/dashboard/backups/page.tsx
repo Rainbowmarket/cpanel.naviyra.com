@@ -618,7 +618,7 @@ export default function BackupsPage() {
   }));
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <PageHeader
         title="Backup dashboard"
         description="Backup history"
@@ -647,7 +647,7 @@ export default function BackupsPage() {
       ) : null}
 
       <div className="grid gap-3 sm:grid-cols-4">
-        <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-3">
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
           <p className="text-[11px] uppercase tracking-wide text-slate-500">Schedule</p>
           <p className="mt-1 text-sm font-semibold text-white">
             {config.enabled ? scheduleLabel(config.schedule) : "Off"}
@@ -658,7 +658,7 @@ export default function BackupsPage() {
               : "No automatic runs"}
           </p>
         </div>
-        <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-3">
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
           <p className="text-[11px] uppercase tracking-wide text-slate-500">Last status</p>
           <p className={`mt-1 text-sm font-semibold ${statusTone(config.lastStatus)}`}>
             {config.lastStatus || "Never run"}
@@ -669,7 +669,7 @@ export default function BackupsPage() {
               : "Trigger a run or wait for the timer"}
           </p>
         </div>
-        <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-3">
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
           <p className="text-[11px] uppercase tracking-wide text-slate-500">Success rate</p>
           <p className="mt-1 text-sm font-semibold text-white">
             {runs.length
@@ -682,7 +682,7 @@ export default function BackupsPage() {
             {runs.filter((r) => r.status === "COMPLETED").length} of {runs.length} in history
           </p>
         </div>
-        <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-3">
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
           <p className="text-[11px] uppercase tracking-wide text-slate-500">Retention</p>
           <p className="mt-1 text-sm font-semibold text-white">
             Keep {config.retainCount}
@@ -693,7 +693,7 @@ export default function BackupsPage() {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-3 sm:px-4">
+      <div className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-3 sm:px-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-sm font-semibold text-white">
             <CalendarClock className="h-4 w-4 text-emerald-400" />
@@ -896,7 +896,7 @@ export default function BackupsPage() {
         description="Run a domain backup or configure the automatic schedule."
         className="max-w-lg"
       >
-        <div className="space-y-5">
+        <div className="space-y-6">
           <section className="space-y-3">
             <div className="flex items-center justify-between gap-2">
               <h3 className="flex items-center gap-2 text-sm font-semibold text-white">
@@ -1112,7 +1112,7 @@ export default function BackupsPage() {
         }
         className="max-w-md"
       >
-        <div className="space-y-4">
+        <div className="space-y-6">
           {restoreMeta.included.length > 0 ? (
             <p className="text-xs text-slate-500">
               Archive contains: {restoreMeta.included.join(", ")}

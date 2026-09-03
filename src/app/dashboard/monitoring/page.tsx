@@ -111,13 +111,13 @@ export default function MonitoringPage() {
   );
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <PageHeader title="Resource Monitoring" description="CPU, RAM, and disk on this panel host" />
       {error ? <p className="text-sm text-red-400">{error}</p> : null}
       <div className="grid gap-3 sm:grid-cols-3">
-        <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-4">
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
           <p className="flex items-center gap-1.5 text-xs text-slate-400">
-            <Cpu className="h-3.5 w-3.5 text-sky-400" /> CPU
+            <Cpu className="h-3.5 w-3.5 text-emerald-400" /> CPU
           </p>
           <p className="mt-1 text-2xl font-semibold text-white">
             {report?.cpu.percent == null ? "—" : `${report.cpu.percent}%`}
@@ -126,7 +126,7 @@ export default function MonitoringPage() {
             {report ? `${report.cpu.cores} cores · ${report.hostname}` : "…"}
           </p>
         </div>
-        <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-4">
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
           <p className="flex items-center gap-1.5 text-xs text-slate-400">
             <MemoryStick className="h-3.5 w-3.5 text-violet-400" /> RAM
           </p>
@@ -139,7 +139,7 @@ export default function MonitoringPage() {
               : "…"}
           </p>
         </div>
-        <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-4">
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
           <p className="flex items-center gap-1.5 text-xs text-slate-400">
             <Activity className="h-3.5 w-3.5 text-emerald-400" /> Load
           </p>
@@ -153,17 +153,17 @@ export default function MonitoringPage() {
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
-        <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-4">
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
           <p className="mb-2 text-xs font-medium text-slate-300">CPU history</p>
           <Sparkline values={cpuSeries} color="#38bdf8" />
         </div>
-        <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-4">
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
           <p className="mb-2 text-xs font-medium text-slate-300">RAM history</p>
           <Sparkline values={memSeries} color="#a78bfa" />
         </div>
       </div>
 
-      <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-4">
+      <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
         <p className="mb-3 flex items-center gap-1.5 text-sm font-medium text-white">
           <HardDrive className="h-4 w-4 text-slate-400" />
           Disk volumes

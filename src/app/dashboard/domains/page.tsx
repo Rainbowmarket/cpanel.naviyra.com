@@ -252,7 +252,7 @@ export default function DomainsPage() {
   if (loading) return <p className="text-slate-400">Loading...</p>;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <PageHeader
         title="Domains"
         description="Add and manage hosted domains (React, PHP, Python, Go)."
@@ -270,7 +270,7 @@ export default function DomainsPage() {
         title="Add Domain"
         description="Register a new domain on your hosting server."
       >
-        <form onSubmit={handleCreate} className="space-y-4">
+        <form onSubmit={handleCreate} className="space-y-6">
           <div>
             <label className={modalLabelClass}>Domain name</label>
             <input
@@ -359,7 +359,7 @@ export default function DomainsPage() {
           return (
             <div
               key={d.id}
-              className="rounded-xl border border-slate-800 bg-slate-950/80 p-3 sm:p-4"
+              className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 sm:p-4"
             >
               <a
                 href={`https://${d.name}`}
@@ -421,7 +421,7 @@ export default function DomainsPage() {
                 <button
                   type="button"
                   onClick={() => setRuntimeDomain(d)}
-                  className={`${btn} border-sky-500/30 text-sky-400 hover:bg-sky-500/10`}
+                  className={`${btn} border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10`}
                 >
                   <Settings2 className="h-3 w-3" />
                   Runtime

@@ -161,7 +161,7 @@ export default function SslPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <PageHeader
         title="SSL Certificates"
         description="Issue and renew Let's Encrypt certificates for domains and subdomains."
@@ -182,7 +182,7 @@ export default function SslPage() {
         title={existingForSelected ? "Re-issue SSL" : "Issue SSL Certificate"}
         description="Let's Encrypt certificate for a domain or subdomain."
       >
-        <form onSubmit={handleIssue} className="space-y-4">
+        <form onSubmit={handleIssue} className="space-y-6">
           <div>
             <label className={modalLabelClass}>Domain</label>
             <Select
@@ -257,7 +257,7 @@ export default function SslPage() {
         {filteredCertificates.map((c) => (
           <div
             key={c.id}
-            className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950/80 px-5 py-4"
+            className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-950/60 px-5 py-4"
           >
             <div>
               <div className="flex flex-wrap items-center gap-2">
@@ -269,7 +269,7 @@ export default function SslPage() {
                       c.subdomain.name === "mail" ||
                       c.subdomain.name === "webmail"
                         ? "bg-purple-500/15 text-purple-300 ring-purple-500/30"
-                        : "bg-blue-500/15 text-blue-300 ring-blue-500/30"
+                        : "bg-emerald-500/15 text-emerald-300 ring-emerald-500/30"
                     }`}
                   >
                     {c.reserved
@@ -302,11 +302,11 @@ export default function SslPage() {
           </div>
         ))}
         {certificates.length === 0 ? (
-          <p className="rounded-lg border border-slate-800 bg-slate-950/50 px-5 py-8 text-center text-slate-500">
+          <p className="rounded-xl border border-slate-800 bg-slate-950/60 px-5 py-8 text-center text-slate-500">
             No SSL certificates yet. Click Issue SSL to create one.
           </p>
         ) : filteredCertificates.length === 0 ? (
-          <p className="rounded-lg border border-slate-800 bg-slate-950/50 px-5 py-8 text-center text-slate-500">
+          <p className="rounded-xl border border-slate-800 bg-slate-950/60 px-5 py-8 text-center text-slate-500">
             No certificates match your search.
           </p>
         ) : null}

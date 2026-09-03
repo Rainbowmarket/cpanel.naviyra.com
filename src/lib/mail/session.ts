@@ -2,8 +2,6 @@ import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { verifyPassword } from "@/lib/auth";
 import { sessionCookieShouldBeSecure } from "@/lib/cookie-secure";
-import { callAgent } from "@/lib/agent/client";
-import { agentTargetForServerId } from "@/lib/agent/target";
 import { fromB64url, hmacSign, hmacVerify, b64url } from "@/lib/crypto-hmac";
 import { requireSessionSecret } from "@/lib/secrets";
 
@@ -37,6 +35,18 @@ function maxFailedLogins(): number {
   const raw = Number(process.env.MAIL_MAX_FAILED_LOGINS ?? "3");
   if (!Number.isFinite(raw) || raw < 1) return 3;
   return Math.floor(raw);
+}
+
+/** Timed webmail lockout after failed password attempts (default 15 minutes). */
+function mailLockoutMs(): number {
+  const raw = Number(process.env.MAIL_LOCKOUT_MS ?? String(15 * 60 * 1000));
+  if (!Number.isFinite(raw) || raw < 60_000) return 15 * 60 * 1000;
+  return Math.floor(raw);
+}
+
+function lockoutMinutesLeft(lockedAt: Date): number {
+  const remaining = lockedAt.getTime() + mailLockoutMs() - Date.now();
+  return Math.max(1, Math.ceil(remaining / 60_000));
 }
 
 function encodeMailSession(accountId: string): string {
@@ -125,8 +135,27 @@ export async function authenticateMailbox(
       ok: false,
       code: "disabled",
       message:
-        "This mailbox is disabled after too many failed sign-in attempts. Contact your administrator to reactivate it.",
+        "This mailbox is disabled. Contact your administrator to reactivate it.",
     };
+  }
+
+  // Timed lockout from failed passwords (does not permanently disable IMAP/SMTP).
+  if (account.lockedAt) {
+    const elapsed = Date.now() - account.lockedAt.getTime();
+    if (elapsed < mailLockoutMs()) {
+      const mins = lockoutMinutesLeft(account.lockedAt);
+      return {
+        ok: false,
+        code: "disabled",
+        message: `This mailbox is temporarily locked after failed sign-in attempts. Try again in ${mins} minute(s).`,
+      };
+    }
+    await prisma.mailAccount.update({
+      where: { id: account.id },
+      data: { failedLoginCount: 0, lockedAt: null },
+    });
+    account.failedLoginCount = 0;
+    account.lockedAt = null;
   }
 
   const ok = await verifyPassword(password, account.passwordHash);
@@ -146,28 +175,15 @@ export async function authenticateMailbox(
       where: { id: account.id },
       data: {
         failedLoginCount: nextCount,
-        isActive: false,
         lockedAt: new Date(),
       },
     });
 
-    try {
-      await callAgent(
-        {
-          action: "set_mail_account_active",
-          email: account.email,
-          isActive: false,
-        },
-        await agentTargetForServerId(account.mailDomain.domain.serverId)
-      );
-    } catch (error) {
-      console.error("Failed to disable mailbox on mail server:", error);
-    }
-
+    const mins = Math.ceil(mailLockoutMs() / 60_000);
     return {
       ok: false,
       code: "disabled",
-      message: `Mailbox locked after ${maxFails} failed sign-in attempts. Contact your administrator to reactivate it.`,
+      message: `Mailbox locked after ${maxFails} failed sign-in attempts. Try again in ${mins} minute(s).`,
     };
   }
 
@@ -180,7 +196,7 @@ export async function authenticateMailbox(
   return {
     ok: false,
     code: "invalid",
-    message: `Invalid email or password. ${left} attempt${left === 1 ? "" : "s"} remaining before this mailbox is disabled.`,
+    message: `Invalid email or password. ${left} attempt${left === 1 ? "" : "s"} remaining before this mailbox is temporarily locked.`,
     attemptsLeft: left,
   };
 }

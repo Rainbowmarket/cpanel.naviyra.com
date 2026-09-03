@@ -318,7 +318,7 @@ export default function SubdomainsPage() {
   });
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <PageHeader
         title="Subdomains"
         description="Create and manage subdomains across all of your domains."
@@ -344,9 +344,9 @@ export default function SubdomainsPage() {
             : "Create a subdomain under one of your domains."
         }
       >
-        <form onSubmit={handleCreate} className="space-y-4">
+        <form onSubmit={handleCreate} className="space-y-6">
           {isAdmin ? (
-          <div className="flex gap-2 rounded-lg border border-slate-800 bg-slate-900/50 p-1">
+          <div className="flex gap-2 rounded-xl border border-slate-800 bg-slate-900 p-1">
             <button
               type="button"
               onClick={() => setCreateMode("standard")}
@@ -512,7 +512,7 @@ export default function SubdomainsPage() {
           return (
             <div
               key={s.id}
-              className="rounded-xl border border-slate-800 bg-slate-950/80 p-3 sm:p-4"
+              className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 sm:p-4"
             >
               <a
                 href={mailHost ? `https://${fqdn}/webmail` : `https://${fqdn}`}
@@ -648,7 +648,7 @@ export default function SubdomainsPage() {
                     <button
                       type="button"
                       onClick={() => setRuntimeSub(s)}
-                      className={`${btn} border-sky-500/30 text-sky-400 hover:bg-sky-500/10`}
+                      className={`${btn} border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10`}
                     >
                       <Settings2 className="h-3 w-3" />
                       Runtime
@@ -728,11 +728,11 @@ export default function SubdomainsPage() {
           );
         })}
         {subdomains.length === 0 ? (
-          <p className="rounded-xl border border-slate-800 bg-slate-950/50 px-5 py-8 text-center text-sm text-slate-500">
+          <p className="rounded-xl border border-slate-800 bg-slate-950/60 px-5 py-8 text-center text-sm text-slate-500">
             No subdomains yet.
           </p>
         ) : filteredSubdomains.length === 0 ? (
-          <p className="rounded-xl border border-slate-800 bg-slate-950/50 px-5 py-8 text-center text-sm text-slate-500">
+          <p className="rounded-xl border border-slate-800 bg-slate-950/60 px-5 py-8 text-center text-sm text-slate-500">
             No subdomains match your search.
           </p>
         ) : null}

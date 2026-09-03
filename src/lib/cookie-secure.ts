@@ -3,23 +3,28 @@
  *
  * COOKIE_SECURE=false → never Secure (HTTP-only access).
  * Otherwise Secure follows the *current request*:
- *   X-Forwarded-Proto, Forwarded, or Host port (:3100 = HTTP, :443 = HTTPS).
+ *   When TRUST_PROXY=true: X-Forwarded-Proto / Forwarded (nginx).
+ *   Always: Host port (:3100 = HTTP, :443 = HTTPS).
  * Do not use PANEL_PUBLIC_URL here — that is https://hpanel.example.com even when
  * the admin is still opening http://IP:3100, which made browsers drop the cookie
  * and bounce back to /login.
  */
 
+import { trustProxyHeaders } from "@/lib/proxy-trust";
+
 type HeaderReader = { get(name: string): string | null };
 
 export function httpsFromIncomingHeaders(h: HeaderReader): boolean | null {
-  const xf = (h.get("x-forwarded-proto") || "").split(",")[0]?.trim().toLowerCase() ?? "";
-  if (xf === "https") return true;
-  if (xf === "http") return false;
+  if (trustProxyHeaders()) {
+    const xf = (h.get("x-forwarded-proto") || "").split(",")[0]?.trim().toLowerCase() ?? "";
+    if (xf === "https") return true;
+    if (xf === "http") return false;
 
-  const forwarded = h.get("forwarded") || "";
-  const proto = forwarded.match(/(?:^|[;,]\s*)proto=(https?)/i)?.[1]?.toLowerCase();
-  if (proto === "https") return true;
-  if (proto === "http") return false;
+    const forwarded = h.get("forwarded") || "";
+    const proto = forwarded.match(/(?:^|[;,]\s*)proto=(https?)/i)?.[1]?.toLowerCase();
+    if (proto === "https") return true;
+    if (proto === "http") return false;
+  }
 
   const host = (h.get("host") || "").toLowerCase();
   if (host.endsWith(":443")) return true;
