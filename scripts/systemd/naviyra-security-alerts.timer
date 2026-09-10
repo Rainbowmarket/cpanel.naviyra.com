@@ -1,0 +1,11 @@
+[Unit]
+Description=Naviyra security alerts every minute
+
+[Timer]
+OnCalendar=minutely
+OnBootSec=60s
+Persistent=true
+AccuracySec=15s
+
+[Install]
+WantedBy=timers.target

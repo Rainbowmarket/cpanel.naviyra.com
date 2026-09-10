@@ -34,6 +34,9 @@ const SKIP_DIRS = new Set([
   "Output",
   "coverage",
   ".turbo",
+  "auth-extract",
+  "incident-extract",
+  "generated",
 ]);
 
 const SKIP_FILES = new Set([
@@ -43,6 +46,8 @@ const SKIP_FILES = new Set([
   "commit_to_npx.txt",
   ".npmrc",
   ".npm-token",
+  "next-env.d.ts",
+  "tsconfig.tsbuildinfo",
 ]);
 
 const rootPkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
@@ -69,6 +74,7 @@ function copyDir(src, dest) {
     if (entry.isDirectory() && SKIP_DIRS.has(entry.name)) continue;
     if (SKIP_FILES.has(entry.name)) continue;
     if (entry.name.startsWith("tmp-")) continue;
+    if (/\.(tsbuildinfo|pem|db|db-journal)$/i.test(entry.name)) continue;
     const srcPath = path.join(src, entry.name);
     const destPath = path.join(dest, entry.name);
     if (entry.isSymbolicLink()) continue;

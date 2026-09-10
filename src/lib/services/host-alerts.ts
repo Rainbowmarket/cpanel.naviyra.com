@@ -4,6 +4,7 @@ import {
   defaultControllerAgentUrl,
 } from "@/lib/agent/target";
 import { evaluateAndNotifyHostAlerts } from "@/lib/mail/admin-alerts";
+import { runScheduledSecurityAlerts } from "@/lib/services/security-alerts";
 import { collectDiskReport, formatDiskBytes } from "@/lib/system/disk";
 import { collectResourceReport } from "@/lib/system/resources";
 
@@ -38,11 +39,14 @@ export async function runScheduledHostAlerts() {
     agentUrl: defaultControllerAgentUrl(),
   });
 
+  const security = await runScheduledSecurityAlerts();
+
   return {
     hostname: health.hostname,
     cpuPercent: health.cpu.percent,
     memPercent: health.memory.percent,
     diskPercent,
     agentOnline,
+    security,
   };
 }

@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { BrandLogo } from "@/components/ui/brand-logo";
+import { ThemeToggle } from "@/components/theme/theme-toggle";
 
 export default function WebmailLoginPage() {
   const router = useRouter();
@@ -56,6 +57,9 @@ export default function WebmailLoginPage() {
 
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-slate-950 px-4 py-10">
+      <div className="fixed right-4 top-4 z-20">
+        <ThemeToggle className="px-2.5 sm:px-3" />
+      </div>
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(16,185,129,0.14),_transparent_55%),radial-gradient(ellipse_at_bottom_right,_rgba(56,189,248,0.08),_transparent_45%)]"

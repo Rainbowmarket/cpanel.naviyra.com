@@ -230,9 +230,22 @@ export default function MailPage() {
     });
     if (!ok) return;
     setLoading(id);
-    await fetch(`/api/mail?id=${id}`, { method: "DELETE" });
-    setLoading(null);
-    await loadAccounts();
+    try {
+      const res = await fetch(`/api/mail?id=${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        await alert(
+          typeof data.error === "string" ? data.error : "Could not delete mailbox",
+          { title: "Delete mailbox", tone: "danger" }
+        );
+        return;
+      }
+      await loadAccounts();
+    } finally {
+      setLoading(null);
+    }
   }
 
   async function handleResetPassword(id: string) {
@@ -268,13 +281,26 @@ export default function MailPage() {
     });
     if (!ok) return;
     setLoading(id);
-    await fetch(`/api/mail?id=${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "toggle_active", isActive: !isActive }),
-    });
-    setLoading(null);
-    await loadAccounts();
+    try {
+      const res = await fetch(`/api/mail?id=${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "toggle_active", isActive: !isActive }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        await alert(
+          typeof data.error === "string"
+            ? data.error
+            : `Could not ${action} mailbox`,
+          { title: isActive ? "Deactivate mailbox" : "Activate mailbox", tone: "danger" }
+        );
+        return;
+      }
+      await loadAccounts();
+    } finally {
+      setLoading(null);
+    }
   }
 
   async function loadQueue() {
@@ -600,7 +626,7 @@ export default function MailPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleToggleActive(a.id, a.isActive, a.email)}
+                  onClick={() => void handleToggleActive(a.id, a.isActive, a.email)}
                   disabled={loading === a.id}
                   className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs disabled:opacity-50 ${
                     a.isActive
@@ -617,7 +643,7 @@ export default function MailPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleDelete(a.id, a.email)}
+                  onClick={() => void handleDelete(a.id, a.email)}
                   disabled={loading === a.id}
                   className="flex items-center gap-1.5 rounded-lg border border-red-500/30 px-3 py-1.5 text-xs text-red-400 hover:bg-red-500/10 disabled:opacity-50"
                 >

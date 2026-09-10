@@ -6,6 +6,19 @@ import { DocumentTitleSync } from "@/components/layout/document-title-sync";
 import { documentTitle } from "@/lib/page-title";
 import "./globals.css";
 
+const themeBootstrapScript = `
+(() => {
+  try {
+    const key = "naviyra_theme";
+    const saved = localStorage.getItem(key);
+    const theme = saved === "light" ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", theme);
+  } catch {
+    document.documentElement.setAttribute("data-theme", "dark");
+  }
+})();
+`;
+
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
@@ -41,8 +54,13 @@ export default function RootLayout({
   return (
     <html
       lang="en"
+      data-theme="dark"
+      suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeBootstrapScript }} />
+      </head>
       <body className="flex h-full min-h-full flex-col overflow-hidden">
         <AlertProvider>
           <DocumentTitleSync />

@@ -73,6 +73,9 @@ const SKIP_DIRS = new Set([
   "data",
   ".cursor",
   "terminals",
+  "auth-extract",
+  "incident-extract",
+  "generated",
 ]);
 
 function shouldSkipDir(name) {

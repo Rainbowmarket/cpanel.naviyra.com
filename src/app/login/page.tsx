@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { BrandLogo } from "@/components/ui/brand-logo";
 
 function LoginForm() {
@@ -24,6 +25,9 @@ function LoginForm() {
   useEffect(() => {
     if (searchParams.get("reset") === "1") {
       setInfo("Password updated. Sign in with your new password.");
+    }
+    if (searchParams.get("idle") === "1") {
+      setInfo("You were signed out after 30 minutes of inactivity.");
     }
   }, [searchParams]);
 
@@ -273,6 +277,9 @@ function LoginForm() {
 export default function LoginPage() {
   return (
     <div className="flex h-full min-h-0 items-center justify-center overflow-y-auto bg-slate-950 px-4 py-8">
+      <div className="fixed right-4 top-4 z-20">
+        <ThemeToggle className="px-2.5 sm:px-3" />
+      </div>
       <Suspense
         fallback={
           <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-8 text-slate-400">

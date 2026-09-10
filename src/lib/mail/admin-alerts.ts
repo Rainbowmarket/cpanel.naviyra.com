@@ -6,7 +6,8 @@ export type AdminAlertKind =
   | "storage"
   | "overload"
   | "slow"
-  | "migration";
+  | "migration"
+  | "security";
 
 const KIND_LABEL: Record<AdminAlertKind, string> = {
   failure: "Failure",
@@ -14,6 +15,7 @@ const KIND_LABEL: Record<AdminAlertKind, string> = {
   overload: "Overload",
   slow: "Running slow",
   migration: "Migration",
+  security: "Security",
 };
 
 const COOLDOWN_MS = Number(
@@ -43,15 +45,71 @@ async function listAdminRecipients() {
   });
 }
 
-async function shouldSend(kind: AdminAlertKind, fingerprint: string) {
+async function shouldSend(
+  kind: AdminAlertKind,
+  fingerprint: string,
+  once: boolean
+) {
   const key = fingerprint.slice(0, 200);
   const existing = await prisma.adminAlertLog.findUnique({
     where: { kind_fingerprint: { kind, fingerprint: key } },
   });
-  if (existing && Date.now() - existing.lastSentAt.getTime() < COOLDOWN_MS) {
-    return { send: false as const, key };
+  if (existing) {
+    if (once) return { send: false as const, key };
+    if (Date.now() - existing.lastSentAt.getTime() < COOLDOWN_MS) {
+      return { send: false as const, key };
+    }
   }
   return { send: true as const, key };
+}
+
+export async function rememberAlertFingerprint(
+  kind: AdminAlertKind,
+  fingerprint: string,
+  at = new Date()
+) {
+  const key = fingerprint.slice(0, 200);
+  await prisma.adminAlertLog.upsert({
+    where: { kind_fingerprint: { kind, fingerprint: key } },
+    create: { kind, fingerprint: key, lastSentAt: at },
+    update: { lastSentAt: at },
+  });
+}
+
+export async function readAlertFingerprintTime(
+  kind: AdminAlertKind,
+  fingerprint: string
+): Promise<Date | null> {
+  const key = fingerprint.slice(0, 200);
+  const existing = await prisma.adminAlertLog.findUnique({
+    where: { kind_fingerprint: { kind, fingerprint: key } },
+    select: { lastSentAt: true },
+  });
+  return existing?.lastSentAt ?? null;
+}
+
+export async function listAlertFingerprints(
+  kind: AdminAlertKind,
+  prefix: string
+): Promise<string[]> {
+  const rows = await prisma.adminAlertLog.findMany({
+    where: { kind, fingerprint: { startsWith: prefix.slice(0, 200) } },
+    select: { fingerprint: true },
+  });
+  return rows.map((row) => row.fingerprint);
+}
+
+export async function forgetAlertFingerprints(
+  kind: AdminAlertKind,
+  fingerprints: string[]
+) {
+  if (fingerprints.length === 0) return;
+  await prisma.adminAlertLog.deleteMany({
+    where: {
+      kind,
+      fingerprint: { in: fingerprints.map((key) => key.slice(0, 200)) },
+    },
+  });
 }
 
 async function markSent(kind: AdminAlertKind, key: string) {
@@ -67,17 +125,23 @@ export async function notifyAdmins(input: {
   fingerprint: string;
   title: string;
   detail: string;
-}): Promise<void> {
+  /** If true, this fingerprint is emailed at most once (not just cooldown). */
+  once?: boolean;
+}): Promise<boolean> {
   try {
-    if (process.env.ADMIN_ALERTS_ENABLED === "false") return;
+    if (process.env.ADMIN_ALERTS_ENABLED === "false") return false;
 
-    const gate = await shouldSend(input.kind, input.fingerprint);
-    if (!gate.send) return;
+    const gate = await shouldSend(
+      input.kind,
+      input.fingerprint,
+      Boolean(input.once)
+    );
+    if (!gate.send) return false;
 
     const recipients = await listAdminRecipients();
     if (recipients.length === 0) {
       console.warn("Admin alert skipped: no ADMIN users to email");
-      return;
+      return false;
     }
 
     const kindLabel = KIND_LABEL[input.kind];
@@ -107,8 +171,10 @@ export async function notifyAdmins(input: {
       else console.error("Admin alert email failed:", result.reason);
     }
     if (delivered > 0) await markSent(input.kind, gate.key);
+    return delivered > 0;
   } catch (error) {
     console.error("Admin alert dispatch failed:", error);
+    return false;
   }
 }
 
@@ -173,7 +239,7 @@ export async function evaluateAndNotifyHostAlerts(input: {
   agentUrl?: string;
 }): Promise<void> {
   const host = input.hostname || "controller";
-  const tasks: Promise<void>[] = [];
+  const tasks: Promise<unknown>[] = [];
 
   if (input.agentOnline === false && input.agentUrl) {
     notifyIfAgentUnreachable(`Could not reach agent at ${input.agentUrl}`);

@@ -18,6 +18,25 @@ html[data-file-manager],
   --scrollbar-thumb-hover: #475569;
 }
 
+html[data-file-manager][data-theme="light"],
+html[data-theme="light"] .file-manager-shell {
+  --bg: #f1f5f9;
+  --surface: #ffffff;
+  --surface-raised: #f8fafc;
+  --text: #0f172a;
+  --muted: #64748b;
+  --border: #cbd5e1;
+  --border-strong: #94a3b8;
+  --accent: #10b981;
+  --accent-hover: #059669;
+  --accent-text: #047857;
+  --accent-muted: rgba(16, 185, 129, 0.12);
+  --accent-ring: rgba(16, 185, 129, 0.3);
+  --scrollbar-track: #e2e8f0;
+  --scrollbar-thumb: #94a3b8;
+  --scrollbar-thumb-hover: #64748b;
+}
+
 /* Naviyra panel theme — scoped to file manager shell */
 .file-manager-shell {
   height: 100%;

@@ -95,6 +95,17 @@ export const HOST_SERVICE_CATALOG: HostServiceDef[] = [
     alsoStart: ["naviyra-host-alerts.service", "naviyra-host-alerts.service"],
   },
   {
+    id: "security-alerts",
+    name: "Security alerts",
+    group: "Security",
+    detail:
+      "Every minute: email all admins if a new public port starts listening or root logs in over SSH.",
+    units: ["naviyra-security-alerts.timer", "naviyra-security-alerts.timer"],
+    kind: "timer",
+    allowStop: true,
+    alsoStart: ["naviyra-security-alerts.service", "naviyra-security-alerts.service"],
+  },
+  {
     id: "backup-timer",
     name: "Backup timer",
     group: "Panel",

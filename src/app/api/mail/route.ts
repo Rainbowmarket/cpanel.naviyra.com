@@ -68,15 +68,27 @@ export async function PATCH(request: Request) {
 
     const account =
       body.action === "reset_password"
-        ? await resetMailPassword(id, user.id, body.password)
-        : await setMailAccountActive(id, user.id, body.isActive);
+        ? await resetMailPassword(id, user.id, body.password, user.role)
+        : await setMailAccountActive(id, user.id, body.isActive, user.role);
 
     return NextResponse.json({ account });
   } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.message === "Unauthorized" || error.message === "Forbidden")
+    ) {
+      return authFailureResponse(error);
+    }
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: error.flatten() }, { status: 400 });
     }
-    return NextResponse.json({ error: "Failed to update mail account" }, { status: 500 });
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Failed to update mail account",
+      },
+      { status: 500 }
+    );
   }
 }
 
@@ -87,9 +99,21 @@ export async function DELETE(request: Request) {
     if (!id) {
       return NextResponse.json({ error: "Missing id" }, { status: 400 });
     }
-    await deleteMailAccount(id, user.id);
+    await deleteMailAccount(id, user.id, user.role);
     return NextResponse.json({ ok: true });
-  } catch {
-    return NextResponse.json({ error: "Failed to delete mail account" }, { status: 500 });
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.message === "Unauthorized" || error.message === "Forbidden")
+    ) {
+      return authFailureResponse(error);
+    }
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Failed to delete mail account",
+      },
+      { status: 500 }
+    );
   }
 }

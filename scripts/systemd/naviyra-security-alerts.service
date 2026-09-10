@@ -1,0 +1,11 @@
+[Unit]
+Description=Naviyra security alerts (new ports, root SSH logins)
+After=network.target naviyra-panel.service
+
+[Service]
+Type=oneshot
+User=root
+EnvironmentFile=-/opt/naviyra-panel/.env
+Environment=PANEL_PORT=3100
+ExecStart=/bin/bash /opt/naviyra-panel/scripts/check-security-alerts.sh
+Nice=10

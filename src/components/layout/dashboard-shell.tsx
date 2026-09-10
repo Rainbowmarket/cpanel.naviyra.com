@@ -4,6 +4,7 @@ import { ReactNode, useCallback, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Sidebar } from "@/components/layout/sidebar";
 import { DashboardHeader } from "@/components/layout/dashboard-header";
+import { SessionIdleGuard } from "@/components/layout/session-idle-guard";
 
 type DashboardShellProps = {
   role: string;
@@ -45,6 +46,7 @@ export function DashboardShell({
 
   return (
     <div className="flex h-full min-h-0 w-full overflow-hidden bg-slate-900 text-slate-100">
+      <SessionIdleGuard />
       {/* Desktop sidebar */}
       <div className="hidden h-full lg:block">
         <Sidebar role={role} permissionKeys={permissionKeys} />

@@ -1,4 +1,4 @@
-import { authenticator } from "otplib";
+import { generateSecret, generateURI, verify } from "otplib";
 import QRCode from "qrcode";
 import { randomBytes } from "node:crypto";
 import { prisma } from "@/lib/prisma";
@@ -7,8 +7,21 @@ import { decryptSecret, encryptSecret } from "@/lib/secrets";
 
 const BACKUP_CODE_COUNT = 10;
 const ISSUER = "Naviyra Panel";
+/** v12 `window: 1` (±1 TOTP step) → v13 seconds. */
+const EPOCH_TOLERANCE_SEC = 30;
 
-authenticator.options = { window: 1 };
+async function verifyTotp(secret: string, token: string): Promise<boolean> {
+  try {
+    const result = await verify({
+      secret,
+      token,
+      epochTolerance: EPOCH_TOLERANCE_SEC,
+    });
+    return result.valid;
+  } catch {
+    return false;
+  }
+}
 
 function normalizeCode(raw: string): string {
   return raw.replace(/\s+/g, "").trim();
@@ -41,8 +54,12 @@ export async function getTwoFactorStatus(userId: string) {
 }
 
 export async function beginTwoFactorSetup(userId: string, email: string) {
-  const secret = authenticator.generateSecret();
-  const otpauthUrl = authenticator.keyuri(email, ISSUER, secret);
+  const secret = generateSecret();
+  const otpauthUrl = generateURI({
+    issuer: ISSUER,
+    label: email,
+    secret,
+  });
   const qrDataUrl = await QRCode.toDataURL(otpauthUrl, {
     errorCorrectionLevel: "M",
     margin: 2,
@@ -73,10 +90,7 @@ export async function confirmTwoFactorSetup(userId: string, code: string) {
   }
 
   const secret = decryptSecret(user.twoFactorPendingSecret);
-  const ok = authenticator.verify({
-    token: normalizeCode(code),
-    secret,
-  });
+  const ok = await verifyTotp(secret, normalizeCode(code));
   if (!ok) {
     throw new Error("Invalid authenticator code");
   }
@@ -159,10 +173,7 @@ export async function regenerateBackupCodes(
   }
   if (!authorized && opts.totpCode) {
     const secret = decryptSecret(user.twoFactorSecret);
-    authorized = authenticator.verify({
-      token: normalizeCode(opts.totpCode),
-      secret,
-    });
+    authorized = await verifyTotp(secret, normalizeCode(opts.totpCode));
   }
   if (!authorized) {
     throw new Error("Password or authenticator code required");
@@ -190,7 +201,7 @@ export async function verifyTotpOrBackupCode(
   if (!code) throw new Error("Code required");
 
   const secret = decryptSecret(encryptedSecret);
-  if (/^\d{6}$/.test(code) && authenticator.verify({ token: code, secret })) {
+  if (/^\d{6}$/.test(code) && (await verifyTotp(secret, code))) {
     return "totp";
   }
 

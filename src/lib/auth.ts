@@ -9,9 +9,10 @@ import {
 import { fromB64url, hmacSign, hmacVerify, b64url } from "./crypto-hmac";
 import { sessionCookieShouldBeSecure } from "./cookie-secure";
 import { requireSessionSecret } from "./secrets";
+import { SESSION_IDLE_SECONDS } from "./session-timeout";
 
 const SESSION_COOKIE = "naviyra_session";
-const SESSION_MAX_AGE = 60 * 60 * 24 * 7; // 7 days
+const SESSION_MAX_AGE = SESSION_IDLE_SECONDS;
 
 type SessionCookieOptions = {
   httpOnly: true;
@@ -70,6 +71,8 @@ function decodeSession(token: string): SessionClaims | null {
       return null;
     }
     if (Date.now() / 1000 > claims.exp) return null;
+    // Reject leftover 7-day cookies from before idle timeout.
+    if (claims.exp - Date.now() / 1000 > SESSION_MAX_AGE + 120) return null;
     return claims;
   } catch {
     return null;

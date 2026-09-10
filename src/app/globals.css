@@ -1,12 +1,16 @@
 @import "tailwindcss";
 
 :root {
+  color-scheme: dark;
   --background: #0f172a;
   --foreground: #f8fafc;
   /* Canonical dashboard surfaces */
   --panel-card-bg: #0f172a; /* slate-900 */
   --panel-card-border: #1e293b; /* slate-800 */
   --panel-inset-bg: rgb(2 6 23 / 0.6); /* slate-950/60 */
+  --scrollbar-track: #0f172a;
+  --scrollbar-thumb: #334155;
+  --scrollbar-thumb-hover: #475569;
 }
 
 @theme inline {
@@ -46,12 +50,104 @@ body {
   background-color: var(--panel-inset-bg);
 }
 
+/* Light theme (dark remains default). */
+html[data-theme="light"] {
+  color-scheme: light;
+  --background: #f1f5f9;
+  --foreground: #0f172a;
+  --panel-card-bg: #ffffff;
+  --panel-card-border: #cbd5e1;
+  --panel-inset-bg: rgb(248 250 252 / 0.95);
+  --scrollbar-track: #e2e8f0;
+  --scrollbar-thumb: #94a3b8;
+  --scrollbar-thumb-hover: #64748b;
+}
+
+html[data-theme="light"] .bg-slate-950,
+html[data-theme="light"] .bg-slate-950\/90,
+html[data-theme="light"] .bg-slate-950\/80,
+html[data-theme="light"] .bg-slate-950\/70,
+html[data-theme="light"] .bg-slate-950\/60,
+html[data-theme="light"] .bg-slate-950\/50 {
+  background-color: #f8fafc !important;
+}
+
+html[data-theme="light"] .bg-slate-900,
+html[data-theme="light"] .bg-slate-900\/90,
+html[data-theme="light"] .bg-slate-900\/80,
+html[data-theme="light"] .bg-slate-900\/70,
+html[data-theme="light"] .bg-slate-900\/60,
+html[data-theme="light"] .bg-slate-900\/50,
+html[data-theme="light"] .bg-slate-900\/40,
+html[data-theme="light"] .bg-slate-800 {
+  background-color: #ffffff !important;
+}
+
+html[data-theme="light"] .from-slate-950 {
+  --tw-gradient-from: #f8fafc var(--tw-gradient-from-position) !important;
+}
+
+html[data-theme="light"] .to-slate-900 {
+  --tw-gradient-to: #e2e8f0 var(--tw-gradient-to-position) !important;
+}
+
+html[data-theme="light"] .text-white {
+  color: #0f172a !important;
+}
+
+html[data-theme="light"] .text-slate-100 {
+  color: #0f172a !important;
+}
+
+html[data-theme="light"] .text-slate-200 {
+  color: #1e293b !important;
+}
+
+html[data-theme="light"] .text-slate-300 {
+  color: #334155 !important;
+}
+
+html[data-theme="light"] .text-slate-400 {
+  color: #475569 !important;
+}
+
+html[data-theme="light"] .text-slate-500,
+html[data-theme="light"] .text-slate-600 {
+  color: #64748b !important;
+}
+
+html[data-theme="light"] .border-slate-900,
+html[data-theme="light"] .border-slate-800,
+html[data-theme="light"] .border-slate-800\/90,
+html[data-theme="light"] .border-slate-800\/80,
+html[data-theme="light"] .border-slate-700 {
+  border-color: #cbd5e1 !important;
+}
+
+html[data-theme="light"] .ring-slate-700 {
+  --tw-ring-color: #cbd5e1 !important;
+}
+
+html[data-theme="light"] .ring-white\/10 {
+  --tw-ring-color: rgb(148 163 184 / 0.4) !important;
+}
+
+html[data-theme="light"] .hover\:bg-slate-800:hover,
+html[data-theme="light"] .hover\:bg-slate-800\/60:hover,
+html[data-theme="light"] .hover\:bg-slate-900\/50:hover {
+  background-color: #e2e8f0 !important;
+}
+
+html[data-theme="light"] .hover\:text-white:hover {
+  color: #0f172a !important;
+}
+
 /* Dark themed scrollbars — root and all scroll containers */
 *,
 html,
 body {
   scrollbar-width: thin;
-  scrollbar-color: #334155 #0f172a;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
 }
 
 *::-webkit-scrollbar {
@@ -60,16 +156,16 @@ body {
 }
 
 *::-webkit-scrollbar-track {
-  background: #0f172a;
+  background: var(--scrollbar-track);
 }
 
 *::-webkit-scrollbar-thumb {
-  background: #334155;
+  background: var(--scrollbar-thumb);
   border-radius: 9999px;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: #475569;
+  background: var(--scrollbar-thumb-hover);
 }
 
 /* Webmail selection checkboxes — dark box, green fill, white tick */
@@ -106,5 +202,5 @@ body {
 }
 
 *::-webkit-scrollbar-corner {
-  background: #0f172a;
+  background: var(--scrollbar-track);
 }

@@ -81,7 +81,7 @@ export const DOC_ARTICLES: DocArticle[] = [
         heading: "What if X is compromised",
         body: [
           "Stolen USER cookie: that account’s domains, files, mail, and databases only. File Manager paths are checked again on the agent under /var/www (symlink-aware).",
-          "Stolen ADMIN cookie: host-level actions through the agent, including a full Terminal session at / if no site is selected.",
+          "Stolen ADMIN cookie: host-level actions through the agent, including a full Terminal session at / if no site is selected. Panel cookies expire after 30 minutes idle.",
           "Stolen AGENT_API_KEY: the same as holding the agent — treat as root. Rotate the key and restart panel + agent.",
           "Stolen Security Manager DB: visitor/block UI only unless that process also has firewall rights. Panel SQLite remains the blocklist source of truth; the manager is mirrored via /api/ingest/blocklist.",
         ],

@@ -249,6 +249,9 @@ function panelEnv(extra = {}) {
   const env = {
     ...process.env,
     PATH: `${rt.binDir}${path.delimiter}${process.env.PATH || ""}`,
+    // npm 11+ blocks lifecycle scripts unless allowScripts lists the package.
+    // better-sqlite3 / prisma / esbuild must compile or the panel cannot open SQLite.
+    npm_config_ignore_scripts: "false",
     ...extra,
   };
   delete env.npm_config_prefix;
@@ -261,15 +264,43 @@ function runWithServiceNpm(args, dest, extraEnv = {}) {
   run(rt.npm, args, { cwd: dest, env: panelEnv(extraEnv) });
 }
 
+function commandOnPath(cmd) {
+  const r = run("bash", ["-lc", `command -v ${cmd}`], {
+    stdio: "ignore",
+    ignoreExit: true,
+  });
+  return r.status === 0;
+}
+
+function ensureNativeBuildTools() {
+  if (process.platform !== "linux") return;
+  if (commandOnPath("g++") && commandOnPath("make") && commandOnPath("python3")) return;
+  if (typeof process.getuid === "function" && process.getuid() !== 0) {
+    log("g++/make/python3 missing — better-sqlite3 cannot compile. Re-run the installer as root.");
+    return;
+  }
+  log("Installing build-essential (required to compile better-sqlite3)…");
+  run("apt-get", ["install", "-y", "build-essential", "python3"], { ignoreExit: true });
+}
+
 function rebuildBetterSqlite(dest) {
   const rt = panelRuntime();
+  ensureNativeBuildTools();
   log(`Rebuilding better-sqlite3 for ${rt.node} (${rt.version})…`);
-  runWithServiceNpm(["rebuild", "better-sqlite3"], dest);
-  run(rt.node, ["-e", "require('better-sqlite3')"], { cwd: dest, env: panelEnv() });
+  runWithServiceNpm(["rebuild", "better-sqlite3", "--foreground-scripts"], dest, {
+    npm_config_ignore_scripts: "false",
+    npm_config_foreground_scripts: "true",
+  });
+  run(
+    rt.node,
+    ["-e", "require('better-sqlite3')(':memory:').close(); console.log('better-sqlite3 ok')"],
+    { cwd: dest, env: panelEnv() }
+  );
   log("better-sqlite3 matches the Node that systemd will run.");
 }
 
 function runNpmInstall(dest) {
+  ensureNativeBuildTools();
   log("Installing npm dependencies…");
   runWithServiceNpm(["install", "--include=dev"], dest, { NODE_ENV: "development" });
   log("Ensuring Tailwind CSS (required for production UI)…");

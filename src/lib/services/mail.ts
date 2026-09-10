@@ -15,10 +15,14 @@ async function getMailAccount(accountId: string, userId: string, role?: string) 
     { id: userId, role: role === "ADMIN" ? "ADMIN" : "USER" },
     "mail"
   );
-  return prisma.mailAccount.findFirstOrThrow({
+  const account = await prisma.mailAccount.findFirst({
     where: { id: accountId, mailDomain: { domain: access } },
     include: { mailDomain: { include: { domain: { include: { server: true } } } } },
   });
+  if (!account) {
+    throw new Error("Mailbox not found or you do not have access to it");
+  }
+  return account;
 }
 
 export async function ensureMailDomain(domainId: string, userId: string, role?: string) {
@@ -560,12 +564,27 @@ export async function createMailAccount(input: {
   return account;
 }
 
-export async function deleteMailAccount(accountId: string, userId: string) {
-  const account = await getMailAccount(accountId, userId);
+async function requireAgentOk(
+  result: Awaited<ReturnType<typeof callAgent>>,
+  fallback: string
+) {
+  if (result.success) return;
+  throw new Error(result.error || fallback);
+}
 
-  await callAgent(
-    { action: "delete_mail_account", email: account.email },
-    await agentTargetForServerId(account.mailDomain.domain.serverId)
+export async function deleteMailAccount(
+  accountId: string,
+  userId: string,
+  role?: string
+) {
+  const account = await getMailAccount(accountId, userId, role);
+
+  await requireAgentOk(
+    await callAgent(
+      { action: "delete_mail_account", email: account.email },
+      await agentTargetForServerId(account.mailDomain.domain.serverId)
+    ),
+    "Mail server could not delete this mailbox"
   );
 
   try {
@@ -580,18 +599,22 @@ export async function deleteMailAccount(accountId: string, userId: string) {
 export async function resetMailPassword(
   accountId: string,
   userId: string,
-  password: string
+  password: string,
+  role?: string
 ) {
-  const account = await getMailAccount(accountId, userId);
+  const account = await getMailAccount(accountId, userId, role);
   const passwordHash = await hashPassword(password);
 
-  await callAgent(
-    {
-      action: "reset_mail_password",
-      email: account.email,
-      password,
-    },
-    await agentTargetForServerId(account.mailDomain.domain.serverId)
+  await requireAgentOk(
+    await callAgent(
+      {
+        action: "reset_mail_password",
+        email: account.email,
+        password,
+      },
+      await agentTargetForServerId(account.mailDomain.domain.serverId)
+    ),
+    "Mail server could not reset this password"
   );
 
   return prisma.mailAccount.update({
@@ -603,17 +626,21 @@ export async function resetMailPassword(
 export async function setMailAccountActive(
   accountId: string,
   userId: string,
-  isActive: boolean
+  isActive: boolean,
+  role?: string
 ) {
-  const account = await getMailAccount(accountId, userId);
+  const account = await getMailAccount(accountId, userId, role);
 
-  await callAgent(
-    {
-      action: "set_mail_account_active",
-      email: account.email,
-      isActive,
-    },
-    await agentTargetForServerId(account.mailDomain.domain.serverId)
+  await requireAgentOk(
+    await callAgent(
+      {
+        action: "set_mail_account_active",
+        email: account.email,
+        isActive,
+      },
+      await agentTargetForServerId(account.mailDomain.domain.serverId)
+    ),
+    "Mail server could not change mailbox status"
   );
 
   return prisma.mailAccount.update({

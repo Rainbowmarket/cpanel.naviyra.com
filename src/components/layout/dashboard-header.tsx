@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronRight, Menu, X } from "lucide-react";
 import { LogoutButton } from "@/components/layout/logout-button";
+import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { BrandLogo } from "@/components/ui/brand-logo";
 import { cn } from "@/lib/utils";
 
@@ -149,6 +150,7 @@ export function DashboardHeader({
             {roleLabel}
           </span>
         </div>
+        <ThemeToggle />
         <LogoutButton />
       </div>
     </header>
