@@ -1,11 +1,8 @@
 import "dotenv/config";
-import path from "node:path";
-import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import { PrismaClient } from "../src/generated/prisma/client";
+import { createPrismaAdapter } from "../src/lib/db-adapter";
 
-const dbPath = process.env.DATABASE_URL ?? `file:${path.join(process.cwd(), "data", "naviyra.db")}`;
-const adapter = new PrismaBetterSqlite3({ url: dbPath });
-const prisma = new PrismaClient({ adapter });
+const prisma = new PrismaClient({ adapter: createPrismaAdapter() });
 
 async function main() {
   const certs = await prisma.sslCertificate.findMany({

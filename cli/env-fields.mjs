@@ -155,14 +155,6 @@ export const INSTALL_STEPS = [
         required: true,
       },
       {
-        key: "AGENT_DRY_RUN",
-        label: "Dry-run mode (true/false)",
-        help: "true = simulate commands (Windows testing). false = live Nginx/mail/FTP (Linux production).",
-        example: "false",
-        required: true,
-        validate: validateBool,
-      },
-      {
         key: "NAVIYRA_NO_BROWSER",
         label: "Skip opening a browser (true/false)",
         help: "true on headless servers.",

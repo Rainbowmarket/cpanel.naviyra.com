@@ -1,9 +1,17 @@
-import BetterSqlite3 from "better-sqlite3";
+import Database from "libsql";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
-type SqliteDb = InstanceType<typeof BetterSqlite3>;
+type SqliteDb = {
+  exec(sql: string): unknown;
+  prepare(sql: string): {
+    run(...params: unknown[]): unknown;
+    get(...params: unknown[]): unknown;
+    all(...params: unknown[]): unknown[];
+  };
+  close(): void;
+};
 
 /** Keep visitor archives for this many calendar months (rolling). */
 export const VISITOR_RETENTION_MONTHS = Math.max(
@@ -136,7 +144,7 @@ function openMonthDb(key: string): SqliteDb {
   let db = dbCache.get(p);
   if (!db) {
     fs.mkdirSync(visitorDataDir(), { recursive: true });
-    db = new BetterSqlite3(p);
+    db = new Database(p);
     ensureSchema(db);
     dbCache.set(p, db);
   }

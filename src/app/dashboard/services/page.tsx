@@ -18,7 +18,6 @@ type HostService = {
   enabled: boolean;
   state: string;
   allowStop: boolean;
-  dryRun: boolean;
   installable?: boolean;
 };
 
@@ -38,7 +37,6 @@ type Op = "start" | "stop" | "restart" | "install";
 export default function HostServicesPage() {
   const { alert, confirm } = useAlert();
   const [rows, setRows] = useState<HostService[]>([]);
-  const [dryRun, setDryRun] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -50,7 +48,6 @@ export default function HostServicesPage() {
       throw new Error(typeof data.error === "string" ? data.error : "Failed to load services");
     }
     setRows(Array.isArray(data.services) ? data.services : []);
-    setDryRun(Boolean(data.dryRun));
   }, []);
 
   useEffect(() => {
@@ -142,12 +139,6 @@ export default function HostServicesPage() {
         Start and stop nginx, PHP, PostgreSQL, mail, FTP, DNS, visitor ingest, backups, and the
         agent. The panel process can be restarted but not stopped, so you are not locked out.
       </p>
-
-      {dryRun ? (
-        <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-          Agent is in dry-run mode. Buttons will not change systemd on this machine.
-        </p>
-      ) : null}
 
       {error ? <p className="text-sm text-red-400">{error}</p> : null}
 

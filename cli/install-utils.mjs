@@ -658,7 +658,7 @@ curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bas
 /**
  * Pick the Node binary the panel will install with and run under systemd.
  * Prefer nvm latest LTS (install it if missing). Never prefer Ubuntu's older /usr/bin/node
- * when nvm is available — that mismatch is what breaks better-sqlite3.
+ * when nvm is available.
  */
 export function ensurePanelNode() {
   if (cachedPanelNode) return cachedPanelNode;

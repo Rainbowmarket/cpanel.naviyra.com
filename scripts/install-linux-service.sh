@@ -39,8 +39,6 @@ if [ "$UNIT_ONLY" = false ]; then
   cd "$DEST"
   apt-get install -y build-essential python3 >/dev/null 2>&1 || true
   npm_config_ignore_scripts=false "$PANEL_NODE_DIR/npm" install
-  npm_config_ignore_scripts=false npm_config_foreground_scripts=true \
-    "$PANEL_NODE_DIR/npm" rebuild better-sqlite3 --foreground-scripts
   "$PANEL_NODE_DIR/npm" run build
   (cd agent && "$PANEL_NODE_DIR/npm" install)
 else

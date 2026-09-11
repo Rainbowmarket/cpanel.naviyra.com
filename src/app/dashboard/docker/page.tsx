@@ -21,7 +21,6 @@ export default function DockerPage() {
   const { alert } = useAlert();
   const [containers, setContainers] = useState<ContainerRow[]>([]);
   const [available, setAvailable] = useState(true);
-  const [dryRun, setDryRun] = useState(false);
   const [sites, setSites] = useState<AppSite[]>([]);
   const [site, setSite] = useState("");
   const [logs, setLogs] = useState("");
@@ -41,7 +40,6 @@ export default function DockerPage() {
     setError("");
     setContainers(docker.containers ?? []);
     setAvailable(docker.available !== false);
-    setDryRun(Boolean(docker.dryRun));
     if (appsRes.ok) {
       const apps = await appsRes.json();
       const list = (apps.sites ?? []) as AppSite[];
@@ -116,10 +114,7 @@ export default function DockerPage() {
         Lists Docker containers on the panel host. Compose up looks for{" "}
         <span className="font-mono">docker-compose.yml</span> in the selected site folder.
       </p>
-      {dryRun ? (
-        <p className="text-xs text-amber-300">Dry-run: Docker commands are not executed on Windows/dev.</p>
-      ) : null}
-      {!available && !dryRun ? (
+      {!available ? (
         <p className="text-sm text-amber-300">Docker is not available on this server.</p>
       ) : null}
       {error ? <p className="text-sm text-red-400">{error}</p> : null}

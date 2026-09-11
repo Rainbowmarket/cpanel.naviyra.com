@@ -87,7 +87,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         error: isDb
-          ? "Database error. On the server run: rm -f data/naviyra.db* && npx prisma db push && npm rebuild better-sqlite3"
+          ? "Database error. On the server run: npx prisma db push"
           : "Login failed",
       },
       { status: 500 }

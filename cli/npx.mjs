@@ -130,7 +130,7 @@ async function promptInstallValues(rl, { yes, existing = {} }) {
     PANEL_PORT: defaultPanelPort,
     AGENT_PORT: defaultAgentPort,
     AGENT_BIND_HOST: existing.AGENT_BIND_HOST || "127.0.0.1",
-    AGENT_DRY_RUN: existing.AGENT_DRY_RUN || (isWin ? "true" : "false"),
+    AGENT_DRY_RUN: isWin ? "true" : "false",
     NAVIYRA_NO_BROWSER: existing.NAVIYRA_NO_BROWSER || (isLinux && !process.env.DISPLAY ? "true" : "false"),
     DEPLOY_HOST: existing.DEPLOY_HOST || ip,
     DEPLOY_USER: existing.DEPLOY_USER || "root",
@@ -198,15 +198,10 @@ async function promptInstallValues(rl, { yes, existing = {} }) {
       defaultValue: defaultAgentUrl(values.AGENT_PORT),
       required: true,
     });
-    values.AGENT_DRY_RUN = await ask(
-      rl,
-      "Dry-run mode (AGENT_DRY_RUN)\n  Example: false   (true = simulate; false = live hosting on Linux)\n ",
-      { defaultValue: values.AGENT_DRY_RUN, required: true, validate: INSTALL_STEPS[2].fields[4].validate }
-    );
     values.NAVIYRA_NO_BROWSER = await ask(
       rl,
       "Headless / no browser (NAVIYRA_NO_BROWSER)\n  Example: true on a VPS without a desktop\n ",
-      { defaultValue: values.NAVIYRA_NO_BROWSER, required: true, validate: INSTALL_STEPS[2].fields[5].validate }
+      { defaultValue: values.NAVIYRA_NO_BROWSER, required: true, validate: INSTALL_STEPS[2].fields[4].validate }
     );
   } else {
     log("Using derived DNS/mail/port defaults (--yes).");
@@ -235,7 +230,6 @@ function printSummary(dir, values) {
   console.log(`  Mail From:     ${values.MAIL_FROM}`);
   console.log(`  Panel port:    ${values.PANEL_PORT}`);
   console.log(`  Agent port:    ${values.AGENT_PORT}`);
-  console.log(`  Dry-run:       ${values.AGENT_DRY_RUN}`);
   console.log("  Secrets:       AGENT_API_KEY, SESSION_SECRET, TWO_FACTOR_ENC_KEY (generated)\n");
 }
 
@@ -250,7 +244,7 @@ function panelEnv(extra = {}) {
     ...process.env,
     PATH: `${rt.binDir}${path.delimiter}${process.env.PATH || ""}`,
     // npm 11+ blocks lifecycle scripts unless allowScripts lists the package.
-    // better-sqlite3 / prisma / esbuild must compile or the panel cannot open SQLite.
+    // prisma / esbuild install scripts; sqlite no longer uses better-sqlite3.
     npm_config_ignore_scripts: "false",
     ...extra,
   };
@@ -276,27 +270,24 @@ function ensureNativeBuildTools() {
   if (process.platform !== "linux") return;
   if (commandOnPath("g++") && commandOnPath("make") && commandOnPath("python3")) return;
   if (typeof process.getuid === "function" && process.getuid() !== 0) {
-    log("g++/make/python3 missing — better-sqlite3 cannot compile. Re-run the installer as root.");
+    log("g++/make/python3 missing — native addons (node-pty) cannot compile. Re-run the installer as root.");
     return;
   }
-  log("Installing build-essential (required to compile better-sqlite3)…");
+  log("Installing build-essential (node-pty and similar native addons)…");
   run("apt-get", ["install", "-y", "build-essential", "python3"], { ignoreExit: true });
 }
 
-function rebuildBetterSqlite(dest) {
+function verifySqlite(dest) {
   const rt = panelRuntime();
-  ensureNativeBuildTools();
-  log(`Rebuilding better-sqlite3 for ${rt.node} (${rt.version})…`);
-  runWithServiceNpm(["rebuild", "better-sqlite3", "--foreground-scripts"], dest, {
-    npm_config_ignore_scripts: "false",
-    npm_config_foreground_scripts: "true",
-  });
+  log("Checking libSQL (SQLite without better-sqlite3)…");
   run(
     rt.node,
-    ["-e", "require('better-sqlite3')(':memory:').close(); console.log('better-sqlite3 ok')"],
+    [
+      "-e",
+      "const Database = require('libsql'); const db = new Database(':memory:'); db.exec('SELECT 1'); db.close(); console.log('libsql ok');",
+    ],
     { cwd: dest, env: panelEnv() }
   );
-  log("better-sqlite3 matches the Node that systemd will run.");
 }
 
 function runNpmInstall(dest) {
@@ -320,7 +311,7 @@ function runNpmInstall(dest) {
     fs.cpSync(zmSrc, zmDest, { recursive: true });
   }
 
-  rebuildBetterSqlite(dest);
+  verifySqlite(dest);
 }
 
 function runPrisma(dest, { seed }) {

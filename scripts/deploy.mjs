@@ -5,7 +5,7 @@
  *
  * Reads from .env (never printed to stdout/logs):
  *   DEPLOY_HOST       (or SERVER_PUBLIC_IP)
- *   DEPLOY_USER       (default root)
+ *   DEPLOY_USER       (default root; non-root runs remote-deploy via sudo -i)
  *   DEPLOY_PASSWORD   (optional; omit to use SSH keys — preferred)
  *   DEPLOY_PORT       (default 22)
  *
@@ -86,14 +86,30 @@ function puttySupportsPwfile(plink) {
 }
 
 function run(cmd, args, opts = {}) {
+  const { input, ...rest } = opts;
   const r = spawnSync(cmd, args, {
-    stdio: "inherit",
     shell: false,
     windowsHide: true,
-    ...opts,
+    ...rest,
+    stdio: input != null ? ["pipe", "inherit", "inherit"] : rest.stdio ?? "inherit",
+    ...(input != null ? { input } : {}),
   });
   if (r.error) die(`${cmd}: ${r.error.message}`);
   if (r.status !== 0) die(`${cmd} failed (exit ${r.status})`, r.status || 1);
+}
+
+/** Remote extract/build/restart. Non-root SSH users run it as a root login shell. */
+function remoteDeployCommand({ user, password }) {
+  const inner = "chmod +x /tmp/remote-deploy.sh && bash /tmp/remote-deploy.sh";
+  if (!user || user === "root") return inner;
+  const quoted = JSON.stringify(inner);
+  if (password) return `sudo -S -i bash -c ${quoted}`;
+  return `sudo -n -i bash -c ${quoted}`;
+}
+
+function sudoStdin({ user, password }) {
+  if (!password || !user || user === "root") return undefined;
+  return `${password}\n`;
 }
 
 function packArchive(archivePath) {
@@ -173,17 +189,21 @@ function deployWithPutty({ host, user, password, port, archivePath, scriptPath }
       `${target}:/tmp/remote-deploy.sh`,
     ]);
 
-    console.log("Running remote deploy (npm install + build + restart)…");
-    run(plink, [
-      "-ssh",
-      target,
-      "-P",
-      String(port),
-      "-pwfile",
-      pwfile,
-      "-batch",
-      "chmod +x /tmp/remote-deploy.sh && bash /tmp/remote-deploy.sh",
-    ]);
+    console.log("Running remote deploy (sudo -i, npm install + build + restart)…");
+    run(
+      plink,
+      [
+        "-ssh",
+        target,
+        "-P",
+        String(port),
+        "-pwfile",
+        pwfile,
+        "-batch",
+        remoteDeployCommand({ user, password }),
+      ],
+      { input: sudoStdin({ user, password }) }
+    );
   });
 }
 
@@ -216,7 +236,7 @@ function deployWithOpenSsh({ host, user, password, port, archivePath, scriptPath
       ["-e", "scp", ...sshBase, scriptPath, `${target}:/tmp/remote-deploy.sh`],
       { env }
     );
-    console.log("Running remote deploy (npm install + build + restart)…");
+    console.log("Running remote deploy (sudo -i, npm install + build + restart)…");
     run(
       sshpass,
       [
@@ -224,9 +244,9 @@ function deployWithOpenSsh({ host, user, password, port, archivePath, scriptPath
         "ssh",
         ...sshBase,
         target,
-        "chmod +x /tmp/remote-deploy.sh && bash /tmp/remote-deploy.sh",
+        remoteDeployCommand({ user, password }),
       ],
-      { env }
+      { env, input: sudoStdin({ user, password }) }
     );
     return;
   }
@@ -234,11 +254,11 @@ function deployWithOpenSsh({ host, user, password, port, archivePath, scriptPath
   console.log(`Uploading to ${target}:${port} (SSH key auth)…`);
   run(scp, [...sshBase, archivePath, `${target}:/tmp/naviyra-panel.tgz`]);
   run(scp, [...sshBase, scriptPath, `${target}:/tmp/remote-deploy.sh`]);
-  console.log("Running remote deploy (npm install + build + restart)…");
+  console.log("Running remote deploy (sudo -i, npm install + build + restart)…");
   run(ssh, [
     ...sshBase,
     target,
-    "chmod +x /tmp/remote-deploy.sh && bash /tmp/remote-deploy.sh",
+    remoteDeployCommand({ user, password }),
   ]);
 }
 

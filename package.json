@@ -1,6 +1,6 @@
 {
   "name": "naviyra-hosting-pannel",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Naviyra Hosting Panel — self-hosted cPanel alternative. Official: npx @naviyra/hosting-panel — test: npx naviyra-hosting-pannel",
   "license": "MIT",
@@ -57,7 +57,8 @@
     "shell-quote": "1.10.0"
   },
   "dependencies": {
-    "@prisma/adapter-better-sqlite3": "^7.9.1",
+    "@libsql/client": "^0.18.0",
+    "@prisma/adapter-libsql": "^7.10.0",
     "@prisma/adapter-pg": "^7.9.1",
     "@prisma/client": "^7.9.1",
     "@tailwindcss/postcss": "^4",
@@ -65,9 +66,9 @@
     "@xterm/xterm": "^6.0.0",
     "ace-builds": "^1.44.0",
     "bcryptjs": "^3.0.3",
-    "better-sqlite3": "^12.11.1",
     "clsx": "^2.1.1",
     "dotenv": "^17.4.2",
+    "libsql": "^0.5.29",
     "lucide-react": "^1.24.0",
     "mailparser": "^3.9.14",
     "next": "16.3.0",
