@@ -26,9 +26,11 @@ export function DashboardShell({
 
   const closeNav = useCallback(() => setNavOpen(false), []);
 
-  useEffect(() => {
-    closeNav();
-  }, [pathname, closeNav]);
+  const [previousPathname, setPreviousPathname] = useState(pathname);
+  if (previousPathname !== pathname) {
+    setPreviousPathname(pathname);
+    setNavOpen(false);
+  }
 
   useEffect(() => {
     if (!navOpen) return;

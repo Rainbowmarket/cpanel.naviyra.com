@@ -1,5 +1,7 @@
 "use client";
 
+import { scheduleLoad } from "@/lib/schedule-load";
+
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Pencil, Trash2, UsersRound } from "lucide-react";
@@ -58,7 +60,7 @@ export default function GroupsPage() {
   }
 
   useEffect(() => {
-    load();
+    return scheduleLoad(load);
   }, [router]);
 
   function openCreate() {

@@ -1,5 +1,7 @@
 "use client";
 
+import { scheduleLoad } from "@/lib/schedule-load";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, PackagePlus, Play, Power, RefreshCw, Square } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
@@ -19,23 +21,15 @@ type HostService = {
   state: string;
   allowStop: boolean;
   installable?: boolean;
+  controllable?: boolean;
+  supported?: boolean;
 };
-
-const INSTALLABLE_IDS = new Set([
-  "postfix",
-  "dovecot",
-  "ftp",
-  "dns",
-  "nginx",
-  "php-fpm",
-  "postgresql",
-  "backup-timer",
-]);
 
 type Op = "start" | "stop" | "restart" | "install";
 
 export default function HostServicesPage() {
   const { alert, confirm } = useAlert();
+  const [dryRun, setDryRun] = useState(false);
   const [rows, setRows] = useState<HostService[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
@@ -48,13 +42,13 @@ export default function HostServicesPage() {
       throw new Error(typeof data.error === "string" ? data.error : "Failed to load services");
     }
     setRows(Array.isArray(data.services) ? data.services : []);
+    setDryRun(Boolean(data.dryRun));
   }, []);
 
   useEffect(() => {
-    setLoading(true);
-    load()
+    return scheduleLoad(() => load()
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load"))
-      .finally(() => setLoading(false));
+      .finally(() => setLoading(false)));
   }, [load]);
 
   const grouped = useMemo(() => {
@@ -118,7 +112,7 @@ export default function HostServicesPage() {
     <div className="space-y-6">
       <PageHeader
         title="Services"
-        description="Start, stop, restart, or install host packages (mail, FTP, DNS, nginx, PHP, PostgreSQL). Only allowlisted units and scripts run on the server."
+        description="View and control the hosting services available on this server. Installation options depend on its operating system."
         actionLabel={loading ? "Loading…" : "Refresh"}
         onAction={() => {
           setLoading(true);
@@ -136,9 +130,12 @@ export default function HostServicesPage() {
       />
 
       <p className="text-sm text-slate-400">
-        Start and stop nginx, PHP, PostgreSQL, mail, FTP, DNS, visitor ingest, backups, and the
-        agent. The panel process can be restarted but not stopped, so you are not locked out.
+        Controls are available for installed, supported services. Stopping a service can
+        interrupt the websites or applications that use it. Some panel services must be
+        controlled from the server’s launcher.
       </p>
+
+      {dryRun ? <p className="text-sm text-amber-300">Simulation mode is enabled. Service changes are not applied.</p> : null}
 
       {error ? <p className="text-sm text-red-400">{error}</p> : null}
 
@@ -182,11 +179,11 @@ export default function HostServicesPage() {
                       <p className="mt-0.5 text-[11px] text-slate-600">
                         {row.installed
                           ? `${row.state}${row.enabled ? " · enabled" : " · not enabled"}`
-                          : "Not installed on this host"}
+                          : row.supported === false ? "Unavailable on this operating system" : "Not installed on this host"}
                       </p>
                     </div>
                     <div className="flex shrink-0 flex-wrap gap-1.5">
-                      {!row.installed && (row.installable || INSTALLABLE_IDS.has(row.id)) ? (
+                      {!row.installed && row.installable ? (
                         <button
                           type="button"
                           disabled={Boolean(busy)}
@@ -203,7 +200,7 @@ export default function HostServicesPage() {
                       ) : null}
                       <button
                         type="button"
-                        disabled={Boolean(busy) || !row.installed || row.active}
+                        disabled={Boolean(busy) || row.controllable === false || !row.installed || row.active}
                         onClick={() => void runOp(row, "start")}
                         className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2 py-1 text-[11px] font-medium text-emerald-300 hover:bg-slate-800 disabled:opacity-40"
                       >
@@ -216,7 +213,7 @@ export default function HostServicesPage() {
                       </button>
                       <button
                         type="button"
-                        disabled={Boolean(busy) || !row.installed || !row.allowStop || !row.active}
+                        disabled={Boolean(busy) || row.controllable === false || !row.installed || !row.allowStop || !row.active}
                         onClick={() => void runOp(row, "stop")}
                         className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2 py-1 text-[11px] font-medium text-amber-300 hover:bg-slate-800 disabled:opacity-40"
                       >
@@ -229,7 +226,7 @@ export default function HostServicesPage() {
                       </button>
                       <button
                         type="button"
-                        disabled={Boolean(busy) || !row.installed}
+                        disabled={Boolean(busy) || row.controllable === false || !row.installed}
                         onClick={() => void runOp(row, "restart")}
                         className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2 py-1 text-[11px] font-medium text-emerald-300 hover:bg-slate-800 disabled:opacity-40"
                       >

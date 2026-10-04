@@ -72,6 +72,10 @@ describe("host service allowlist", () => {
 
   it("rejects install of non-installable services and dry-runs install", async () => {
     await assert.rejects(() => installHostService({ id: "panel", dryRun: true }));
+    if (process.platform === "win32") {
+      await assert.rejects(() => installHostService({ id: "ftp", dryRun: true }), /official installer/);
+      return;
+    }
     const row = await installHostService({ id: "ftp", dryRun: true });
     assert.equal(row.id, "ftp");
     assert.equal(row.installable, true);

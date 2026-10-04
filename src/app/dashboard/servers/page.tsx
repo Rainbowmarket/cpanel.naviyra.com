@@ -1,5 +1,7 @@
 "use client";
 
+import { scheduleLoad } from "@/lib/schedule-load";
+
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { Pencil, Plus, Puzzle, Radio, Server, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
@@ -103,7 +105,7 @@ export default function ServersPage() {
   }, []);
 
   useEffect(() => {
-    void load();
+    return scheduleLoad(load);
   }, [load]);
 
   function openAdd() {

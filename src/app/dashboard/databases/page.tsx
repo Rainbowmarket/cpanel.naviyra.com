@@ -1,5 +1,7 @@
 "use client";
 
+import { scheduleLoad } from "@/lib/schedule-load";
+
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { Copy, Database, ExternalLink, KeyRound, Pencil, Table2, Trash2 } from "lucide-react";
 import { Select } from "@/components/ui/select";
@@ -260,7 +262,7 @@ export default function DatabasesPage() {
         setTargets(d.targets ?? []);
         if (d.targets?.[0]) setTarget(d.targets[0].id);
       });
-    loadDatabases();
+    return scheduleLoad(loadDatabases);
   }, [loadDatabases]);
 
   async function copyText(text: string) {

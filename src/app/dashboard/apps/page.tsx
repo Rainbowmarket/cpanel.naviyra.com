@@ -1,5 +1,7 @@
 "use client";
 
+import { scheduleLoad } from "@/lib/schedule-load";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Select } from "@/components/ui/select";
 import { PageHeader } from "@/components/ui/page-header";
@@ -50,7 +52,7 @@ export default function AppsPage() {
   }, []);
 
   useEffect(() => {
-    void load();
+    return scheduleLoad(load);
   }, [load]);
 
   const site = useMemo(

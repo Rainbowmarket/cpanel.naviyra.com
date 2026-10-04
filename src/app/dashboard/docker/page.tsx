@@ -1,5 +1,7 @@
 "use client";
 
+import { scheduleLoad } from "@/lib/schedule-load";
+
 import { useCallback, useEffect, useState } from "react";
 import { Container, Play, RefreshCw, Square, Terminal } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
@@ -49,7 +51,7 @@ export default function DockerPage() {
   }, []);
 
   useEffect(() => {
-    void load();
+    return scheduleLoad(load);
   }, [load]);
 
   async function runOp(id: string, op: "start" | "stop" | "restart" | "logs") {

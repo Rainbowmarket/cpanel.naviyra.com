@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { setFileManagerTarget } from "@/file-manager/domain-id";
@@ -48,7 +48,6 @@ export default function FileManagerShell() {
   const searchParams = useSearchParams();
   const [targets, setTargets] = useState<FileTarget[]>([]);
   const [targetId, setTargetId] = useState("");
-  const targetsLoadedRef = useRef(false);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-file-manager", "");
@@ -64,8 +63,7 @@ export default function FileManagerShell() {
         if (cancelled) return;
         const list: FileTarget[] = d.targets ?? [];
         setTargets(list);
-        targetsLoadedRef.current = true;
-        const initial = resolveInitialTarget(searchParams, list);
+        const initial = resolveInitialTarget(new URLSearchParams(window.location.search), list);
         if (initial) {
           setFileManagerTarget(initial);
           setTargetId(initial);
@@ -74,19 +72,20 @@ export default function FileManagerShell() {
     return () => {
       cancelled = true;
     };
-    // intentionally only on mount
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // If URL explicitly changes target (dropdown / deep link), follow it.
-  useEffect(() => {
-    if (!targetsLoadedRef.current || targets.length === 0) return;
-    const urlTarget = searchParams.get("target");
-    if (urlTarget && urlTarget !== targetId && targets.some((t) => t.id === urlTarget)) {
-      setFileManagerTarget(urlTarget);
-      setTargetId(urlTarget);
+  // Only a new URL target overrides an in-progress dropdown selection.
+  const requestedTarget = searchParams.get("target");
+  const [previousRequestedTarget, setPreviousRequestedTarget] = useState(requestedTarget);
+  if (requestedTarget !== previousRequestedTarget) {
+    setPreviousRequestedTarget(requestedTarget);
+    if (requestedTarget && targets.some((t) => t.id === requestedTarget)) {
+      setTargetId(requestedTarget);
     }
-  }, [searchParams, targets, targetId]);
+  }
+  useEffect(() => {
+    if (targetId) setFileManagerTarget(targetId);
+  }, [targetId]);
 
   const selectedTarget = targets.find((t) => t.id === targetId);
 

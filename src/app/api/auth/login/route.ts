@@ -7,6 +7,7 @@ import {
 } from "@/lib/auth";
 import { applyPending2faCookie } from "@/lib/auth-2fa";
 import { prisma } from "@/lib/prisma";
+import { createFirstAdmin } from "@/lib/first-admin";
 import { bootstrapMainServer } from "@/lib/services/bootstrap";
 import { getPanelHostname } from "@/lib/base-domain";
 import {
@@ -104,12 +105,10 @@ const registerSchema = z.object({
 });
 
 export async function PUT(request: Request) {
-  const count = await prisma.user.count();
-  if (count > 0) {
-    return NextResponse.json({ error: "Setup already completed" }, { status: 403 });
-  }
-
   try {
+    if (await prisma.user.count()) {
+      return NextResponse.json({ error: "Setup already completed" }, { status: 403 });
+    }
     const body = registerSchema.parse(await request.json());
     const domainName = getPanelHostname() || body.domain?.trim();
     if (!domainName) {
@@ -125,14 +124,14 @@ export async function PUT(request: Request) {
     const passwordHash = await hashPassword(body.password);
     const email = body.email.trim().toLowerCase();
 
-    const user = await prisma.user.create({
-      data: {
-        name: body.name,
-        email,
-        passwordHash,
-        role: "ADMIN",
-      },
+    const user = await createFirstAdmin(prisma, {
+      name: body.name,
+      email,
+      passwordHash,
     });
+    if (!user) {
+      return NextResponse.json({ error: "Setup already completed" }, { status: 403 });
+    }
 
     const userPayload = {
       id: user.id,

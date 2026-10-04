@@ -1,7 +1,7 @@
 "use client";
 
 import { Moon, Sun } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 import { cn } from "@/lib/utils";
 
 type Theme = "dark" | "light";
@@ -15,23 +15,23 @@ function applyTheme(theme: Theme): void {
   document.documentElement.setAttribute("data-theme", theme);
 }
 
-export function ThemeToggle({ className }: { className?: string }) {
-  const [theme, setTheme] = useState<Theme>("dark");
+function subscribeTheme(onChange: () => void) {
+  const observer = new MutationObserver(onChange);
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  return () => observer.disconnect();
+}
 
-  useEffect(() => {
-    try {
-      const saved = normalizeTheme(localStorage.getItem(THEME_KEY));
-      setTheme(saved);
-      applyTheme(saved);
-    } catch {
-      setTheme("dark");
-      applyTheme("dark");
-    }
-  }, []);
+function readTheme(): Theme {
+  return normalizeTheme(document.documentElement.getAttribute("data-theme"));
+}
+
+function serverTheme(): Theme { return "dark"; }
+
+export function ThemeToggle({ className }: { className?: string }) {
+  const theme = useSyncExternalStore(subscribeTheme, readTheme, serverTheme);
 
   function toggleTheme() {
     const next: Theme = theme === "dark" ? "light" : "dark";
-    setTheme(next);
     applyTheme(next);
     try {
       localStorage.setItem(THEME_KEY, next);

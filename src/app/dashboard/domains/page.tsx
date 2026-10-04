@@ -1,5 +1,7 @@
 "use client";
 
+import { scheduleLoad } from "@/lib/schedule-load";
+
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -137,7 +139,7 @@ export default function DomainsPage() {
   }
 
   useEffect(() => {
-    load();
+    return scheduleLoad(load);
   }, []);
 
   async function handleCreate(e: FormEvent) {

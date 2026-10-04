@@ -1,5 +1,7 @@
 "use client";
 
+import { scheduleLoad } from "@/lib/schedule-load";
+
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import {
@@ -331,14 +333,16 @@ export default function MailboxPage() {
   );
 
   useEffect(() => {
-    loadFolder();
+    return scheduleLoad(loadFolder);
   }, [loadFolder]);
 
-  useEffect(() => {
+  const [previousFolder, setPreviousFolder] = useState(folder);
+  if (previousFolder !== folder) {
+    setPreviousFolder(folder);
     setSelectedId(null);
     setSelectedMessage(null);
     setCheckedIds(new Set());
-  }, [folder]);
+  }
 
   const allChecked = useMemo(
     () => messages.length > 0 && messages.every((m) => checkedIds.has(m.id)),

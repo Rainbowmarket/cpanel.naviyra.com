@@ -1,5 +1,7 @@
 "use client";
 
+import { scheduleLoad } from "@/lib/schedule-load";
+
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { KeyRound, ShieldCheck } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
@@ -30,7 +32,7 @@ export default function AccountSecurityPage() {
   }, []);
 
   useEffect(() => {
-    void loadStatus();
+    return scheduleLoad(loadStatus);
   }, [loadStatus]);
 
   async function startSetup() {

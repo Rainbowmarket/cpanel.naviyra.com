@@ -42,7 +42,7 @@ export function parseCustomSubdomainFqdn(
   fqdnRaw: string,
   domains: Array<{ id: string; name: string }>
 ): { domainId: string; name: string; domainName: string } {
-  let fqdn = normalizeSubdomainName(fqdnRaw);
+  const fqdn = normalizeSubdomainName(fqdnRaw);
   if (!fqdn.includes(".")) {
     throw new Error("Enter a full hostname like blog.example.com");
   }

@@ -1,5 +1,7 @@
 "use client";
 
+import { scheduleLoad } from "@/lib/schedule-load";
+
 import { useCallback, useEffect, useState } from "react";
 import { Activity, Cpu, MemoryStick, RefreshCw } from "lucide-react";
 
@@ -81,7 +83,7 @@ export function ServerResourcesWatch() {
   }, []);
 
   useEffect(() => {
-    void load();
+    return scheduleLoad(load);
   }, [load]);
 
   useEffect(() => {

@@ -6,7 +6,7 @@ import http from "node:http";
 import fs from "node:fs/promises";
 import fsSync from "node:fs";
 import path from "node:path";
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import {
   API_KEY,
@@ -145,7 +145,15 @@ const DRY_RUN =
   (process.env.AGENT_DRY_RUN !== "false" && isWindows);
 
 function hasAdminPermission(): boolean {
-  if (isWindows) return false;
+  if (isWindows) {
+    try {
+      return execFileSync(
+        path.join(process.env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+        ["-NoProfile", "-NonInteractive", "-Command", "([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)"],
+        { encoding: "utf8", windowsHide: true, timeout: 5000 }
+      ).trim().toLowerCase() === "true";
+    } catch { return false; }
+  }
   return typeof process.getuid === "function" && process.getuid() === 0;
 }
 

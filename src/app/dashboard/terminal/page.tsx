@@ -88,10 +88,7 @@ export default function TerminalPage() {
 
   useEffect(() => {
     // xterm mounts only on the ADMIN UI — wait until that tree exists.
-    if (role !== "ADMIN") {
-      setTermReady(false);
-      return;
-    }
+    if (role !== "ADMIN") return;
 
     let disposed = false;
     let onResize: (() => void) | null = null;

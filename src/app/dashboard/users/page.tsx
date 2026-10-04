@@ -1,5 +1,7 @@
 "use client";
 
+import { scheduleLoad } from "@/lib/schedule-load";
+
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { KeyRound, Trash2, UserPlus } from "lucide-react";
@@ -61,7 +63,7 @@ export default function UsersPage() {
   }
 
   useEffect(() => {
-    load();
+    return scheduleLoad(load);
   }, [router]);
 
   async function handleCreate(e: FormEvent) {

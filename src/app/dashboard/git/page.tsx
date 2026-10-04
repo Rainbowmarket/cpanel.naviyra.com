@@ -1,5 +1,7 @@
 "use client";
 
+import { scheduleLoad } from "@/lib/schedule-load";
+
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { GitBranch, Upload } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
@@ -48,7 +50,7 @@ export default function GitDeployPage() {
   }, []);
 
   useEffect(() => {
-    void load();
+    return scheduleLoad(load);
   }, [load]);
 
   const site = useMemo(
@@ -56,11 +58,12 @@ export default function GitDeployPage() {
     [sites, selected]
   );
 
-  useEffect(() => {
-    if (!site) return;
-    setRepoUrl(site.repoUrl);
-    setBranch(site.branch || "main");
-  }, [site]);
+  const [previousSite, setPreviousSite] = useState(site);
+  if (site !== previousSite) {
+    setPreviousSite(site);
+    setRepoUrl(site?.repoUrl ?? "");
+    setBranch(site?.branch || "main");
+  }
 
   async function deploy(e: FormEvent) {
     e.preventDefault();

@@ -1,5 +1,7 @@
 "use client";
 
+import { scheduleLoad } from "@/lib/schedule-load";
+
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
@@ -420,23 +422,28 @@ export default function DatabaseBrowser({ native = false }: { native?: boolean }
   );
 
   useEffect(() => {
-    if (id) void loadSchema();
+    if (id) return scheduleLoad(loadSchema);
   }, [id, loadSchema]);
 
   useEffect(() => {
-    if (!selected) {
-      setPreview(null);
-      return;
+    if (selected) return scheduleLoad(() => loadPreview(selected.schema, selected.name));
+  }, [selected, loadPreview]);
+
+  const sqlSelectionKey = JSON.stringify([selectedKey, engine]);
+  const [previousSqlSelectionKey, setPreviousSqlSelectionKey] = useState(sqlSelectionKey);
+  if (previousSqlSelectionKey !== sqlSelectionKey) {
+    setPreviousSqlSelectionKey(sqlSelectionKey);
+    setPreview(null);
+    if (selected) {
+      const ident =
+        engine === "mysql" || engine === "mariadb"
+          ? `\`${selected.name}\``
+          : engine === "postgres" || engine === "timescaledb"
+            ? `${selected.schema}.${selected.name}`
+            : selected.name;
+      setSqlText(`SELECT *\nFROM ${ident}\nLIMIT 100;`);
     }
-    void loadPreview(selected.schema, selected.name);
-    const ident =
-      engine === "mysql" || engine === "mariadb"
-        ? `\`${selected.name}\``
-        : engine === "postgres" || engine === "timescaledb"
-          ? `${selected.schema}.${selected.name}`
-          : selected.name;
-    setSqlText(`SELECT *\nFROM ${ident}\nLIMIT 100;`);
-  }, [selected, loadPreview, engine]);
+  }
 
   const pgLike = engine === "postgres" || engine === "timescaledb";
   const sqlCapable = ![
@@ -466,9 +473,12 @@ export default function DatabaseBrowser({ native = false }: { native?: boolean }
   const hasPk = Boolean(selected?.columns.some((c) => c.isPrimaryKey));
   const canMutateRows = pgLike && isTable && hasPk;
 
-  useEffect(() => {
-    if (native && sqlCapable) setSqlOpen(true);
-  }, [native, sqlCapable]);
+  const autoOpenSql = native && sqlCapable;
+  const [previousAutoOpenSql, setPreviousAutoOpenSql] = useState(false);
+  if (previousAutoOpenSql !== autoOpenSql) {
+    setPreviousAutoOpenSql(autoOpenSql);
+    if (autoOpenSql) setSqlOpen(true);
+  }
   const pagedRows = useMemo(() => {
     const rows = preview?.rows ?? [];
     const start = page * pageSize;

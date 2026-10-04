@@ -1,5 +1,7 @@
 "use client";
 
+import { scheduleLoad } from "@/lib/schedule-load";
+
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import {
@@ -155,8 +157,9 @@ export default function SubdomainsPage() {
   }
 
   useEffect(() => {
-    loadDomains();
-    loadAllSubdomains();
+    return scheduleLoad(async () => {
+      await Promise.all([loadDomains(), loadAllSubdomains()]);
+    });
   }, []);
 
   async function handleCreate(e: FormEvent) {

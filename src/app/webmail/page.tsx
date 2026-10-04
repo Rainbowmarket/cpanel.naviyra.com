@@ -1,9 +1,16 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { BrandLogo } from "@/components/ui/brand-logo";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
+
+const subscribeHostname = () => () => {};
+const serverHostname = () => "";
+function readMailHostname() {
+  const host = window.location.hostname.toLowerCase();
+  return host.startsWith("mail.") ? host : `mail.${host}`;
+}
 
 export default function WebmailLoginPage() {
   const router = useRouter();
@@ -11,13 +18,10 @@ export default function WebmailLoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [mailHost, setMailHost] = useState("");
+  const mailHost = useSyncExternalStore(subscribeHostname, readMailHostname, serverHostname);
   const [showClientDetails, setShowClientDetails] = useState(false);
 
   useEffect(() => {
-    const host = window.location.hostname.toLowerCase();
-    setMailHost(host.startsWith("mail.") ? host : `mail.${host}`);
-
     fetch("/api/webmail/login")
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {

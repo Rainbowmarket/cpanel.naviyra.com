@@ -320,17 +320,20 @@ export function WorkspacePage({
     }
   }, [loading, dirPath, home, allowedPaths, setSearchParams]);
 
-  useEffect(() => {
-    setSelectedEntries([]);
-    rangeAnchorRef.current = null;
+  const selectionKey = JSON.stringify([dirPath, fileName]);
+  const [previousSelectionKey, setPreviousSelectionKey] = useState<string | null>(null);
+  if (previousSelectionKey !== selectionKey) {
+    setPreviousSelectionKey(selectionKey);
+    setSelectedEntries(fileName ? [{ name: fileName, type: 'file' }] : []);
     setCtxMenu(null);
-  }, [dirPath]);
-
+    setContent('');
+    setFullPath(null);
+    setTooLarge(null);
+    setDirty(false);
+  }
   useEffect(() => {
-    if (fileName) {
-      setSelectedEntries([{ name: fileName, type: 'file' }]);
-    }
-  }, [fileName]);
+    rangeAnchorRef.current = null;
+  }, [dirPath]);
 
   useEffect(() => {
     if (loading) return;
@@ -371,13 +374,7 @@ export function WorkspacePage({
   }, [loading, dirPath, listVersion, showToast, redirectToLogin, allowedPaths, home, setSearchParams]);
 
   useEffect(() => {
-    if (!fileName || !dirPath) {
-      setContent('');
-      setFullPath(null);
-      setTooLarge(null);
-      setDirty(false);
-      return;
-    }
+    if (!fileName || !dirPath) return;
     let cancelled = false;
     (async () => {
       const res = await apiRead(dirPath, fileName);
@@ -413,20 +410,20 @@ export function WorkspacePage({
     };
   }, [dirPath, fileName, showToast, redirectToLogin]);
 
-  useEffect(() => {
-    if (dialog !== 'move' && dialog !== 'copy') {
-      setDestSuggestions([]);
-      setDestSuggestLoading(false);
-      setDestSuggestActive(-1);
-    }
-  }, [dialog]);
+  const [previousDialog, setPreviousDialog] = useState(dialog);
+  if (previousDialog !== dialog) {
+    setPreviousDialog(dialog);
+    setDestSuggestions([]);
+    setDestSuggestLoading(false);
+    setDestSuggestActive(-1);
+  }
 
   useEffect(() => {
     if (dialog !== 'move' && dialog !== 'copy') return;
     const seq = ++destSuggestSeqRef.current;
     const { listDir, partial } = parseDestinationPathInput(dialogInput, effectiveDir);
-    setDestSuggestLoading(true);
     const timer = window.setTimeout(() => {
+      setDestSuggestLoading(true);
       void (async () => {
         try {
           const res = await apiList(listDir);

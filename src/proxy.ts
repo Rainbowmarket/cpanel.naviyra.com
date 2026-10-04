@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { csrfOk } from "@/lib/csrf";
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const host = request.headers.get("host")?.split(":")[0]?.toLowerCase() ?? "";
   if (host.startsWith("mail.") && request.nextUrl.pathname === "/") {
     const url = request.nextUrl.clone();
@@ -22,7 +22,7 @@ export function middleware(request: NextRequest) {
 }
 
 /**
- * Exclude large multipart uploads from middleware so Next.js does not
+ * Exclude large multipart uploads from proxy so Next.js does not
  * clone/truncate the body (default proxy buffer is 10MB → FormData parse errors).
  * CSRF for /api/file-manager/upload is enforced in the route handler.
  */

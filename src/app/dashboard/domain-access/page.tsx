@@ -1,5 +1,7 @@
 "use client";
 
+import { scheduleLoad } from "@/lib/schedule-load";
+
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Pencil, Share2, Trash2 } from "lucide-react";
@@ -79,7 +81,7 @@ export default function DomainAccessPage() {
   }
 
   useEffect(() => {
-    load();
+    return scheduleLoad(load);
   }, [router]);
 
   function openCreate() {

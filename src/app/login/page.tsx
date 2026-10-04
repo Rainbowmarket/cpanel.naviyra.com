@@ -22,14 +22,15 @@ function LoginForm() {
   const [totpCode, setTotpCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => {
-    if (searchParams.get("reset") === "1") {
-      setInfo("Password updated. Sign in with your new password.");
-    }
-    if (searchParams.get("idle") === "1") {
-      setInfo("You were signed out after 30 minutes of inactivity.");
-    }
-  }, [searchParams]);
+  const notice = searchParams.get("idle") === "1"
+    ? "You were signed out after 30 minutes of inactivity."
+    : searchParams.get("reset") === "1"
+      ? "Password updated. Sign in with your new password." : "";
+  const [previousNotice, setPreviousNotice] = useState<string | null>(null);
+  if (previousNotice !== notice) {
+    setPreviousNotice(notice);
+    setInfo(notice);
+  }
 
   useEffect(() => {
     fetch("/api/auth/me")

@@ -8,6 +8,7 @@ import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { WINDOWS_SERVICES, discoverWindowsServices, resolveWindowsService, controlWindowsService, type WindowsService } from "./windows-services";
 
 const exec = promisify(execFile);
 const isWindows = process.platform === "win32";
@@ -42,9 +43,14 @@ export type HostServiceStatus = {
   allowStop: boolean;
   dryRun: boolean;
   installable: boolean;
+  controllable?: boolean;
+  supported?: boolean;
 };
 
 export const HOST_SERVICE_CATALOG: HostServiceDef[] = [
+  { id: "apache", name: "Apache", group: "Web", detail: "Apache HTTP Server.", units: ["apache2.service", "httpd.service"], kind: "service", allowStop: true },
+  { id: "mysql", name: "MySQL", group: "Database", detail: "MySQL database server.", units: ["mysql.service", "mysqld.service"], kind: "service", allowStop: true },
+  { id: "mariadb", name: "MariaDB", group: "Database", detail: "MariaDB database server.", units: ["mariadb.service"], kind: "service", allowStop: true },
   {
     id: "panel",
     name: "Hosting panel",
@@ -325,8 +331,9 @@ async function readStatus(
   def: HostServiceDef,
   dryRun: boolean
 ): Promise<HostServiceStatus> {
-  const unit = (await pickUnit(def)) || def.units[0] || "";
-  if (isWindows || dryRun) {
+  if (isWindows) return readWindowsStatus(def, dryRun, await discoverWindowsServices());
+  const unit = dryRun ? def.units[0] : (await pickUnit(def)) || def.units[0] || "";
+  if (dryRun) {
     return {
       id: def.id,
       name: def.name,
@@ -346,10 +353,10 @@ async function readStatus(
   const load = await unitLoadState(unit);
   let installed =
     (load !== "not-found" && load !== "error") || unitFileOnDisk(unit);
-  let activeR = await systemctl(["is-active", unit]);
-  let enabledR = await systemctl(["is-enabled", unit]);
+  const activeR = await systemctl(["is-active", unit]);
+  const enabledR = await systemctl(["is-enabled", unit]);
   let active = activeR.stdout.trim() === "active";
-  let enabledState = enabledR.stdout.trim();
+  const enabledState = enabledR.stdout.trim();
   let enabled = enabledState === "enabled" || enabledState === "enabled-runtime";
   let state = installed ? activeR.stdout.trim() || "unknown" : "not-installed";
   let allowStop = def.allowStop;
@@ -381,6 +388,24 @@ async function readStatus(
     allowStop,
     dryRun: false,
     installable: Boolean(HOST_SERVICE_INSTALL[def.id]),
+  };
+}
+
+export function readWindowsStatus(def: HostServiceDef, dryRun: boolean, inventory: WindowsService[]): HostServiceStatus {
+  const mapping = WINDOWS_SERVICES[def.id];
+  let service: WindowsService | undefined;
+  let problem = "";
+  try { service = resolveWindowsService(def.id, inventory); }
+  catch (error) { problem = error instanceof Error ? error.message : "Service discovery failed"; }
+  const ownsAgent = service?.ProcessId === process.pid || def.id === "panel" || def.id === "agent";
+  return {
+    id: def.id, name: def.id === "php-fpm" ? "PHP FastCGI" : def.name,
+    group: def.group, kind: def.kind,
+    detail: problem || (ownsAgent ? "Managed by the Windows launcher; this service hosts the current agent." : mapping?.detail) || "This Linux service has no native Windows implementation. Use a Linux hosting server for this feature.",
+    unit: service?.Name || "", installed: Boolean(service), active: service?.State === "Running",
+    enabled: service?.StartMode === "Auto", state: problem ? "configuration-error" : !mapping ? "unsupported" : service ? service.State.toLowerCase() : "not-installed",
+    allowStop: def.allowStop && !ownsAgent, dryRun, installable: false,
+    supported: Boolean(mapping), controllable: Boolean(service) && !ownsAgent && !dryRun,
   };
 }
 
@@ -430,12 +455,13 @@ export async function installHostService(input: {
   dryRun: boolean;
 }): Promise<HostServiceStatus> {
   const id = assertHostServiceId(input.id);
+  if (isWindows) throw new Error("Install and register the Windows service using its official installer, then refresh Services. Linux installers cannot run on Windows.");
   const spec = HOST_SERVICE_INSTALL[id];
   if (!spec) {
     throw new Error(`${id} cannot be installed from the panel`);
   }
   const def = catalogById(id);
-  if (isWindows || input.dryRun) {
+  if (input.dryRun) {
     return readStatus(def, true);
   }
   const current = await readStatus(def, false);
@@ -485,11 +511,15 @@ export async function installHostService(input: {
 export async function listHostServices(input: {
   dryRun: boolean;
 }): Promise<{ services: HostServiceStatus[]; dryRun: boolean }> {
+  if (isWindows) {
+    const inventory = await discoverWindowsServices();
+    return { services: HOST_SERVICE_CATALOG.map((def) => readWindowsStatus(def, input.dryRun, inventory)), dryRun: input.dryRun };
+  }
   const services: HostServiceStatus[] = [];
   for (const def of HOST_SERVICE_CATALOG) {
     services.push(await readStatus(def, input.dryRun));
   }
-  return { services, dryRun: input.dryRun || isWindows };
+  return { services, dryRun: input.dryRun };
 }
 
 export async function controlHostService(input: {
@@ -505,7 +535,16 @@ export async function controlHostService(input: {
       `${def.name} cannot be stopped from the panel. Use Restart if you need to recycle it.`
     );
   }
-  if (isWindows || input.dryRun) {
+  if (isWindows) {
+    if (!WINDOWS_SERVICES[id]) throw new Error(`${def.name} is not supported on Windows`);
+    const status = await readStatus(def, input.dryRun);
+    if (!status.installed) throw new Error(status.detail + " Register the service before using these controls.");
+    if (input.dryRun) return status;
+    if (!status.controllable) throw new Error("Use the Windows launcher to control the service hosting this agent.");
+    await controlWindowsService(id, op);
+    return readStatus(def, false);
+  }
+  if (input.dryRun) {
     return readStatus(def, true);
   }
   const unit = await pickUnit(def);

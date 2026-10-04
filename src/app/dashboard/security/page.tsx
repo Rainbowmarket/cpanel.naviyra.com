@@ -1,5 +1,7 @@
 "use client";
 
+import { scheduleLoad } from "@/lib/schedule-load";
+
 import { FormEvent, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
@@ -389,16 +391,21 @@ function SecurityPageInner() {
       });
   }, []);
 
-  useEffect(() => {
+  const visitorFilterKey = JSON.stringify([domainId, search, datePreset, customFrom, customTo]);
+  const [previousVisitorFilterKey, setPreviousVisitorFilterKey] = useState(visitorFilterKey);
+  if (previousVisitorFilterKey !== visitorFilterKey) {
+    setPreviousVisitorFilterKey(visitorFilterKey);
     setVisitorLimit(500);
-  }, [domainId, search, datePreset, customFrom, customTo]);
+  }
 
   useEffect(() => {
-    if (tab === "overview") loadOverview();
-    if (tab === "visitors") loadVisitors();
-    if (tab === "threats") loadEvents();
-    if (tab === "blocked") loadBlocked();
-    if (tab === "whitelist") loadWhitelist();
+    return scheduleLoad(async () => {
+      if (tab === "overview") await loadOverview();
+      if (tab === "visitors") await loadVisitors();
+      if (tab === "threats") await loadEvents();
+      if (tab === "blocked") await loadBlocked();
+      if (tab === "whitelist") await loadWhitelist();
+    });
   }, [tab, loadOverview, loadVisitors, loadEvents, loadBlocked, loadWhitelist]);
 
   useEffect(() => {

@@ -78,17 +78,17 @@ export function generateSecret() {
 }
 
 export function log(msg) {
-  const prefix = useColor() ? `${ANSI.green}[naviyra]${ANSI.reset}` : "[naviyra]";
+  const prefix = supportsColor() ? `${ANSI.green}[naviyra]${ANSI.reset}` : "[naviyra]";
   console.log(`${prefix} ${msg}`);
 }
 
 export function logOk(msg) {
-  const tag = useColor() ? `${ANSI.green}  ✓${ANSI.reset}` : "  [ok]";
+  const tag = supportsColor() ? `${ANSI.green}  ✓${ANSI.reset}` : "  [ok]";
   console.log(`${tag} ${msg}`);
 }
 
 export function logFail(msg) {
-  const tag = useColor() ? `${ANSI.red}  ✗${ANSI.reset}` : "  [fail]";
+  const tag = supportsColor() ? `${ANSI.red}  ✗${ANSI.reset}` : "  [fail]";
   console.log(`${tag} ${msg}`);
 }
 
@@ -101,7 +101,7 @@ const ANSI = {
   reset: "\x1b[0m",
 };
 
-function useColor() {
+function supportsColor() {
   return Boolean(process.stdout.isTTY) && !process.env.NO_COLOR;
 }
 
@@ -151,7 +151,7 @@ function waitForPort(port, timeoutMs = 25000) {
 }
 
 function printCheck(ok, name, detail) {
-  const color = useColor();
+  const color = supportsColor();
   if (ok) {
     const badge = color ? `${ANSI.green}${ANSI.bold}running${ANSI.reset}` : "running";
     const extra = detail ? (color ? ` ${ANSI.dim}${detail}${ANSI.reset}` : ` ${detail}`) : "";
@@ -175,7 +175,7 @@ export function printLinuxInstallStatus(dest) {
 
   const env = parseEnvFile(path.join(dest, ".env"));
   const port = env.PANEL_PORT || "3100";
-  const title = useColor() ? `${ANSI.bold}Service status${ANSI.reset}` : "Service status";
+  const title = supportsColor() ? `${ANSI.bold}Service status${ANSI.reset}` : "Service status";
   console.log("");
   console.log(`  ${title}`);
   console.log("  ──────────────");
@@ -225,10 +225,10 @@ export function printLinuxInstallStatus(dest) {
   if (unitLoaded("naviyra-backup.timer") || fs.existsSync("/etc/systemd/system/naviyra-backup.timer")) {
     const ok = unitActive("naviyra-backup.timer");
     const badge = ok
-      ? useColor()
+      ? supportsColor()
         ? `${ANSI.green}${ANSI.bold}running${ANSI.reset}`
         : "running"
-      : useColor()
+      : supportsColor()
         ? `${ANSI.yellow}${ANSI.bold}off    ${ANSI.reset}`
         : "off";
     console.log(`  ${badge}   backup timer (enable from Admin → Backups)`);

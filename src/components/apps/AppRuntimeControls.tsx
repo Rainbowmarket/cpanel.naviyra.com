@@ -224,9 +224,15 @@ export function AppRuntimeControls({
     [nodeVersion, pythonVersion, goVersion]
   );
 
+  const envTarget = JSON.stringify([kind, id, initialEnv]);
+  const [previousEnvTarget, setPreviousEnvTarget] = useState(envTarget);
+  if (previousEnvTarget !== envTarget) {
+    setPreviousEnvTarget(envTarget);
+    setEnvLoading(true);
+  }
+
   useEffect(() => {
     let cancelled = false;
-    setEnvLoading(true);
     fetch(
       `/api/apps/env?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}`
     )

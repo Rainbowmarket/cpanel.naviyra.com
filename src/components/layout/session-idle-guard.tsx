@@ -14,7 +14,7 @@ const CHECK_EVERY_MS = 10_000;
  */
 export function SessionIdleGuard() {
   const router = useRouter();
-  const lastActivityRef = useRef(Date.now());
+  const lastActivityRef = useRef(0);
   const lastTouchRef = useRef(0);
   const loggingOutRef = useRef(false);
 

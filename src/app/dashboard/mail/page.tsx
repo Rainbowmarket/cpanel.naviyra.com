@@ -1,5 +1,7 @@
 "use client";
 
+import { scheduleLoad } from "@/lib/schedule-load";
+
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import {
   KeyRound,
@@ -99,7 +101,7 @@ export default function MailPage() {
           setAliasDomainId(list[0].id);
         }
       });
-    loadAccounts();
+    return scheduleLoad(loadAccounts);
   }, [loadAccounts]);
 
   useEffect(() => {
@@ -112,10 +114,13 @@ export default function MailPage() {
     }
   }, [domains]);
 
-  useEffect(() => {
-    const meta = mailDomains.find((m) => m.domainId === filterDomainId);
-    setCatchAllTo(meta?.catchAllTo ?? "");
-  }, [filterDomainId, mailDomains]);
+  const catchAllDefault = mailDomains.find((m) => m.domainId === filterDomainId)?.catchAllTo ?? "";
+  const catchAllKey = JSON.stringify([filterDomainId, catchAllDefault]);
+  const [previousCatchAllKey, setPreviousCatchAllKey] = useState(catchAllKey);
+  if (previousCatchAllKey !== catchAllKey) {
+    setPreviousCatchAllKey(catchAllKey);
+    setCatchAllTo(catchAllDefault);
+  }
 
   async function handleCreate(e: FormEvent) {
     e.preventDefault();

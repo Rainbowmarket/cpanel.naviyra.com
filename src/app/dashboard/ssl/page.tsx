@@ -1,5 +1,7 @@
 "use client";
 
+import { scheduleLoad } from "@/lib/schedule-load";
+
 import { FormEvent, useEffect, useState } from "react";
 import { formatDate, matchesSearch } from "@/lib/utils";
 import { AlertCircle, Lock, RefreshCw } from "lucide-react";
@@ -77,11 +79,11 @@ export default function SslPage() {
         setDomains(d.domains ?? []);
         if (d.domains?.[0]) setDomainId(d.domains[0].id);
       });
-    loadCerts();
+    return scheduleLoad(loadCerts);
   }, []);
 
   useEffect(() => {
-    if (domainId) loadSubdomains(domainId);
+    if (domainId) return scheduleLoad(() => loadSubdomains(domainId));
   }, [domainId]);
 
   const hostOptions = [

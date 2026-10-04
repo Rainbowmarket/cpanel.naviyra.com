@@ -1,5 +1,7 @@
 "use client";
 
+import { scheduleLoad } from "@/lib/schedule-load";
+
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { Clock } from "lucide-react";
 import { Select } from "@/components/ui/select";
@@ -50,7 +52,7 @@ export default function CronPage() {
   }, []);
 
   useEffect(() => {
-    loadJobs();
+    return scheduleLoad(loadJobs);
   }, [loadJobs]);
 
   function openCreate() {

@@ -1,5 +1,7 @@
 "use client";
 
+import { scheduleLoad } from "@/lib/schedule-load";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Activity, HardDrive, MemoryStick, Cpu } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
@@ -171,6 +173,7 @@ export default function MonitoringPage() {
   const [disk, setDisk] = useState<DiskReport | null>(null);
   const [history, setHistory] = useState<Sample[]>([]);
   const [error, setError] = useState("");
+  const [sampleTime, setSampleTime] = useState(0);
 
   const load = useCallback(async () => {
     const res = await fetch("/api/system/monitoring", { cache: "no-store" });
@@ -183,23 +186,24 @@ export default function MonitoringPage() {
     setReport(data.report);
     setDisk(data.disk);
     setHistory(data.history ?? []);
+    setSampleTime(Date.now());
   }, []);
 
   useEffect(() => {
-    void load();
+    const cancelLoad = scheduleLoad(load);
     const id = window.setInterval(() => {
       if (document.visibilityState === "visible") void load();
     }, 5000);
-    return () => window.clearInterval(id);
+    return () => { cancelLoad(); window.clearInterval(id); };
   }, [load]);
 
   const history48h = useMemo(() => {
-    const cutoff = Date.now() - 48 * 60 * 60 * 1000;
+    const cutoff = sampleTime - 48 * 60 * 60 * 1000;
     return history.filter((s) => {
       const t = new Date(s.collectedAt).getTime();
       return Number.isFinite(t) && t >= cutoff;
     });
-  }, [history]);
+  }, [history, sampleTime]);
 
   const cpuSeries = useMemo(
     () => history48h.map((s) => Number(s.cpuPercent ?? 0)),

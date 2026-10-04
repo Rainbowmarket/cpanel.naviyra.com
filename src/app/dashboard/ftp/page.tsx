@@ -1,5 +1,7 @@
 "use client";
 
+import { scheduleLoad } from "@/lib/schedule-load";
+
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { Upload } from "lucide-react";
 import { Select } from "@/components/ui/select";
@@ -44,7 +46,7 @@ export default function FtpPage() {
         setTargets(d.targets ?? []);
         if (d.targets?.[0]) setTarget(d.targets[0].id);
       });
-    loadAccounts();
+    return scheduleLoad(loadAccounts);
   }, [loadAccounts]);
 
   async function handleCreate(e: FormEvent) {

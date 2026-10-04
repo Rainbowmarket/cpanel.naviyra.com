@@ -11,6 +11,13 @@ const eslintConfig = defineConfig([
     ".next/**",
     "out/**",
     "build/**",
+    "dist/**",
+    "src/generated/**",
+    "data/**",
+    "sites/**",
+    "phpmyadmin/**",
+    "phppgadmin/**",
+    "coverage/**",
     "next-env.d.ts",
   ]),
 ]);

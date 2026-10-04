@@ -32,16 +32,12 @@ export function Select({
 }: SelectProps) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<MenuPos | null>(null);
-  const [mounted, setMounted] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLUListElement>(null);
 
   const selected = options.find((o) => o.value === value);
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   useLayoutEffect(() => {
     if (!open || !buttonRef.current) {
@@ -95,7 +91,7 @@ export function Select({
   }, [open]);
 
   const menu =
-    open && options.length > 0 && pos && mounted
+    open && options.length > 0 && pos
       ? createPortal(
           <ul
             ref={menuRef}

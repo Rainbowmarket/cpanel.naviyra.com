@@ -1,5 +1,7 @@
 "use client";
 
+import { scheduleLoad } from "@/lib/schedule-load";
+
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { formatDate, matchesSearch } from "@/lib/utils";
 import {
@@ -89,7 +91,7 @@ export default function DnsPage() {
   }
 
   useEffect(() => {
-    loadZones().finally(() => setLoading(false));
+    return scheduleLoad(() => loadZones().finally(() => setLoading(false)));
   }, []);
 
   function closeModal() {

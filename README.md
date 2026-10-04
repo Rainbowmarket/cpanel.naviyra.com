@@ -145,6 +145,11 @@ npm run stop
 
 ## Windows
 
+Native Windows service discovery and start/stop/restart controls are available in
+**Admin → Services** for registered Apache, MySQL/MariaDB, PostgreSQL, FileZilla,
+and supported service wrappers. See [Windows service setup](docs/windows-services.md)
+for supported names, configuration, and the remaining Windows hosting limitations.
+
 ### Start
 
 **Double-click:**

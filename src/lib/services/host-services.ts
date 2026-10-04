@@ -17,6 +17,8 @@ export type HostServiceStatus = {
   allowStop: boolean;
   dryRun: boolean;
   installable?: boolean;
+  controllable?: boolean;
+  supported?: boolean;
 };
 
 export async function listPanelHostServices(): Promise<{

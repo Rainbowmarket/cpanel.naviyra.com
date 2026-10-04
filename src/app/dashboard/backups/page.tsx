@@ -1,5 +1,7 @@
 "use client";
 
+import { scheduleLoad } from "@/lib/schedule-load";
+
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -305,7 +307,7 @@ export default function BackupsPage() {
   }
 
   useEffect(() => {
-    load();
+    return scheduleLoad(load);
   }, [router]);
 
   async function handleSave(e: FormEvent) {

@@ -1,5 +1,7 @@
 "use client";
 
+import { scheduleLoad } from "@/lib/schedule-load";
+
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Save, Upload } from "lucide-react";
@@ -41,7 +43,7 @@ export default function SettingsPage() {
   }
 
   useEffect(() => {
-    void load();
+    return scheduleLoad(load);
   }, [router]);
 
   async function handleSave(e: FormEvent) {
