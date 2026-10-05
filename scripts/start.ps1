@@ -11,12 +11,12 @@ if (-not (Test-Path ".env")) {
 
 Write-Host "=== Starting Naviyra Panel ===" -ForegroundColor Cyan
 Write-Host "Panel:  http://localhost:3000" -ForegroundColor White
-Write-Host "Agent:  http://localhost:4000 (dry-run on Windows)" -ForegroundColor White
+Write-Host "Agent:  http://localhost:4000" -ForegroundColor White
 Write-Host "Press Ctrl+C to stop the panel. Close the agent window separately." -ForegroundColor Yellow
 Write-Host ""
 
 # Start agent in a new PowerShell window
-$agentCmd = "Set-Location '$Root\agent'; `$env:AGENT_DRY_RUN='true'; npm run dev"
+$agentCmd = "Set-Location '$Root\agent'; npm run dev"
 Start-Process powershell -ArgumentList "-NoExit", "-Command", $agentCmd
 
 # Start panel in this window (foreground)

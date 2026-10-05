@@ -109,7 +109,7 @@ async function spawnPty(
     const banner =
       "\r\n[Naviyra] DRY RUN — live shell disabled on this agent.\r\n" +
       `Mode=${claims.mode} cwd=${claims.cwd}\r\n` +
-      "Set AGENT_DRY_RUN=false and run as admin/root for a real PTY.\r\n\r\n";
+      "Run the agent as admin/root for a real PTY.\r\n\r\n";
     queueMicrotask(() => dataCb?.(banner));
     return {
       write: (data: string) => {

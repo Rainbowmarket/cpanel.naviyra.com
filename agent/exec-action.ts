@@ -29,9 +29,8 @@ import { gitDeployOnServer } from "./git";
 import { syncCronJobsOnServer } from "./cron";
 import { controlHostService, installHostService, listHostServices } from "./host-services";
 
-const DRY_RUN =
-  process.env.AGENT_DRY_RUN === "true" ||
-  (process.env.AGENT_DRY_RUN !== "false" && process.platform === "win32");
+// Runtime operations are live; helper-level simulation remains available to tests.
+const DRY_RUN = false;
 
 async function readStdin(): Promise<string> {
   const chunks: Buffer[] = [];

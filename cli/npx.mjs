@@ -102,7 +102,6 @@ function parseArgs(argv) {
 }
 
 async function promptInstallValues(rl, { yes, existing = {} }) {
-  const isWin = process.platform === "win32";
   const isLinux = process.platform === "linux";
   const detectedIp = existing.SERVER_PUBLIC_IP || (await detectPublicIp());
   const defaultPanelPort = existing.PANEL_PORT || (isLinux ? "3100" : "3000");
@@ -130,7 +129,6 @@ async function promptInstallValues(rl, { yes, existing = {} }) {
     PANEL_PORT: defaultPanelPort,
     AGENT_PORT: defaultAgentPort,
     AGENT_BIND_HOST: existing.AGENT_BIND_HOST || "127.0.0.1",
-    AGENT_DRY_RUN: isWin ? "true" : "false",
     NAVIYRA_NO_BROWSER: existing.NAVIYRA_NO_BROWSER || (isLinux && !process.env.DISPLAY ? "true" : "false"),
     DEPLOY_HOST: existing.DEPLOY_HOST || ip,
     DEPLOY_USER: existing.DEPLOY_USER || "root",

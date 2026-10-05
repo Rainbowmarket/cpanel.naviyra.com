@@ -73,8 +73,7 @@ const isMac = process.platform === "darwin";
 const platformName = isWindows ? "Windows" : isLinux ? "Linux" : isMac ? "macOS" : process.platform;
 
 if (!process.env.NODE_ENV) {
-  const live = process.env.AGENT_DRY_RUN === "false";
-  process.env.NODE_ENV = live || isLinux ? "production" : "development";
+  process.env.NODE_ENV = isLinux ? "production" : "development";
 }
 
 const npmCmd = isWindows ? "npm.cmd" : "npm";
@@ -105,14 +104,6 @@ function ensureEnv() {
     fs.mkdirSync(DATA_DIR, { recursive: true });
     log("Created data/ folder for database");
   }
-}
-
-function defaultAgentDryRun() {
-  if (process.env.AGENT_DRY_RUN !== undefined) {
-    return process.env.AGENT_DRY_RUN === "true";
-  }
-  // Windows: safe dry-run. Linux/macOS: real server operations by default.
-  return isWindows;
 }
 
 function shouldOpenBrowser() {
@@ -412,13 +403,12 @@ async function startApp() {
   await ensureDependencies();
   await setupDatabase();
 
-  const dryRun = defaultAgentDryRun();
   const isAdmin = hasAdminPermission();
-  log(`Agent mode: ${dryRun ? "dry-run (simulated)" : "live (real server commands)"}`);
+  log("Agent operations: live (real server commands)");
   log(`Permissions: ${getPermissionLabel()}`);
-  log(getAdminGuidance(!dryRun));
+  log(getAdminGuidance());
 
-  if (!dryRun && !isAdmin) {
+  if (!isAdmin) {
     console.log("");
     console.log("  ⚠  WARNING: Live mode requires admin/root privileges.");
     if (isWindows) {
@@ -443,7 +433,6 @@ async function startApp() {
     AGENT_PORT: String(AGENT_PORT),
     AGENT_URL: agentUrl,
     AGENT_API_KEY: process.env.AGENT_API_KEY || "",
-    AGENT_DRY_RUN: dryRun ? "true" : "false",
     AGENT_BIND_HOST: process.env.AGENT_BIND_HOST || "127.0.0.1",
   };
 

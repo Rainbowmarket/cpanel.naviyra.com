@@ -7,7 +7,7 @@ const isMac = process.platform === "darwin";
 /**
  * Check if the current process has administrator / root privileges.
  * Required on Linux for live agent mode (Nginx, mail, FTP, SSL, /var/www).
- * Optional on Windows when AGENT_DRY_RUN=true.
+ * Required on Windows to control registered services.
  */
 export function hasAdminPermission() {
   if (isWindows) {
@@ -44,11 +44,7 @@ export function getPlatformName() {
   return process.platform;
 }
 
-export function getAdminGuidance(liveMode) {
-  if (!liveMode) {
-    return "Dry-run mode — admin not required. Commands are simulated.";
-  }
-
+export function getAdminGuidance() {
   if (hasAdminPermission()) {
     return "Running with admin — full server control enabled.";
   }

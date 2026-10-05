@@ -38,7 +38,7 @@ export const DOC_ARTICLES: DocArticle[] = [
           "ADMIN can manage all users, Settings (upload size), backups, speed test, and Terminal (host shell).",
         ],
         tips: [
-          "Live hosting changes need the agent running as root/Administrator with AGENT_DRY_RUN=false.",
+          "Live hosting changes need the agent running as root/Administrator.",
           "On Windows, dry-run is the default for safe testing.",
           "A stolen admin session is a root shell on the host. Enable 2FA for every admin (required for Terminal).",
         ],
@@ -105,7 +105,7 @@ export const DOC_ARTICLES: DocArticle[] = [
         heading: "Dry-run vs live",
         body: [
           "Dry-run still runs the same hostname/path/action validators. It skips privileged mutations (nginx reload, apt, systemd).",
-          "Windows defaults to dry-run so local tests do not require root. Linux production must set AGENT_DRY_RUN=false.",
+          "Agent operations run live on all platforms. Run as Administrator on Windows or root on Linux for server control.",
         ],
       },
       {
@@ -651,7 +651,7 @@ export const DOC_ARTICLES: DocArticle[] = [
           "Command history is logged for the session in the panel.",
         ],
         tips: [
-          "Needs AGENT_DRY_RUN=false and a live PTY (root/admin on Linux).",
+          "Needs a live PTY with the required operating-system permissions.",
           "Production uses wss://panel-host/terminal-ws/terminal behind nginx.",
         ],
       },

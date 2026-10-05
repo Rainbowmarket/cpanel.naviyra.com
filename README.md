@@ -31,7 +31,6 @@ Works on **Windows**, **Linux**, and **macOS**.
 | What | Needs admin? | Why |
 |------|--------------|-----|
 | Web panel (browser UI) | No | Runs as normal user |
-| Testing / dry-run mode | No | Commands are simulated |
 | **Live hosting control** (domains, mail, FTP, SSL, files on server) | **Yes** | Must create vhosts, users, certificates in system paths |
 
 ### How to start with admin
@@ -46,8 +45,8 @@ Works on **Windows**, **Linux**, and **macOS**.
 
 | Platform | Command |
 |----------|---------|
-| **Windows** | `Start Naviyra Panel.bat` (dry-run by default) |
-| **Linux** | `./start.sh` with `AGENT_DRY_RUN=true` in `.env` |
+| **Windows** | `Start Naviyra Panel.bat` |
+| **Linux** | `./start.sh` |
 
 The dashboard shows your **platform** and **permission level** (Administrator / root / standard user).
 
@@ -88,7 +87,6 @@ The installer asks for the same values stored in `.env` and shows an example for
 | System mail From | `MAIL_FROM` | `noreply@yourdomain.com` |
 | Let's Encrypt email | `LETSENCRYPT_EMAIL` | `admin@yourdomain.com` |
 | Panel / agent ports | `PANEL_PORT` / `AGENT_PORT` | `3000` / `4000` |
-| Dry-run mode | `AGENT_DRY_RUN` | `false` on Linux production, `true` on Windows |
 | Headless (no browser) | `NAVIYRA_NO_BROWSER` | `true` on a VPS |
 
 DNS and mail fields default from the **zone apex** of the hostname you enter (`hpanel.example.com` → `ns1.example.com`). Secrets (`AGENT_API_KEY`, `SESSION_SECRET`, `TWO_FACTOR_ENC_KEY`) are generated automatically.
@@ -169,7 +167,7 @@ Stop Naviyra Panel.bat
 ```
 or `npm run stop`
 
-Agent runs in **dry-run mode** by default on Windows (safe testing).
+Agent operations run live on Windows. Run as Administrator to control registered services.
 
 ---
 
@@ -196,7 +194,7 @@ NAVIYRA_NO_BROWSER=true npm run app
 
 Then open `http://YOUR_SERVER_IP:3000` from any computer.
 
-Agent runs in **live mode** by default on Linux (real Nginx/mail/FTP commands). Set `AGENT_DRY_RUN=true` in `.env` to test safely.
+Agent operations run live on Linux (real Nginx/mail/FTP commands).
 
 ### Stop
 
@@ -304,7 +302,7 @@ Keep the terminal open while using the app. Press **Ctrl+C** to stop.
 | Windows | `Start Naviyra Panel.bat` | `Start Naviyra Panel (Admin).bat` | `Stop Naviyra Panel.bat` |
 | Linux | `./start.sh` | `sudo ./start-admin.sh` | `./stop.sh` |
 | macOS | `./start.sh` | `sudo ./start-admin.sh` | `./stop.sh` |
-| All | `npm run app` | set `AGENT_DRY_RUN=false` + run as admin | `npm run stop` |
+| All | `npm run app` | run as admin/root | `npm run stop` |
 
 ---
 
@@ -355,7 +353,7 @@ Do not treat “jail” mode as containment. For real isolation, run the agent a
 
 The browser connects to the agent WebSocket at `ws://127.0.0.1:4000/terminal` (derived from `AGENT_URL`). No extra nginx config is required.
 
-Live PTY requires `AGENT_DRY_RUN=false` and admin/root on Linux. On Windows dry-run, the session shows a dry-run banner instead of a real shell.
+The terminal opens a real shell and requires the appropriate operating-system permissions.
 
 ### Production (HTTPS panel)
 
@@ -456,7 +454,7 @@ Roles are **ADMIN** and **USER** only.
 
 ### Add another node
 
-1. On the second machine, install Node.js, copy `agent/`, set `AGENT_PORT`, `AGENT_API_KEY`, `AGENT_DRY_RUN=false`.
+1. On the second machine, install Node.js, copy `agent/`, set `AGENT_PORT`, `AGENT_API_KEY`.
 2. Start the agent as root on Linux: `cd agent && npm install && npm run dev` (or systemd).
 3. In **Admin → Servers**, add the node with hostname, IP, **Agent URL** (`http://<ip>:4000` or a TLS reverse-proxy URL), and the same agent key.
 4. When creating a domain, pick that server. Ping must succeed before you rely on it.
@@ -493,7 +491,6 @@ A full second Naviyra install on another machine has its **own** database and is
 |----------|-------------|
 | `PANEL_PORT` | Web UI port (default 3000) |
 | `AGENT_PORT` | Agent port (default 4000) |
-| `AGENT_DRY_RUN` | `true` = simulate, `false` = real commands |
 | `SERVER_PUBLIC_IP` | Your server's public IPv4 for DNS A records (default `127.0.0.1`) |
 | `PANEL_HOSTNAME` | Control-panel hostname (e.g. `hpanel.yourdomain.com`). Not the marketing apex. |
 | `PANEL_PUBLIC_URL` | Public panel URL (e.g. `https://hpanel.yourdomain.com`) |

@@ -1,8 +1,8 @@
 # Native Windows service controls
 
 Admin → Services discovers hosting services registered with Windows Service Control Manager.
-It displays their real running/stopped state and startup mode, including in simulation mode.
-Start, stop and restart are available when `AGENT_DRY_RUN=false`. Run the agent/launcher
+It displays their real running/stopped state and startup mode.
+Start, stop and restart execute live operations. Run the agent/launcher
 as Administrator to change services. Reading the service inventory does not change the machine.
 
 ## Supported services
@@ -63,4 +63,4 @@ FTP account creation, mail delivery and backup scheduling retain their existing 
 limitations. Starting Apache alone does not provision panel-managed websites in Apache.
 
 The agent stays private; expose website ports only through your chosen gateway.
-Keep simulation enabled until you intentionally activate live operations.
+Operations take effect immediately when requested; Administrator permissions are required.

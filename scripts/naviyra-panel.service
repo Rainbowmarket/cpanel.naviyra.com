@@ -8,7 +8,6 @@ User=root
 WorkingDirectory=/opt/naviyra-panel
 Environment=PATH=__NODE_BIN_DIR__:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 Environment=NODE_ENV=production
-Environment=AGENT_DRY_RUN=false
 Environment=NAVIYRA_NO_BROWSER=true
 EnvironmentFile=-/opt/naviyra-panel/.env
 Environment=HOSTNAME=0.0.0.0

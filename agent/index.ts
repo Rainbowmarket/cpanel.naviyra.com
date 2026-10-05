@@ -140,9 +140,8 @@ import {
 const exec = promisify(execFile);
 const PORT = Number(process.env.AGENT_PORT ?? (process.platform === "linux" ? 4100 : 4000));
 const isWindows = process.platform === "win32";
-const DRY_RUN =
-  process.env.AGENT_DRY_RUN === "true" ||
-  (process.env.AGENT_DRY_RUN !== "false" && isWindows);
+// Runtime operations are live; helper-level simulation remains available to tests.
+const DRY_RUN = false;
 
 function hasAdminPermission(): boolean {
   if (isWindows) {

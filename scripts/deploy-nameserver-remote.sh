@@ -62,7 +62,6 @@ Type=simple
 User=root
 WorkingDirectory=/opt/naviyra-panel
 Environment=NODE_ENV=production
-Environment=AGENT_DRY_RUN=false
 Environment=NAVIYRA_NO_BROWSER=true
 Environment=PANEL_PORT=${PANEL_PORT}
 Environment=AGENT_PORT=${AGENT_PORT}

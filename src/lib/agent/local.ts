@@ -53,7 +53,7 @@ function runPostgresOneShot<T>(payload: AgentAction): Promise<AgentResponse<T>> 
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [tsx, script], {
       cwd: path.join(process.cwd(), "agent"),
-      env: { ...process.env, AGENT_DRY_RUN: process.env.AGENT_DRY_RUN || "false" },
+      env: { ...process.env },
       stdio: ["pipe", "pipe", "pipe"],
     });
     let stdout = "";
@@ -204,18 +204,12 @@ export async function executeLocalAgent<T = unknown>(
         return { success: true, data: { username: payload.username } as T };
 
       case "sync_dns_zone": {
-        const dryRun =
-          process.env.AGENT_DRY_RUN === "true" ||
-          (process.env.AGENT_DRY_RUN !== "false" && process.platform === "win32");
-        const result = await applyDnsZoneLocal(payload, dryRun);
+        const result = await applyDnsZoneLocal(payload, false);
         return { success: true, data: result as T };
       }
 
       case "delete_dns_zone": {
-        const dryRun =
-          process.env.AGENT_DRY_RUN === "true" ||
-          (process.env.AGENT_DRY_RUN !== "false" && process.platform === "win32");
-        await removeDnsZoneLocal(payload.domain, dryRun);
+        await removeDnsZoneLocal(payload.domain, false);
         return { success: true };
       }
 

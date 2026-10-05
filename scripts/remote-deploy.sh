@@ -27,8 +27,6 @@ sed -i 's|^PANEL_PORT=.*|PANEL_PORT=3100|' .env
 sed -i 's|^AGENT_PORT=.*|AGENT_PORT=4100|' .env
 sed -i 's|^AGENT_URL=.*|AGENT_URL=http://127.0.0.1:4100|' .env
 grep -q '^AGENT_URL=' .env || echo 'AGENT_URL=http://127.0.0.1:4100' >> .env
-sed -i 's|^AGENT_DRY_RUN=.*|AGENT_DRY_RUN=false|' .env
-grep -q '^AGENT_DRY_RUN=' .env || echo 'AGENT_DRY_RUN=false' >> .env
 grep -q '^NAVIYRA_NO_BROWSER=' .env || echo 'NAVIYRA_NO_BROWSER=true' >> .env
 # Behind nginx: honor X-Real-IP / X-Forwarded-Proto (keep PANEL_PORT off the public internet).
 if grep -q '^TRUST_PROXY=' .env; then
