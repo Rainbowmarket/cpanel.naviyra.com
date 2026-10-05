@@ -31,6 +31,12 @@ const SKIP_DIRS = new Set([
   "data",
   "sites",
   ".cursor",
+  ".codex",
+  ".agents",
+  ".aws",
+  ".ssh",
+  "out",
+  "build",
   "Output",
   "coverage",
   ".turbo",
@@ -53,6 +59,10 @@ const SKIP_FILES = new Set([
 const rootPkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
 
 function rmrf(target) {
+  const resolved = path.resolve(target);
+  if (resolved !== OUT || !resolved.startsWith(ROOT + path.sep)) {
+    throw new Error("Refusing to remove a directory outside the npm staging path");
+  }
   fs.rmSync(target, { recursive: true, force: true });
 }
 
@@ -73,8 +83,9 @@ function copyDir(src, dest) {
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
     if (entry.isDirectory() && SKIP_DIRS.has(entry.name)) continue;
     if (SKIP_FILES.has(entry.name)) continue;
+    if (entry.name.startsWith(".env") && entry.name !== ".env.example") continue;
     if (entry.name.startsWith("tmp-")) continue;
-    if (/\.(tsbuildinfo|pem|db|db-journal)$/i.test(entry.name)) continue;
+    if (/\.(tsbuildinfo|pem|key|pfx|p12|log|tgz|zip|db|db-journal|db-wal|db-shm|sqlite|sqlite3)$/i.test(entry.name)) continue;
     const srcPath = path.join(src, entry.name);
     const destPath = path.join(dest, entry.name);
     if (entry.isSymbolicLink()) continue;

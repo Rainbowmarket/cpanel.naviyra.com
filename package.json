@@ -1,5 +1,5 @@
 {
-  "name": "naviyra-hosting-pannel",
+  "name": "@naviyra/hosting-panel",
   "version": "1.0.1",
   "private": true,
   "description": "Naviyra Hosting Panel — self-hosted cPanel alternative. Official: npx @naviyra/hosting-panel — test: npx naviyra-hosting-pannel",
